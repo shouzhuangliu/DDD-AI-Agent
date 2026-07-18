@@ -23,6 +23,9 @@ public class ReActToolContext {
     /** 会话ID */
     private String sessionId;
 
+    /** Agent ID */
+    private String agentId;
+
     /** SSE 输出流 */
     private ResponseBodyEmitter emitter;
 

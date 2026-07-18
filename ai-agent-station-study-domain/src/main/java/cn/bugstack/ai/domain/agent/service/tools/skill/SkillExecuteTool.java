@@ -2,8 +2,6 @@ package cn.bugstack.ai.domain.agent.service.tools.skill;
 import cn.bugstack.ai.domain.agent.service.tools.core.AbstractReActTool;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContext;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContextHolder;
-import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
-
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -32,9 +30,6 @@ public class SkillExecuteTool extends AbstractReActTool {
     @Resource
     private SkillScannerService skillScannerService;
 
-    @Resource
-    private ReActToolProperties properties;
-
     @Tool(description = "执行一个已注册的 Skill，返回该 Skill 的完整操作手册（SKILL.md）。参数 skillId 为 skill 目录名（如 demo-skill）。调用后 LLM 应按手册步骤执行。")
     public String executeSkill(@ToolParam(description = "Skill 目录名，如 demo-skill") String skillId) {
         String toolName = "execute_skill";
@@ -46,7 +41,9 @@ public class SkillExecuteTool extends AbstractReActTool {
             return msg;
         }
 
-        var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
+        ReActToolContext context = ReActToolContextHolder.get();
+        String currentWorkDir = context != null && context.getWorkDir() != null ? context.getWorkDir().toString() : ".";
+        var skill = skillScannerService.readSkillFromWorkDir(currentWorkDir, skillId);
         if (skill == null) {
             String msg = "未找到 skill: " + skillId + "（请确认 skills/" + skillId + "/SKILL.md 存在）";
             emitObservation(toolName, msg);

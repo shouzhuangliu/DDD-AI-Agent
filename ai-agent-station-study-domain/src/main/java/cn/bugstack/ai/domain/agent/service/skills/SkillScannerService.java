@@ -116,6 +116,7 @@ public class SkillScannerService {
         if (baseDir == null || baseDir.isBlank()) return;
         Path current = Path.of(baseDir).toAbsolutePath().normalize();
         while (current != null) {
+            roots.add(current.resolve(".ma").resolve("skills").normalize());
             roots.add(current.resolve("skills").normalize());
             current = current.getParent();
         }

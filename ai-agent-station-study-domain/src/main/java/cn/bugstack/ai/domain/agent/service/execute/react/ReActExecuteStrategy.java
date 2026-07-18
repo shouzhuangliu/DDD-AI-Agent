@@ -11,6 +11,7 @@ import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
+import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContext;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContextHolder;
@@ -33,7 +34,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -91,6 +92,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     @Resource
     private ChatMessageRecorder messageRecorder;
 
+    @Resource
+    private AgentWorkspaceService agentWorkspaceService;
+
     @Override
 
     public String getType() {
@@ -110,13 +114,15 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             return;
         }
 
-        String workDir = (agent.getWorkDir() != null && !agent.getWorkDir().isBlank())
-                ? agent.getWorkDir() : properties.getWorkDir();
+        List<String> skillIds = repository.queryBoundSkillIds(agentId);
+        List<String> mcpIds = repository.queryBoundMcpIds(agentId);
+        Path workDir = agentWorkspaceService.syncSkills(agentId, agent.getWorkDir(), properties.getWorkDir(), skillIds);
 
         ReActToolContextHolder.set(ReActToolContext.builder()
                 .sessionId(sessionId)
+                .agentId(agentId)
                 .emitter(emitter)
-                .workDir(Paths.get(workDir).toAbsolutePath().normalize())
+                .workDir(workDir)
                 .build());
 
         fileReadTool.resetStep();
@@ -131,8 +137,6 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             OpenAiChatModel chatModel = applicationContext.getBean(modelBeanName, OpenAiChatModel.class);
             log.info("ReAct 使用模型，agentId={}，sessionId={}，modelId={}", agentId, sessionId, selectedModelId);
 
-            List<String> skillIds = repository.queryBoundSkillIds(agentId);
-            List<String> mcpIds = repository.queryBoundMcpIds(agentId);
             List<String> allowedTools = resolveRuntimeTools(
                     toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId)), skillIds, mcpIds);
 
@@ -303,13 +307,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.EXECUTE_SKILL) && boundSkillIds != null && !boundSkillIds.isEmpty()) {
             sb.append("\n该 Agent 绑定的 Skills（可使用 execute_skill 工具执行）：\n");
             for (String sid : boundSkillIds) {
-                var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), sid);
+                var skill = skillScannerService.readSkillFromWorkDir(workDirStringForPrompt(agent), sid);
                 if (skill != null) {
                     sb.append("- ").append(sid).append(": ").append(skill.getSkillName())
                             .append(" — ").append(skill.getDescription()).append("\n");
                 }
+                sb.append("  虚拟路径：.ma/skills/").append(sid).append("/SKILL.md\n");
             }
-            sb.append("\n当用户请求的任务可以通过某个 Skill 完成时，请调用 execute_skill 工具获取操作手册。\n");
+            sb.append("\n当用户请求的任务可以通过某个 Skill 完成时，请优先调用 execute_skill 工具获取操作手册；若需要读取附件，使用 read_file 读取 .ma/skills/{skillId}/ 下的文件。\n");
         } else {
             sb.append("\n该 Agent 当前没有绑定可执行 Skills。不要声称存在 demo skill、项目扫描 skill 或其他技能。\n");
         }
@@ -333,5 +338,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         }
 
         return sb.toString();
+    }
+
+    private String workDirStringForPrompt(AiAgentVO agent) {
+        return agentWorkspaceService.resolveWorkDir(agent.getAgentId(), agent.getWorkDir(), properties.getWorkDir()).toString();
     }
 }
