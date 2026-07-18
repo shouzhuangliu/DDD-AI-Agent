@@ -54,7 +54,7 @@
 
 <!-- ============ Dashboard 页 ============ -->
 <div id="page-dashboard" class="page active">
-  <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:12px"><label style="font-size:12px;color:#64748b">当前智能体</label><select id="dashboardAgentSelect" onchange="selectDashboardAgent(this.value)" style="min-width:220px;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;background:white"></select></div>
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:12px"><button onclick="openManualFeedbackForm()" style="background:#0284c7;color:white;border:none;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px">+ 新增业务 Feedback</button><label style="font-size:12px;color:#64748b">当前智能体</label><select id="dashboardAgentSelect" onchange="selectDashboardAgent(this.value)" style="min-width:220px;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;background:white"></select></div>
   <h2 style="font-size:20px;font-weight:700;margin:0 0 20px">📊 Agent 运营仪表盘</h2>
   <div id="statsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
@@ -163,7 +163,8 @@ async function apiJson(url, options){
 
 const STATUS_LABELS={CANDIDATE:'候选 Case',PENDING_REVIEW:'待人工审核',CONFIRMED:'审核通过',IN_PROGRESS:'开发处理中',RESOLVED:'已解决',ARCHIVED:'已归档',IGNORED:'已忽略',MERGED:'已合并',OPEN:'待处理',OBSERVED:'仅观察',DRAFT:'草稿',CONNECTIVITY_CHECKED:'连通性已验证',DISCOVERED:'工具已发现',SCANNED:'安全已扫描',TESTED:'沙箱已测试',IN_REVIEW:'审核中',APPROVED:'已批准',SIGNED:'已签名',RELEASED:'已发布',ACTIVE:'生效中',success:'成功',failed:'失败',FAILURE:'失败'};
 const SEVERITY_LABELS={LOW:'低',MEDIUM:'中',HIGH:'高',CRITICAL:'严重'};
-const FEEDBACK_LABELS={THUMBS_UP:'有帮助',THUMBS_DOWN:'有问题',COMMENT:'补充反馈',NEGATIVE:'负面反馈',POSITIVE:'正面反馈'};
+const FEEDBACK_LABELS={THUMBS_UP:'有帮助',THUMBS_DOWN:'有问题',RATING:'评分反馈',COMMENT:'补充反馈',CORRECTION:'纠正反馈',ISSUE_REPORT:'问题报告',NEGATIVE:'负面反馈',POSITIVE:'正面反馈'};
+const SOURCE_LABELS={EXPLICIT:'用户',USER:'用户',OPERATIONS:'运维',TEST:'测试',AI_INFERRED:'AI观察',LEGACY_AUTO_CAPTURE:'历史自动采集'};
 const SIGNAL_LABELS={USER_CORRECTION:'用户纠正',REPEATED_QUESTION:'重复提问',IRRELEVANT_ANSWER:'答非所问',TOOL_FAILURE:'工具失败',OTHER:'其他观察'};
 const CASE_TYPE_LABELS={BUG:'缺陷',FAQ:'常见问题',FEATURE:'需求建议',RUNBOOK:'处置流程',QUALITY:'质量问题'};
 const SUBTYPE_LABELS={ANALYSIS_STRATEGY:'分析策略',ANALYSIS_PROGRESS:'分析进度',ANALYSIS_TASK_STATUS:'任务状态',analysis_strategy:'分析策略',analysis_progress:'分析进度',analysis_task_status:'任务状态',summary_overview:'总结',completed_work:'已完成内容',incomplete_reasons:'未完成原因',key_factors:'关键因素',efficiency_quality:'质量评估',suggestions:'建议',evaluation:'整体评估'};
@@ -222,7 +223,7 @@ async function loadDashboard() {
   document.getElementById('recentFeedbackList').innerHTML = rf.length
     ? rf.map(f => '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px">'
       + '<div style="display:flex;gap:6px;align-items:center"><span style="font-size:10px;color:#94a3b8">' + (f.createdAt||'').slice(0,16) + '</span>'
-      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1e40af">用户</span>'
+      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1e40af">'+esc(label(SOURCE_LABELS,f.sourceType||'EXPLICIT'))+'</span>'
       + '<span style="font-size:10px;color:#64748b">' + esc(label(FEEDBACK_LABELS,f.feedbackType||'COMMENT')) + '</span>'
       + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:'+(f.resolved?'#dcfce7;color:#16a34a':'#fef3c7;color:#d97706')+'">'+esc(label(STATUS_LABELS,f.status||'OPEN'))+'</span>'
       + (f.matchedCaseId?'<span style="font-size:10px;color:#0284c7">→ '+f.matchedCaseId+'</span>':'')
@@ -238,6 +239,31 @@ async function loadDashboard() {
     : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无可召回的记忆摘要</div>';
 }
 function selectDashboardAgent(agentId){const u=new URL(location.href);u.searchParams.set('agentId',agentId);history.replaceState({},'',u);loadDashboard();}
+
+function openManualFeedbackForm(){
+  const agentId=document.getElementById('dashboardAgentSelect')?.value;
+  if(!agentId){alert('请先选择 Agent');return;}
+  openModal('新增业务 Feedback','<div style="display:grid;gap:10px;font-size:13px">'
+    + '<label>来源<select id="manualFeedbackSource" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin-top:4px"><option value="OPERATIONS">运维</option><option value="TEST">测试</option><option value="USER">用户</option></select></label>'
+    + '<label>类型<select id="manualFeedbackType" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin-top:4px"><option value="ISSUE_REPORT">问题报告</option><option value="NEGATIVE">负面反馈</option><option value="COMMENT">补充说明</option><option value="POSITIVE">正面反馈</option></select></label>'
+    + '<label>分类<input id="manualFeedbackCategory" placeholder="如：支付超时、库存同步、售后流程" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin-top:4px"></label>'
+    + '<label>评分<select id="manualFeedbackRating" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin-top:4px"><option value="">不评分</option><option value="1">1 严重不满意</option><option value="2">2 不满意</option><option value="3">3 一般</option><option value="4">4 满意</option><option value="5">5 很满意</option></select></label>'
+    + '<label>反馈内容<textarea id="manualFeedbackMessage" rows="5" placeholder="描述业务现象、影响范围、复现线索或运维观察" style="width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;margin-top:4px;resize:vertical"></textarea></label>'
+    + '</div>','提交',async()=>{await submitManualFeedback(agentId);return true;});
+}
+
+async function submitManualFeedback(agentId){
+  const ratingValue=document.getElementById('manualFeedbackRating').value;
+  await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/feedback/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    sourceType:document.getElementById('manualFeedbackSource').value,
+    feedbackType:document.getElementById('manualFeedbackType').value,
+    rating:ratingValue?Number(ratingValue):null,
+    category:document.getElementById('manualFeedbackCategory').value,
+    message:document.getElementById('manualFeedbackMessage').value,
+    submittedBy:'web-operator'
+  })});
+  await loadDashboard();
+}
 
 function renderFeedbackActions(agentId,f){
   const flows={OPEN:['AI_EVALUATING','INVALID','NEED_MORE_INFO'],AI_EVALUATING:['VALID','INVALID','NEED_MORE_INFO'],NEED_MORE_INFO:['AI_EVALUATING','INVALID'],VALID:['CLUSTERED','PROMOTED','RESOLVED'],CLUSTERED:['PROMOTED','RESOLVED'],PROMOTED:['RESOLVED'],INVALID:['OPEN'],RESOLVED:['OPEN']};

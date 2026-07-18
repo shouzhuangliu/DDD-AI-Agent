@@ -1,6 +1,7 @@
 package cn.bugstack.ai.trigger.http;
 
 import cn.bugstack.ai.api.dto.operations.ExplicitFeedbackRequest;
+import cn.bugstack.ai.api.dto.operations.ManualFeedbackRequest;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
@@ -63,6 +64,25 @@ public class AgentOperationsController {
                 .build();
         feedbackDao.insert(feedback);
         return Map.of("success", true, "id", feedback.getId(), "sourceType", "EXPLICIT");
+    }
+
+    @PostMapping("/feedback/manual")
+    public Map<String, Object> submitManualFeedback(@PathVariable("agentId") String agentId,
+                                                    @RequestBody ManualFeedbackRequest request) {
+        request.validate();
+        LocalDateTime now = LocalDateTime.now();
+        AiFeedback feedback = AiFeedback.builder()
+                .sessionId("").agentId(agentId).assistantMessageId(null)
+                .feedbackType(request.normalizedFeedbackType()).rating(request.rating())
+                .message(request.normalizedMessage()).correction("")
+                .sourceType(request.normalizedSourceType())
+                .category(request.normalizedCategory()).matchedCaseId("")
+                .resolved(0).status("OPEN")
+                .submittedBy(request.normalizedSubmittedBy())
+                .createdAt(now).updatedAt(now)
+                .build();
+        feedbackDao.insert(feedback);
+        return Map.of("success", true, "id", feedback.getId(), "sourceType", feedback.getSourceType());
     }
 
     @GetMapping("/feedback")
