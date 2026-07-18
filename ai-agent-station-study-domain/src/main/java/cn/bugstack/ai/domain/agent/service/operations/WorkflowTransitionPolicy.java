@@ -7,7 +7,7 @@ import java.util.Set;
 /** Central lifecycle guard shared by Case, MCP and Skill workflows. */
 public class WorkflowTransitionPolicy {
 
-    public enum Resource { CASE, MCP, SKILL }
+    public enum Resource { CASE, FEEDBACK, MCP, SKILL }
 
     private final Map<Resource, Map<String, Set<String>>> transitions = new EnumMap<>(Resource.class);
 
@@ -20,6 +20,16 @@ public class WorkflowTransitionPolicy {
                 "RESOLVED", Set.of("IN_PROGRESS", "ARCHIVED"),
                 "ARCHIVED", Set.of("CONFIRMED"),
                 "IGNORED", Set.of("CANDIDATE")
+        ));
+        transitions.put(Resource.FEEDBACK, Map.of(
+                "OPEN", Set.of("AI_EVALUATING", "INVALID", "NEED_MORE_INFO"),
+                "AI_EVALUATING", Set.of("VALID", "INVALID", "NEED_MORE_INFO"),
+                "NEED_MORE_INFO", Set.of("AI_EVALUATING", "INVALID"),
+                "VALID", Set.of("CLUSTERED", "PROMOTED", "RESOLVED"),
+                "CLUSTERED", Set.of("PROMOTED", "RESOLVED"),
+                "PROMOTED", Set.of("RESOLVED"),
+                "INVALID", Set.of("OPEN"),
+                "RESOLVED", Set.of("OPEN")
         ));
         transitions.put(Resource.MCP, Map.of(
                 "DRAFT", Set.of("CONNECTIVITY_CHECKED", "WITHDRAWN"),

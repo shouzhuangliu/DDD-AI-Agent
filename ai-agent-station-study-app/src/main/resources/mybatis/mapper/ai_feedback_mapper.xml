@@ -18,6 +18,7 @@
         VALUES (#{sessionId}, #{agentId}, #{assistantMessageId}, #{feedbackType}, #{rating},
           #{message}, #{correction}, #{sourceType}, #{category}, #{matchedCaseId}, #{resolved}, #{status}, #{submittedBy}, #{createdAt}, #{updatedAt})
     </insert>
+    <select id="queryById" resultMap="FeedbackMap">SELECT * FROM ai_feedback WHERE id=#{id} LIMIT 1</select>
     <select id="queryRecent" resultMap="FeedbackMap">SELECT * FROM ai_feedback ORDER BY created_at DESC LIMIT #{limit}</select>
     <select id="countToday" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE DATE(created_at)=CURDATE()</select>
     <select id="countByResolved" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE resolved=#{resolved}</select>
@@ -26,4 +27,13 @@
     <select id="countExplicitByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT'</select>
     <select id="countExplicitTodayByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT' AND DATE(created_at)=CURDATE()</select>
     <select id="countNegativeByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT' AND (feedback_type='THUMBS_DOWN' OR (rating IS NOT NULL AND rating &lt;= 2))</select>
+    <update id="transitionStatus">
+        UPDATE ai_feedback
+        SET status=#{toStatus},
+            category=CASE WHEN #{category}='' THEN category ELSE #{category} END,
+            matched_case_id=CASE WHEN #{matchedCaseId}='' THEN matched_case_id ELSE #{matchedCaseId} END,
+            resolved=#{resolved},
+            updated_at=NOW()
+        WHERE id=#{id} AND agent_id=#{agentId} AND status=#{fromStatus}
+    </update>
 </mapper>

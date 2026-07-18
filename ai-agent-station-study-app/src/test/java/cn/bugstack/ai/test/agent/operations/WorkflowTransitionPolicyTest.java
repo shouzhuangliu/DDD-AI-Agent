@@ -33,4 +33,17 @@ public class WorkflowTransitionPolicyTest {
         assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.SKILL, "APPROVED", "SIGNED"));
         assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.SKILL, "SIGNED", "RELEASED"));
     }
+
+    @Test
+    public void allowsFeedbackEvaluationLifecycle() {
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "OPEN", "AI_EVALUATING"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "AI_EVALUATING", "VALID"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "VALID", "CLUSTERED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "CLUSTERED", "PROMOTED"));
+    }
+
+    @Test
+    public void rejectsSkippingFeedbackEvaluation() {
+        assertFalse(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "OPEN", "PROMOTED"));
+    }
 }

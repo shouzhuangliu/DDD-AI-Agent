@@ -71,6 +71,27 @@ public class AgentOperationsController {
         return feedbackDao.queryExplicitByAgentId(agentId, bounded(limit));
     }
 
+    @PostMapping("/feedback/{feedbackId}/transition")
+    @Transactional
+    public Map<String, Object> transitionFeedback(@PathVariable("agentId") String agentId,
+                                                  @PathVariable("feedbackId") long feedbackId,
+                                                  @RequestBody FeedbackTransitionRequest request) {
+        if (request == null || blank(request.toStatus()) || blank(request.actor())) {
+            throw new IllegalArgumentException("toStatus and actor are required");
+        }
+        AiFeedback item = feedbackDao.queryById(feedbackId);
+        if (item == null || !agentId.equals(item.getAgentId())) {
+            throw new IllegalArgumentException("Feedback does not belong to this Agent");
+        }
+        String toStatus = request.toStatus().trim().toUpperCase();
+        transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, item.getStatus(), toStatus);
+        int resolved = "RESOLVED".equals(toStatus) || "PROMOTED".equals(toStatus) || "INVALID".equals(toStatus) ? 1 : 0;
+        int changed = feedbackDao.transitionStatus(feedbackId, agentId, item.getStatus(), toStatus,
+                safe(request.category()), safe(request.matchedCaseId()), resolved);
+        if (changed != 1) throw new IllegalStateException("Feedback changed concurrently; refresh and retry");
+        return Map.of("success", true, "feedbackId", feedbackId, "fromStatus", item.getStatus(), "toStatus", toStatus);
+    }
+
     @GetMapping("/sources/{messageId}")
     public Map<String, Object> source(@PathVariable("agentId") String agentId, @PathVariable Long messageId) {
         return sourceOf(agentId, messageId);
@@ -196,4 +217,5 @@ public class AgentOperationsController {
     private static String safe(String value) { return value == null ? "" : value.trim(); }
 
     public record CaseTransitionRequest(String toStatus, String actor, String reason, String owner, String resolution) {}
+    public record FeedbackTransitionRequest(String toStatus, String actor, String reason, String category, String matchedCaseId) {}
 }

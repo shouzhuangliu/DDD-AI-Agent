@@ -224,9 +224,10 @@ async function loadDashboard() {
       + '<div style="display:flex;gap:6px;align-items:center"><span style="font-size:10px;color:#94a3b8">' + (f.createdAt||'').slice(0,16) + '</span>'
       + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1e40af">用户</span>'
       + '<span style="font-size:10px;color:#64748b">' + esc(label(FEEDBACK_LABELS,f.feedbackType||'COMMENT')) + '</span>'
-      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:'+(f.resolved?'#dcfce7;color:#16a34a':'#fef3c7;color:#d97706')+'">'+(f.resolved?'已解决':'待处理')+'</span>'
+      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:'+(f.resolved?'#dcfce7;color:#16a34a':'#fef3c7;color:#d97706')+'">'+esc(label(STATUS_LABELS,f.status||'OPEN'))+'</span>'
       + (f.matchedCaseId?'<span style="font-size:10px;color:#0284c7">→ '+f.matchedCaseId+'</span>':'')
-      + '</div><div style="color:#334155;margin-top:2px">' + esc(f.message||'').slice(0,80) + '</div></div>').join('')
+      + '</div><div style="color:#334155;margin-top:2px">' + esc(f.message||'').slice(0,80) + '</div>'
+      + renderFeedbackActions(selected,f) + '</div>').join('')
     : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无反馈</div>';
 
   document.getElementById('aiSignalsList').innerHTML = signals.length
@@ -237,6 +238,20 @@ async function loadDashboard() {
     : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无折叠记忆</div>';
 }
 function selectDashboardAgent(agentId){const u=new URL(location.href);u.searchParams.set('agentId',agentId);history.replaceState({},'',u);loadDashboard();}
+
+function renderFeedbackActions(agentId,f){
+  const flows={OPEN:['AI_EVALUATING','INVALID','NEED_MORE_INFO'],AI_EVALUATING:['VALID','INVALID','NEED_MORE_INFO'],NEED_MORE_INFO:['AI_EVALUATING','INVALID'],VALID:['CLUSTERED','PROMOTED','RESOLVED'],CLUSTERED:['PROMOTED','RESOLVED'],PROMOTED:['RESOLVED'],INVALID:['OPEN'],RESOLVED:['OPEN']};
+  const actions=flows[(f.status||'OPEN').toUpperCase()]||[];
+  if(!actions.length)return '';
+  return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+actions.map(s=>'<button onclick="transitionFeedback(\''+esc(agentId)+'\','+f.id+',\''+s+'\')" style="border:1px solid #cbd5e1;background:white;border-radius:6px;padding:2px 7px;font-size:11px;cursor:pointer">'+esc(label(STATUS_LABELS,s))+'</button>').join('')+'</div>';
+}
+
+async function transitionFeedback(agentId,feedbackId,toStatus){
+  const reason=prompt('请输入 Feedback 状态变更原因','人工评测'); if(reason===null)return;
+  const matchedCaseId=toStatus==='PROMOTED'?(prompt('请输入关联 Case ID（可留空）','')||''):'';
+  await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/feedback/'+feedbackId+'/transition',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toStatus:toStatus,actor:'web-reviewer',reason:reason,matchedCaseId:matchedCaseId})});
+  await loadDashboard();
+}
 
 async function openCaseDetail(agentId,caseId){
   const d=await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId));
