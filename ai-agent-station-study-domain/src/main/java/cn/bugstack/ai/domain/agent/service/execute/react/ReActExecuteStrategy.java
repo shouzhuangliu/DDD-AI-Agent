@@ -83,6 +83,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     private QueryFeedbackTool queryFeedbackTool;
 
     @Resource
+    private ReActToolAllowlistPolicy toolAllowlistPolicy;
+
+    @Resource
     private SkillScannerService skillScannerService;
 
     @Resource
@@ -130,12 +133,13 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
             List<String> skillIds = repository.queryBoundSkillIds(agentId);
             List<String> mcpIds = repository.queryBoundMcpIds(agentId);
+            List<String> allowedTools = toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId));
 
-            String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds);
+            String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds, allowedTools);
 
-            // 内部工具（含 McpCallTool + RetrieveToolCallTool）
+            // 内置工具按 Agent 白名单动态暴露，避免普通业务反馈触发 Bash/读项目等高风险动作。
             MethodToolCallbackProvider internalTools = MethodToolCallbackProvider.builder()
-                    .toolObjects(fileReadTool, fileWriteTool, bashTool, skillExecuteTool, mcpCallTool, retrieveToolCallTool, queryCaseTool, queryFeedbackTool)
+                    .toolObjects(selectToolObjects(allowedTools))
                     .build();
 
             // 记录用户消息
@@ -236,27 +240,38 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         return fallback;
     }
 
-    /** 构建动态系统提示词：soul + 工具说明 + 绑定 skills + 绑定 MCP（仅名+描述） */
-    private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds) {
+    private Object[] selectToolObjects(List<String> allowedTools) {
+        List<Object> tools = new java.util.ArrayList<>();
+        if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) tools.add(fileReadTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) tools.add(fileWriteTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) tools.add(bashTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.EXECUTE_SKILL)) tools.add(skillExecuteTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);
+        return tools.toArray();
+    }
+
+    /** 构建动态系统提示词：soul + 授权工具说明 + 绑定 skills + 绑定 MCP（仅名+描述） */
+    private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds, List<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
 
         if (agent.getSystemPrompt() != null && !agent.getSystemPrompt().isBlank()) {
             sb.append(agent.getSystemPrompt()).append("\n\n");
         }
 
-        sb.append("""
-            可用工具：
-            - read_file(relativePath): 读取工作目录下指定相对路径的文本文件
-            - write_file(relativePath, content): 在工作目录下写入或覆盖文本文件
-            - run_bash(command): 在工作目录内执行一条白名单内的 shell 命令
-            - execute_skill(skillId): 执行一个已注册的 Skill，返回操作手册（SKILL.md）
-            - call_mcp_tool(mcpId, toolName, args): 调用一个绑定的 MCP 工具
-            - retrieve_tool_call(toolCallId): 按 ID 取回被折叠/压缩的完整消息原文
-            - query_cases(keyword, limit): 查询 Case 案例库，用户问"常见问题"时调用
-            - query_feedback(limit, agentId): 查询用户反馈，用户问"最近反馈"时调用
-            """);
+        sb.append("可用工具（只能使用下面列出的工具；用户只是反馈问题时不要主动排查项目）：\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) sb.append("- read_file(relativePath): 读取工作目录下指定相对路径的文本文件\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) sb.append("- write_file(relativePath, content): 在工作目录下写入或覆盖文本文件\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) sb.append("- run_bash(command): 在工作目录内执行一条白名单内的 shell 命令\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.EXECUTE_SKILL)) sb.append("- execute_skill(skillId): 执行一个已注册的 Skill，返回操作手册（SKILL.md）\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(mcpId, toolName, args): 调用一个绑定的 MCP 工具\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) sb.append("- retrieve_tool_call(toolCallId): 按 ID 取回被折叠/压缩的完整消息原文\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) sb.append("- query_cases(keyword, limit): 查询 Case 案例库，用户问历史问题或案例时调用\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) sb.append("- query_feedback(limit, agentId): 查询用户反馈，用户问最近反馈时调用\n");
 
-        if (boundSkillIds != null && !boundSkillIds.isEmpty()) {
+        if (allowedTools.contains(ReActToolAllowlistPolicy.EXECUTE_SKILL) && boundSkillIds != null && !boundSkillIds.isEmpty()) {
             sb.append("\n该 Agent 绑定的 Skills（可使用 execute_skill 工具执行）：\n");
             for (String sid : boundSkillIds) {
                 var skill = skillScannerService.readSkill(Paths.get(properties.getWorkDir(), "skills", sid));
@@ -269,7 +284,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         }
 
         // MCP 工具仅列名称+描述（不挂全量 schema，防上下文膨胀）
-        if (boundMcpIds != null && !boundMcpIds.isEmpty()) {
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL) && boundMcpIds != null && !boundMcpIds.isEmpty()) {
             var mcps = repository.queryMcpToolsByIds(boundMcpIds);
             if (!mcps.isEmpty()) {
                 sb.append("\n该 Agent 绑定的 MCP 工具（可通过 call_mcp_tool 调用）：\n");

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiAgentToolDao">
+    <resultMap id="AiAgentToolMap" type="cn.bugstack.ai.infrastructure.dao.po.AiAgentTool">
+        <id column="id" property="id"/>
+        <result column="agent_id" property="agentId"/>
+        <result column="tool_id" property="toolId"/>
+        <result column="status" property="status"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiAgentTool" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_agent_tool (agent_id, tool_id, status, create_time)
+        VALUES (#{agentId}, #{toolId}, #{status}, #{createTime})
+    </insert>
+
+    <select id="queryByAgentId" resultMap="AiAgentToolMap">
+        SELECT id, agent_id, tool_id, status, create_time FROM ai_agent_tool WHERE agent_id = #{agentId} AND status = 1
+    </select>
+
+    <delete id="deleteByAgentId">
+        DELETE FROM ai_agent_tool WHERE agent_id = #{agentId}
+    </delete>
+</mapper>

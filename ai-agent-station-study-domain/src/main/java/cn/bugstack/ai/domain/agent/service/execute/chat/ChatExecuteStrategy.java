@@ -56,7 +56,7 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
 
         String selectedModelId = ModelSelectionService.select(requestParameter.getModelId(), agent.getModelId());
         OpenAiChatModel chatModel = applicationContext.getBean(AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(selectedModelId), OpenAiChatModel.class);
-        String systemPrompt = buildChatSystemPrompt(agent);
+        String systemPrompt = buildChatSystemPrompt(agent, requestParameter.getRouteType());
 
         List<Message> messages = buildMessages(history, requestParameter.getMessage());
         ChatClient chatClient = ChatClient.builder(chatModel).defaultSystem(systemPrompt).build();
@@ -96,14 +96,19 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
         return TYPE;
     }
 
-    private String buildChatSystemPrompt(AiAgentVO agent) {
+    private String buildChatSystemPrompt(AiAgentVO agent, String routeType) {
         String soul = agent.getSystemPrompt() == null ? "" : agent.getSystemPrompt().trim();
+        String feedbackInstruction = "feedback".equals(routeType) ? """
+
+                当前消息已被系统识别为用户/业务反馈，并已自动进入 Feedback 评测队列。
+                回复时请先明确告知“已记录反馈”，再简要复述问题点；不要主动声称已经排查项目、读取代码或运行命令。
+                """ : "";
         return """
                 你是 AI 工作台里的 Chat 协调器。
                 你的职责是先自然回答用户的普通问题；只有当用户明确需要工具、计划、执行、验证时，才提示可以交给 Agent 执行。
                 不要编造工具调用结果，不要展示执行进度，不要声称已经完成没有实际执行的任务。
                 请使用简洁、自然的中文回复。
-                """ + (soul.isBlank() ? "" : "\n当前 Agent 灵魂设定：\n" + soul);
+                """ + feedbackInstruction + (soul.isBlank() ? "" : "\n当前 Agent 灵魂设定：\n" + soul);
     }
 
     private List<Message> buildMessages(List<HistoryMessage> history, String currentMessage) {

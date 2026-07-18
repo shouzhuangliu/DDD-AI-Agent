@@ -16,4 +16,6 @@ public class ExecuteCommandEntity {
     private String sessionId;
     private Integer maxStep;
     private String modelId;
+    private String routeType;
+    private String routeReason;
 }

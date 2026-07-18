@@ -53,6 +53,11 @@ public interface IAgentRepository {
     List<String> queryBoundMcpIds(String agentId);
 
     /**
+     * 查询 Agent 绑定的内置工具 id 列表
+     */
+    List<String> queryBoundToolIds(String agentId);
+
+    /**
      * 按 mcpId 列表查询 MCP 工具信息（用于给 LLM 展示可用 MCP 列表）
      */
     List<cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO> queryMcpToolsByIds(List<String> mcpIds);
@@ -66,4 +71,9 @@ public interface IAgentRepository {
      * 全量覆盖式重绑 mcps：先删后插
      */
     int bindMcps(String agentId, List<String> mcpIds);
+
+    /**
+     * 全量覆盖式重绑内置工具：先删后插
+     */
+    int bindTools(String agentId, List<String> toolIds);
 }

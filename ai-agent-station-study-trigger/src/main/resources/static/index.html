@@ -523,12 +523,12 @@ document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='
 
 // ========== Agent 编辑 ==========
 async function editAgent(agentId) {
-  const [aResp, bResp, sResp, mResp] = await Promise.all([
+  const [aResp, bResp, sResp, mResp, tResp] = await Promise.all([
     fetch(API+'/agents').then(r=>r.json()),fetch(API+'/agents/'+agentId+'/bindings').then(r=>r.json()),
-    fetch(API+'/skills').then(r=>r.json()),fetch(API+'/mcp-tools').then(r=>r.json())
+    fetch(API+'/skills').then(r=>r.json()),fetch(API+'/mcp-tools').then(r=>r.json()),fetch(API+'/agent-tools').then(r=>r.json())
   ]);
   const a = aResp.find(x=>x.agentId===agentId); if(!a) return;
-  const bs = bResp.skillIds||[], bm = bResp.mcpIds||[];
+  const bs = bResp.skillIds||[], bm = bResp.mcpIds||[], bt = bResp.toolIds||[];
   openModal('⚙️ '+(a.agentName||a.agentId),
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
     +'<div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">名称</label><input id="efN" value="'+esc(a.agentName||'')+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div>'
@@ -536,12 +536,13 @@ async function editAgent(agentId) {
     +'<div><label style="font-size:12px;color:#64748b">模式</label><select id="efC" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"><option value="react" '+(a.channel==='react'?'selected':'')+'>ReAct</option><option value="auto" '+(a.channel==='auto'?'selected':'')+'>Auto</option></select></div>'
     +'<div><label style="font-size:12px;color:#64748b">模型 ID</label><input id="efM" value="'+esc(a.modelId||'2001')+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div>'
     +'<div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">灵魂</label><textarea id="efS" rows="4" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:13px;font-family:Consolas;margin-top:4px">'+esc(a.systemPrompt||'')+'</textarea></div>'
+    +'<div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:12px"><h4 style="margin:0 0 4px;font-size:14px">🧰 内置工具</h4><div style="font-size:12px;color:#64748b;margin-bottom:8px">只有勾选的工具才会暴露给 ReAct；Bash/读写文件默认不建议给业务反馈 Agent 开启。</div>'+(tResp.length?tResp.map(t=>{const checked=bt.includes(t.toolId)||(bt.length===0&&!['HIGH','CRITICAL'].includes(t.riskLevel));return '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:13px"><input type="checkbox" class="cb-tool" value="'+t.toolId+'" '+(checked?'checked':'')+'> <span><b>'+esc(t.name)+'</b> <span style="font-size:11px;color:'+(t.riskLevel==='CRITICAL'?'#dc2626':t.riskLevel==='HIGH'?'#d97706':'#64748b')+'">('+esc(t.toolId)+' · '+esc(t.riskLevel)+')</span><br><span style="font-size:12px;color:#64748b">'+esc(t.description||'')+'</span></span></label>';}).join(''):'<div style="font-size:12px;color:#94a3b8">暂无</div>')+'</div>'
     +'<div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:12px"><h4 style="margin:0 0 8px;font-size:14px">📚 Skills</h4>'+(sResp.length?sResp.map(s=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><input type="checkbox" class="cb-sk" value="'+s.skillId+'" '+(bs.includes(s.skillId)?'checked':'')+'> '+esc(s.skillName)+' <span style="color:#94a3b8;font-size:11px">('+s.skillId+')</span></label>').join(''):'<div style="font-size:12px;color:#94a3b8">暂无</div>')+'</div>'
     +'<div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:12px"><h4 style="margin:0 0 8px;font-size:14px">🔧 MCP</h4>'+(mResp.length?mResp.map(t=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><input type="checkbox" class="cb-mcp" value="'+t.mcpId+'" '+(bm.includes(t.mcpId)?'checked':'')+'> '+esc(t.mcpName)+' <span style="color:#94a3b8;font-size:11px">('+t.mcpId+')</span></label>').join(''):'<div style="font-size:12px;color:#94a3b8">暂无</div>')+'</div>'
     +'</div>', '保存', async()=>{
       const r1=await fetch(API+'/agents/'+agentId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentName:g('efN'),description:g('efD'),channel:g('efC'),systemPrompt:g('efS'),modelId:g('efM'),status:1})});
       const j1=await r1.json(); if(!j1.success){alert(j1.message);return false;}
-      await fetch(API+'/agents/'+agentId+'/bindings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({skillIds:Array.from(document.querySelectorAll('.cb-sk:checked')).map(cb=>cb.value),mcpIds:Array.from(document.querySelectorAll('.cb-mcp:checked')).map(cb=>cb.value)})});
+      await fetch(API+'/agents/'+agentId+'/bindings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({skillIds:Array.from(document.querySelectorAll('.cb-sk:checked')).map(cb=>cb.value),mcpIds:Array.from(document.querySelectorAll('.cb-mcp:checked')).map(cb=>cb.value),toolIds:Array.from(document.querySelectorAll('.cb-tool:checked')).map(cb=>cb.value)})});
       closeModal(); loadAgentCards(); return true;
     });
 }

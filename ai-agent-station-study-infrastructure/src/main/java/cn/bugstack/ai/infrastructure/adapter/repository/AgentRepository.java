@@ -529,6 +529,9 @@ public class AgentRepository implements IAgentRepository {
     @Resource
     private IAiAgentMcpDao aiAgentMcpDao;
 
+    @Resource
+    private IAiAgentToolDao aiAgentToolDao;
+
     // ========== 专属 Agent 系统 ==========
 
     @Override
@@ -552,6 +555,12 @@ public class AgentRepository implements IAgentRepository {
     public List<String> queryBoundMcpIds(String agentId) {
         return aiAgentMcpDao.queryByAgentId(agentId).stream()
                 .map(AiAgentMcp::getMcpId).toList();
+    }
+
+    @Override
+    public List<String> queryBoundToolIds(String agentId) {
+        return aiAgentToolDao.queryByAgentId(agentId).stream()
+                .map(AiAgentTool::getToolId).toList();
     }
     @Override
     public List<AiClientToolMcpVO> queryMcpToolsByIds(List<String> mcpIds) {
@@ -591,6 +600,21 @@ public class AgentRepository implements IAgentRepository {
         for (String mid : mcpIds) {
             aiAgentMcpDao.insert(AiAgentMcp.builder()
                     .agentId(agentId).mcpId(mid).status(1)
+                    .createTime(LocalDateTime.now()).build());
+            count++;
+        }
+        return count;
+    }
+
+    @Override
+    public int bindTools(String agentId, List<String> toolIds) {
+        aiAgentToolDao.deleteByAgentId(agentId);
+        if (toolIds == null || toolIds.isEmpty()) return 0;
+        int count = 0;
+        for (String toolId : toolIds) {
+            if (toolId == null || toolId.isBlank()) continue;
+            aiAgentToolDao.insert(AiAgentTool.builder()
+                    .agentId(agentId).toolId(toolId.trim()).status(1)
                     .createTime(LocalDateTime.now()).build());
             count++;
         }

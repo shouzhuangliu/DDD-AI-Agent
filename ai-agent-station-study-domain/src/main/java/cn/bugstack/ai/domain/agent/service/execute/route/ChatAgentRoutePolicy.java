@@ -18,6 +18,14 @@ public class ChatAgentRoutePolicy {
             "查询", "查一下", "搜索", "检索", "调用", "读取", "获取", "看看", "mcp", "api", "数据库", "订单", "库存", "日志"
     };
 
+    private static final String[] INVESTIGATION_HINTS = {
+            "帮我查", "帮我看", "帮我查看", "排查", "查看项目", "查看代码", "看代码", "运行", "执行命令", "跑命令", "bash", "日志"
+    };
+
+    private static final String[] FEEDBACK_HINTS = {
+            "遇到了一个问题", "遇到一个问题", "出了问题", "有个问题", "反馈", "不一致", "异常", "报错", "不好用", "有 bug", "有bug", "不对", "失败", "超时"
+    };
+
     private static final String[] PLAN_HINTS = {
             "计划", "规划", "方案", "步骤", "路线图", "拆解", "先制定", "不要直接执行"
     };
@@ -33,6 +41,9 @@ public class ChatAgentRoutePolicy {
         }
         if (isChat(text)) {
             return new RouteDecision("chat", "问候、确认或极短输入，先由 Chat 协调器直接回复。");
+        }
+        if (containsAny(text, FEEDBACK_HINTS) && !containsAny(text, INVESTIGATION_HINTS)) {
+            return new RouteDecision("feedback", "用户在描述业务问题或使用反馈，先沉淀 Feedback 并进入评测队列。");
         }
         if (containsAny(text, PLAN_HINTS) && (!containsAny(text, AUTO_HINTS) || text.contains("不要直接执行") || text.contains("先制定"))) {
             return new RouteDecision("plan", "用户强调先规划，进入 Plan 协调。");

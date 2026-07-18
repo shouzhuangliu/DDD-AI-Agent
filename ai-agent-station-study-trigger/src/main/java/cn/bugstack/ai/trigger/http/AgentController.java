@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.armory.ModelCredentialResolver;
 import cn.bugstack.ai.domain.agent.service.skills.SkillFrontmatterParser;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
 import cn.bugstack.ai.trigger.service.capability.CapabilityRegistryService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
@@ -108,24 +109,33 @@ public class AgentController {
 
     @DeleteMapping("/agents/{agentId}")
     public Map<String, Object> deleteAgent(@PathVariable("agentId") String agentId) {
-        agentRepository.bindSkills(agentId, List.of()); agentRepository.bindMcps(agentId, List.of());
+        agentRepository.bindSkills(agentId, List.of()); agentRepository.bindMcps(agentId, List.of()); agentRepository.bindTools(agentId, List.of());
         int rows = aiAgentDao.deleteByAgentId(agentId);
         return Map.of("success", rows > 0, "message", rows > 0 ? "删除成功" : "删除失败");
     }
 
     @GetMapping("/agents/{agentId}/bindings")
     public Map<String, Object> getBindings(@PathVariable("agentId") String agentId) {
-        return Map.of("skillIds", agentRepository.queryBoundSkillIds(agentId), "mcpIds", agentRepository.queryBoundMcpIds(agentId));
+        return Map.of("skillIds", agentRepository.queryBoundSkillIds(agentId),
+                "mcpIds", agentRepository.queryBoundMcpIds(agentId),
+                "toolIds", agentRepository.queryBoundToolIds(agentId));
     }
 
     @PutMapping("/agents/{agentId}/bindings")
     public Map<String, Object> updateBindings(@PathVariable("agentId") String agentId, @RequestBody Map<String, List<String>> body) {
         List<String> skillIds = body.getOrDefault("skillIds", List.of());
         List<String> mcpIds = body.getOrDefault("mcpIds", List.of());
+        List<String> toolIds = body.getOrDefault("toolIds", List.of());
         capabilityRegistryService.requireReleasedRuntimeBindings(skillIds, mcpIds);
         agentRepository.bindSkills(agentId, skillIds);
         agentRepository.bindMcps(agentId, mcpIds);
+        agentRepository.bindTools(agentId, toolIds);
         return Map.of("success", true, "message", "绑定成功");
+    }
+
+    @GetMapping("/agent-tools")
+    public List<ReActToolAllowlistPolicy.ToolOption> agentTools() {
+        return ReActToolAllowlistPolicy.options();
     }
 
     @GetMapping("/agents/{agentId}/souls")

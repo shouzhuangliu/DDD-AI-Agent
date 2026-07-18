@@ -10,6 +10,7 @@ import cn.bugstack.ai.domain.agent.service.execute.chat.ChatExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.execute.route.ChatAgentRoutePolicy;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
+import cn.bugstack.ai.trigger.service.feedback.FeedbackAutoCaptureService;
 import com.alibaba.fastjson.JSON;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -52,6 +53,9 @@ public class AiAgentController implements IAiAgentService {
     @Resource
     private ChatAgentRoutePolicy chatAgentRoutePolicy;
 
+    @Resource
+    private FeedbackAutoCaptureService feedbackAutoCaptureService;
+
     /** 模式 -> 策略，启动时按 getType() 建立 */
     private final Map<String, IExecuteStrategy> strategyMap = new HashMap<>();
 
@@ -90,7 +94,13 @@ public class AiAgentController implements IAiAgentService {
                 }
             }
             ChatAgentRoutePolicy.RouteDecision routeDecision = chatAgentRoutePolicy.route(request.getMessage(), reqMode);
-            String routedMode = "plan".equals(routeDecision.route()) ? AiAgentModeEnum.AUTO.getCode() : routeDecision.route();
+            if ("feedback".equals(routeDecision.route())) {
+                Long feedbackId = feedbackAutoCaptureService.captureUserIssue(request.getAiAgentId(), request.getSessionId(), request.getMessage());
+                log.info("业务反馈已自动记录: agentId={}, sessionId={}, feedbackId={}", request.getAiAgentId(), request.getSessionId(), feedbackId);
+            }
+            String routedMode = ("plan".equals(routeDecision.route()) || "feedback".equals(routeDecision.route()))
+                    ? ("feedback".equals(routeDecision.route()) ? ChatExecuteStrategy.TYPE : AiAgentModeEnum.AUTO.getCode())
+                    : routeDecision.route();
             IExecuteStrategy strategy = strategyMap.get(routedMode);
             if (strategy == null) {
                 AiAgentModeEnum mode = AiAgentModeEnum.getByCode(routedMode);
@@ -113,6 +123,8 @@ public class AiAgentController implements IAiAgentService {
                     .sessionId(request.getSessionId())
                     .maxStep(request.getMaxStep())
                     .modelId(request.getModelId())
+                    .routeType(routeDecision.route())
+                    .routeReason(routeDecision.reason())
                     .build();
 
             // 4. 异步执行
