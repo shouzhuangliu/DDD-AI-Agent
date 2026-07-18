@@ -102,7 +102,7 @@ public class AgentOperationsController {
     @GetMapping("/feedback")
     public List<AiFeedback> feedback(@PathVariable("agentId") String agentId,
                                      @RequestParam(value = "limit", defaultValue = "50") int limit) {
-        return feedbackDao.queryExplicitByAgentId(agentId, bounded(limit));
+        return feedbackDao.queryWorkspaceByAgentId(agentId, bounded(limit));
     }
 
     @PostMapping("/feedback/{feedbackId}/transition")

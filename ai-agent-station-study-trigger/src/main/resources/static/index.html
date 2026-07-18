@@ -229,7 +229,7 @@ async function loadDashboard() {
       + (f.matchedCaseId?'<span style="font-size:10px;color:#0284c7">→ '+f.matchedCaseId+'</span>':'')
       + '</div><div style="color:#334155;margin-top:2px">' + esc(f.message||'').slice(0,80) + '</div>'
       + renderFeedbackActions(selected,f) + '</div>').join('')
-    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无用户/运维业务 Feedback</div>';
+    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无真实业务 Feedback 或待确认 AI 线索</div>';
 
   document.getElementById('aiSignalsList').innerHTML = signals.length
     ? signals.map(x => '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:12px"><div style="display:flex;gap:8px"><b style="color:#475569">'+esc(label(SIGNAL_LABELS,x.signalType||'OTHER'))+'</b><span style="color:#7c3aed">'+(x.confidence||0)+'%</span><span style="margin-left:auto;color:#94a3b8">'+(x.createdAt||'').slice(0,16)+'</span></div><div style="margin-top:3px;color:#334155">'+esc(x.summary||x.rationale||'')+'</div></div>').join('')

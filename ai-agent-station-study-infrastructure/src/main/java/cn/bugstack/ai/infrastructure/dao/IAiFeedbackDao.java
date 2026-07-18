@@ -14,6 +14,7 @@ public interface IAiFeedbackDao {
     long countByResolved(@Param("resolved") int resolved);
     List<AiFeedback> queryByAgentId(@Param("agentId") String agentId, @Param("limit") int limit);
     List<AiFeedback> queryExplicitByAgentId(@Param("agentId") String agentId, @Param("limit") int limit);
+    List<AiFeedback> queryWorkspaceByAgentId(@Param("agentId") String agentId, @Param("limit") int limit);
     long countExplicitByAgentId(@Param("agentId") String agentId);
     long countExplicitTodayByAgentId(@Param("agentId") String agentId);
     long countNegativeByAgentId(@Param("agentId") String agentId);
