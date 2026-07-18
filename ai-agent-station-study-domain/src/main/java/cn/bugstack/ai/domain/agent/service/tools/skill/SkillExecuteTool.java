@@ -11,8 +11,6 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Paths;
-
 /**
  * ReAct 内部工具：执行指定名称的 Skill。
  * <p>
@@ -48,8 +46,7 @@ public class SkillExecuteTool extends AbstractReActTool {
             return msg;
         }
 
-        String workDir = properties.getWorkDir();
-        var skill = skillScannerService.readSkill(Paths.get(workDir, "skills", skillId));
+        var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
         if (skill == null) {
             String msg = "未找到 skill: " + skillId + "（请确认 skills/" + skillId + "/SKILL.md 存在）";
             emitObservation(toolName, msg);

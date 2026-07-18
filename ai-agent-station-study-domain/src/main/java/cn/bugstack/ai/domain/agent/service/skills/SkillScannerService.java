@@ -10,7 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Skills 目录扫描器。
@@ -86,6 +88,36 @@ public class SkillScannerService {
         } catch (IOException e) {
             log.warn("读取 SKILL.md 失败: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 从运行工作目录解析 Skill。IDEA 常把 user.dir 设置到 app 子模块，
+     * 因此这里会从 workDir / user.dir / 当前目录逐级向上查找 skills/{skillId}/SKILL.md。
+     */
+    public SkillInfo readSkillFromWorkDir(String workDir, String skillId) {
+        if (skillId == null || skillId.isBlank()) return null;
+        for (Path skillsRoot : candidateSkillsRoots(workDir)) {
+            SkillInfo skill = readSkill(skillsRoot.resolve(skillId.trim()));
+            if (skill != null) return skill;
+        }
+        return null;
+    }
+
+    private List<Path> candidateSkillsRoots(String workDir) {
+        Set<Path> roots = new LinkedHashSet<>();
+        addSkillsRootCandidates(roots, workDir);
+        addSkillsRootCandidates(roots, System.getProperty("user.dir"));
+        addSkillsRootCandidates(roots, ".");
+        return roots.stream().toList();
+    }
+
+    private void addSkillsRootCandidates(Set<Path> roots, String baseDir) {
+        if (baseDir == null || baseDir.isBlank()) return;
+        Path current = Path.of(baseDir).toAbsolutePath().normalize();
+        while (current != null) {
+            roots.add(current.resolve("skills").normalize());
+            current = current.getParent();
         }
     }
 

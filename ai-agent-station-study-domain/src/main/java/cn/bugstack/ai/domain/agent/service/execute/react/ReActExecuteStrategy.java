@@ -303,7 +303,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.EXECUTE_SKILL) && boundSkillIds != null && !boundSkillIds.isEmpty()) {
             sb.append("\n该 Agent 绑定的 Skills（可使用 execute_skill 工具执行）：\n");
             for (String sid : boundSkillIds) {
-                var skill = skillScannerService.readSkill(Paths.get(properties.getWorkDir(), "skills", sid));
+                var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), sid);
                 if (skill != null) {
                     sb.append("- ").append(sid).append(": ").append(skill.getSkillName())
                             .append(" — ").append(skill.getDescription()).append("\n");

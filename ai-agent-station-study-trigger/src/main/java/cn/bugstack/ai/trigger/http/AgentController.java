@@ -196,7 +196,7 @@ public class AgentController {
                         """,
                 (rs, rowNum) -> {
                     String skillId = rs.getString("skill_id");
-                    var runtime = skillScannerService.readSkill(Paths.get(properties.getWorkDir(), "skills", skillId));
+                    var runtime = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
                     if (runtime != null) return runtime;
                     return SkillScannerService.SkillInfo.builder()
                             .skillId(skillId)
@@ -209,7 +209,7 @@ public class AgentController {
 
     @GetMapping("/skills/{skillId}")
     public Map<String, Object> getSkill(@PathVariable("skillId") String skillId) {
-        var skill = skillScannerService.readSkill(Paths.get(properties.getWorkDir(), "skills", skillId));
+        var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
         return skill != null ? Map.of("success", true, "skill", skill) : Map.of("success", false, "message", "Skill不存在");
     }
 
