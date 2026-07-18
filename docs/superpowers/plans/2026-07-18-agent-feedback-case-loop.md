@@ -71,8 +71,8 @@
 - Consumes: existing dashboard endpoints.
 - Produces: Chinese labels for Feedback, Signal, Case, review, publish, and Agent quality sections.
 
-- [ ] Replace English status labels shown in Case details with Chinese labels.
-- [ ] Rename dashboard sections to Agent 业务反馈、候选 Case、待审核 Case、已发布 Case.
+- [x] Replace English status labels shown in Case details with Chinese labels.
+- [x] Rename dashboard sections to Agent 业务反馈、候选 Case、待审核 Case、已发布 Case.
 - [ ] Manually verify static references with `rg`.
 
 ### Task 5: Verification
