@@ -6,6 +6,7 @@ import lombok.Data;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * ReAct 工具执行上下文。
@@ -31,4 +32,10 @@ public class ReActToolContext {
 
     /** 工具沙箱根目录（读写文件/命令执行都限制在此目录内） */
     private Path workDir;
+
+    /** 当前 Agent 已绑定的 Skills */
+    private List<String> boundSkillIds;
+
+    /** 当前 Agent 已绑定的 MCP */
+    private List<String> boundMcpIds;
 }

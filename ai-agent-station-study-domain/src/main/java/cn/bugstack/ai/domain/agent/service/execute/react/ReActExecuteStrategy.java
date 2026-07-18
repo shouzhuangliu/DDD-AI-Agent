@@ -123,6 +123,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 .agentId(agentId)
                 .emitter(emitter)
                 .workDir(workDir)
+                .boundSkillIds(skillIds)
+                .boundMcpIds(mcpIds)
                 .build());
 
         fileReadTool.resetStep();

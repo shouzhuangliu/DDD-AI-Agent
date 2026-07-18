@@ -42,6 +42,11 @@ public class SkillExecuteTool extends AbstractReActTool {
         }
 
         ReActToolContext context = ReActToolContextHolder.get();
+        if (context == null || context.getBoundSkillIds() == null || !context.getBoundSkillIds().contains(skillId.trim())) {
+            String msg = "Skill 未绑定到当前 Agent: " + skillId;
+            emitObservation(toolName, msg);
+            return msg;
+        }
         String currentWorkDir = context != null && context.getWorkDir() != null ? context.getWorkDir().toString() : ".";
         var skill = skillScannerService.readSkillFromWorkDir(currentWorkDir, skillId);
         if (skill == null) {

@@ -46,6 +46,12 @@ public class McpCallTool extends AbstractReActTool {
             emitObservation(toolTag, msg);
             return msg;
         }
+        ReActToolContext context = ReActToolContextHolder.get();
+        if (context == null || context.getBoundMcpIds() == null || !context.getBoundMcpIds().contains(mcpId.trim())) {
+            String msg = "MCP 未绑定到当前 Agent: " + mcpId;
+            emitObservation(toolTag, msg);
+            return msg;
+        }
 
         // 从 Spring 容器取 McpSyncClient bean
         McpSyncClient client;
