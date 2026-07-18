@@ -3,9 +3,11 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IAiLlmLogDao;
+import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.AiLlmLog;
+import cn.bugstack.ai.trigger.service.observability.LlmLogObservationAssembler;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +26,8 @@ public class DashboardController {
     @Resource private IAiFeedbackDao feedbackDao;
     @Resource private IAiCaseDao caseDao;
     @Resource private IAiLlmLogDao llmLogDao;
+    @Resource private IChatMessageDao chatMessageDao;
+    private final LlmLogObservationAssembler llmLogObservationAssembler = new LlmLogObservationAssembler();
 
     @GetMapping("/dashboard/stats")
     public Map<String, Object> stats() {
@@ -72,6 +76,11 @@ public class DashboardController {
         return llmLogDao.queryRecent(limit);
     }
 
+    @GetMapping("/llm-logs/grouped")
+    public List<LlmLogObservationAssembler.AgentGroup> groupedLlmLogs(@RequestParam(value = "limit", defaultValue = "100") int limit) {
+        return llmLogObservationAssembler.group(llmLogDao.queryRecent(bounded(limit)), chatMessageDao::queryBySessionId);
+    }
+
     @GetMapping("/llm-logs/{id}")
     public AiLlmLog getLlmLog(@PathVariable("id") Long id) {
         return llmLogDao.queryById(id);
@@ -87,5 +96,9 @@ public class DashboardController {
     public List<AiLlmLog> listBySession(@PathVariable("sessionId") String sessionId,
                                          @RequestParam(value = "limit", defaultValue = "20") int limit) {
         return llmLogDao.queryBySessionId(sessionId, limit);
+    }
+
+    private int bounded(int limit) {
+        return Math.max(1, Math.min(500, limit));
     }
 }

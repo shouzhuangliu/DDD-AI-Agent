@@ -301,18 +301,66 @@ async function mergeCase(agentId,caseId){
 
 // ========== 📋 Logs ==========
 async function loadLogsPage() {
-  const list = await fetch(API + '/llm-logs?limit=100').then(r=>r.json());
+  const list = await fetch(API + '/llm-logs/grouped?limit=200').then(r=>r.json());
   const c = document.getElementById('logsTableContainer');
   if (!list.length) { c.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8">暂无日志（对话后自动生成）</div>'; return; }
-  c.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc;text-align:left;color:#475569"><th style="padding:10px">时间</th><th style="padding:10px">Agent</th><th style="padding:10px">模式</th><th style="padding:10px">耗时</th><th style="padding:10px">状态</th><th style="padding:10px">历史/折叠</th><th style="padding:10px">回复长度</th></tr></thead><tbody>'
-  + list.map(log => '<tr style="border-top:1px solid #f1f5f9;cursor:pointer" onclick="toggleLogDetail('+log.id+')"><td style="padding:10px;font-size:11px;color:#64748b">'+(log.createdAt||'').slice(0,16)+'</td><td style="padding:10px">'+esc(log.agentId)+'</td><td style="padding:10px"><span style="padding:1px 6px;border-radius:6px;font-size:11px;background:'+(log.mode==='react'?'#f0e6ff;color:#7c3aed':'#dbeafe;color:#1e40af')+'">'+(log.mode||'')+'</span></td><td style="padding:10px">'+log.durationMs+'ms</td><td style="padding:10px"><span style="color:'+(log.status==='success'?'#16a34a':'#dc2626')+'">'+esc(label(STATUS_LABELS,log.status))+'</span></td><td style="padding:10px;color:#64748b">'+log.historyMsgCount+'/'+log.foldedMsgCount+'</td><td style="padding:10px;color:#64748b">'+log.assistantResponseLen+'</td></tr>'
-  + '<tr id="log-detail-'+log.id+'" style="display:none"><td colspan="7" style="padding:12px;background:#f8fafc"><div style="font-size:12px;color:#64748b;display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><b>会话：</b> '+esc(log.sessionId)+'</div><div><b>模型：</b> '+esc(log.modelName)+'</div><div><b>输入词元：</b> '+log.inputTokens+'</div><div><b>输出词元：</b> '+log.outputTokens+'</div><div><b>总词元：</b> '+log.totalTokens+'</div><div><b>系统提示:</b> '+log.systemPromptLen+'字符</div><div><b>用户消息:</b> '+log.userMessageLen+'字符</div><div><b>回复:</b> '+log.assistantResponseLen+'字符</div></div>'+(log.errorMessage?'<div style="margin-top:8px;color:#dc2626">❌ '+esc(log.errorMessage)+'</div>':'')+'</td></tr>').join('')
-  + '</tbody></table>';
+  c.innerHTML = '<div style="display:flex;flex-direction:column;gap:14px">'
+    + list.map(agent => '<div style="border:1px solid #e2e8f0;border-radius:12px;background:white;overflow:hidden">'
+      + '<div onclick="toggleBlock(\'agent-log-'+escId(agent.agentId)+'\')" style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:#f8fafc;cursor:pointer">'
+      + '<div style="font-size:20px">🤖</div><div style="font-weight:700;flex:1">'+esc(agent.agentId)+'</div>'
+      + '<span style="font-size:12px;color:#64748b">会话 '+(agent.sessionCount||0)+'</span>'
+      + '<span style="font-size:12px;color:#64748b">调用 '+(agent.totalCalls||0)+'</span>'
+      + '<span style="font-size:12px;color:#64748b">词元 '+(agent.totalTokens||0)+'</span></div>'
+      + '<div id="agent-log-'+escId(agent.agentId)+'" style="display:block;padding:12px 16px">'+(agent.sessions||[]).map(renderLogSession).join('')+'</div>'
+      + '</div>').join('')
+    + '</div>';
 }
-function toggleLogDetail(id) {
-  const tr = document.getElementById('log-detail-' + id);
-  if (tr) tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+function renderLogSession(session){
+  const sid=escId(session.sessionId);
+  return '<div style="border:1px solid #e2e8f0;border-radius:10px;margin-bottom:10px;overflow:hidden">'
+    + '<div onclick="toggleBlock(\'session-log-'+sid+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;background:white">'
+    + '<span style="font-size:16px">💬</span><span style="font-weight:600;flex:1">会话 '+esc(session.sessionId)+'</span>'
+    + '<span style="font-size:11px;color:#64748b">'+esc((session.lastSeenAt||'').slice(0,16))+'</span>'
+    + '<span style="font-size:11px;color:#64748b">LLM '+(session.callCount||0)+'</span>'
+    + '<span style="font-size:11px;color:#64748b">工具/思考 '+(session.toolCalls||0)+'</span>'
+    + '<span style="font-size:11px;color:#64748b">词元 '+(session.totalTokens||0)+'</span></div>'
+    + '<div id="session-log-'+sid+'" style="display:none;padding:12px;background:#f8fafc">'
+    + '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:#334155">大模型调用</div>'
+    + renderLogCalls(session.logs||[])
+    + '<div style="font-size:12px;font-weight:600;margin:12px 0 8px;color:#334155">对话 / 思考 / 工具时间线</div>'
+    + renderTraceMessages(session.messages||[])
+    + '</div></div>';
 }
+function renderLogCalls(logs){
+  if(!logs.length)return '<div style="color:#94a3b8;font-size:12px;padding:8px">暂无 LLM 调用</div>';
+  return logs.map(log => '<div style="display:grid;grid-template-columns:120px 110px 1fr 90px 90px 90px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #e2e8f0;background:white;font-size:12px">'
+    + '<span style="color:#64748b">'+esc((log.createdAt||'').slice(0,16))+'</span>'
+    + '<span style="padding:2px 8px;border-radius:10px;width:max-content;background:'+(log.mode==='react'?'#f0e6ff;color:#7c3aed':'#dbeafe;color:#1e40af')+'">'+esc(log.mode||'')+'</span>'
+    + '<span>'+esc(log.modelName||'')+'</span>'
+    + '<span>'+((log.durationMs||0))+'ms</span>'
+    + '<span style="color:'+(log.status==='success'?'#16a34a':'#dc2626')+'">'+esc(label(STATUS_LABELS,log.status))+'</span>'
+    + '<span>词元 '+(log.totalTokens??'--')+'</span>'
+    + '<div style="grid-column:1/-1;color:#64748b">历史/折叠 '+(log.historyMsgCount??'--')+'/'+(log.foldedMsgCount??'--')+'　系统提示 '+(log.systemPromptLen??'--')+' 字　用户 '+(log.userMessageLen??'--')+' 字　回复 '+(log.assistantResponseLen??'--')+' 字 '+(log.errorMessage?'<span style="color:#dc2626">❌ '+esc(log.errorMessage)+'</span>':'')+'</div>'
+    + '</div>').join('');
+}
+function renderTraceMessages(messages){
+  if(!messages.length)return '<div style="color:#94a3b8;font-size:12px;padding:8px">暂无对话时间线</div>';
+  return messages.map(m => '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #e2e8f0;font-size:12px">'
+    + '<span style="width:72px;color:#64748b">#'+(m.turn??'-')+'.'+(m.step??'-')+'</span>'
+    + '<span style="width:82px;font-weight:600;color:'+roleColor(m.role)+'">'+esc(roleLabel(m.role))+'</span>'
+    + '<div style="flex:1;min-width:0"><div style="white-space:pre-wrap;word-break:break-word;color:#334155">'+esc((m.content||'').slice(0,1200))+'</div>'
+    + (m.toolName?'<div style="margin-top:4px;color:#7c3aed">工具：'+esc(m.toolName)+'</div>':'')
+    + (m.toolArguments?'<pre style="margin-top:4px">'+esc(m.toolArguments.slice(0,1200))+'</pre>':'')
+    + (m.toolCallsJson?'<pre style="margin-top:4px">'+esc(m.toolCallsJson.slice(0,1200))+'</pre>':'')
+    + '</div></div>').join('');
+}
+function roleLabel(role){return {user:'用户',assistant:'助手/思考',tool:'工具结果'}[String(role||'').toLowerCase()]||role||'';}
+function roleColor(role){return {user:'#0284c7',assistant:'#7c3aed',tool:'#16a34a'}[String(role||'').toLowerCase()]||'#64748b';}
+function toggleBlock(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function escId(value){return String(value||'').replace(/[^a-zA-Z0-9_-]/g,'_');}
 
 // ========== Agents 卡片 ==========
 async function loadAgentCards() {
