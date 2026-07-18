@@ -29,7 +29,7 @@ public record ExplicitFeedbackRequest(
         if (rating != null && (rating < 1 || rating > 5)) {
             throw new IllegalArgumentException("rating must be between 1 and 5");
         }
-        if (Set.of("COMMENT", "CORRECTION", "ISSUE_REPORT").contains(normalizedType)
+        if (Set.of("THUMBS_DOWN", "COMMENT", "CORRECTION", "ISSUE_REPORT").contains(normalizedType)
                 && (message == null || message.isBlank())
                 && (correction == null || correction.isBlank())) {
             throw new IllegalArgumentException("message or correction is required for " + normalizedType);

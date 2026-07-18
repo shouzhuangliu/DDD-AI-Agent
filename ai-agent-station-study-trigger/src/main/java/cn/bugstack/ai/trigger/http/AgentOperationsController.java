@@ -49,6 +49,11 @@ public class AgentOperationsController {
     public Map<String, Object> submitFeedback(@PathVariable("agentId") String agentId,
                                                @RequestBody ExplicitFeedbackRequest request) {
         request.validate();
+        if ("THUMBS_UP".equals(request.normalizedType())
+                && (request.message() == null || request.message().isBlank())
+                && (request.correction() == null || request.correction().isBlank())) {
+            return Map.of("success", true, "recorded", false, "reason", "helpful click is not business feedback");
+        }
         ChatMessage target = chatMessageDao.queryById(request.assistantMessageId());
         if (target == null || !"assistant".equals(target.getRole())) {
             throw new IllegalArgumentException("Feedback target must be an assistant message");

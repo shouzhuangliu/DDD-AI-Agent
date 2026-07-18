@@ -1,0 +1,29 @@
+package cn.bugstack.ai.test.agent.operations;
+
+import cn.bugstack.ai.trigger.service.feedback.FeedbackAdmissionPolicy;
+import org.junit.Test;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class FeedbackAdmissionPolicyTest {
+
+    @Test
+    public void rejectsTinyTestAndNoiseInputs() {
+        FeedbackAdmissionPolicy policy = new FeedbackAdmissionPolicy();
+
+        assertFalse(policy.shouldCapture("1"));
+        assertFalse(policy.shouldCapture("hi"));
+        assertFalse(policy.shouldCapture("????????????"));
+        assertFalse(policy.shouldCapture("测试"));
+        assertFalse(policy.shouldCapture("可以"));
+    }
+
+    @Test
+    public void acceptsClearBusinessIssueReports() {
+        FeedbackAdmissionPolicy policy = new FeedbackAdmissionPolicy();
+
+        assertTrue(policy.shouldCapture("我目前遇到了一个问题，你们的 db 有缓存不一致，具体商品是显卡5060"));
+        assertTrue(policy.shouldCapture("支付接口一直超时，订单无法完成退款"));
+    }
+}

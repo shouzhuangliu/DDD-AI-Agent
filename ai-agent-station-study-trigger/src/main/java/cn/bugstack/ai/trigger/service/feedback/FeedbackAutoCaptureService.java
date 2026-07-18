@@ -19,8 +19,15 @@ public class FeedbackAutoCaptureService {
     @Resource
     private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
 
+    @Resource
+    private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
+
     public Long captureUserIssue(String agentId, String sessionId, String message) {
         if (agentId == null || agentId.isBlank() || message == null || message.isBlank()) {
+            return null;
+        }
+        if (!feedbackAdmissionPolicy.shouldCapture(message)) {
+            log.info("自动 Feedback 采集已跳过：输入未达到业务反馈准入阈值 agentId={}, sessionId={}", agentId, sessionId);
             return null;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -32,7 +39,7 @@ public class FeedbackAutoCaptureService {
                 .rating(1)
                 .message(message.trim())
                 .correction("")
-                .sourceType("USER")
+                .sourceType("AI_INFERRED")
                 .category("业务问题反馈")
                 .matchedCaseId("")
                 .resolved(0)

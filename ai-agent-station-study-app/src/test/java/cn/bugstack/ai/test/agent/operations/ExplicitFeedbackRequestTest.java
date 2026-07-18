@@ -12,6 +12,12 @@ public class ExplicitFeedbackRequestTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
+    public void rejectsThumbsDownWithoutMessage() {
+        new ExplicitFeedbackRequest("sess-1", 42L, "THUMBS_DOWN", 1, "", null, "user-1")
+                .validate();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
     public void rejectsMissingAssistantMessage() {
         new ExplicitFeedbackRequest("sess-1", null, "COMMENT", null, "bad", null, "user-1")
                 .validate();

@@ -499,7 +499,10 @@ async function attachFeedbackToLatestAssistant(){
   target.appendChild(actions);
 }
 async function submitExplicitFeedback(messageId,type){
-  let message=''; if(type!=='THUMBS_UP'){message=prompt(type==='THUMBS_DOWN'?'请说明哪里有问题（可留空）':'请输入你的反馈')||'';}
+  if(type==='THUMBS_UP'){alert('感谢反馈：已收到有帮助评价，不计入业务 Feedback 仪表盘');return;}
+  let message=prompt(type==='THUMBS_DOWN'?'请说明哪里有问题（必填，填写后才进入业务 Feedback）':'请输入你的补充反馈（必填）');
+  if(!message||!message.trim()){alert('未填写反馈内容，本次不记录业务 Feedback');return;}
+  message=message.trim();
   const resp=await fetch(API+'/agents/'+encodeURIComponent(currentChatAgent.agentId)+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:chatSession,assistantMessageId:messageId,feedbackType:type,message:message,submittedBy:'web-user'})});
   const result=await resp.json(); alert(result.success?'反馈已记录':'反馈失败：'+result.message);
 }
