@@ -4,6 +4,8 @@ import cn.bugstack.ai.trigger.service.analysis.AnalysisResultParser;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class AnalysisResultParserTest {
 
@@ -20,6 +22,34 @@ public class AnalysisResultParserTest {
         assertEquals("TOOL_FAILURE", result.signals().get(0).type());
         assertEquals(1, result.cases().size());
         assertEquals(80d, result.cases().get(0).importance(), 0.001d);
+    }
+
+    @Test
+    public void parsesBusinessRelevanceEvidenceAndPromotionDecision() {
+        String json = "{\"signals\":[],"
+                + "\"cases\":[{\"title\":\"退款规则缺失\",\"summary\":\"售后 Agent 缺少退款审批规则\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":85,\"confidence\":88,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":91,\"evidenceScore\":77,\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"用户明确反馈退款审批规则缺失\"}]}";
+
+        AnalysisResultParser.AnalysisResult result = parser.parse(json);
+
+        AnalysisResultParser.CaseCandidate candidate = result.cases().get(0);
+        assertTrue(candidate.businessRelated());
+        assertEquals(91d, candidate.businessRelevance(), 0.001d);
+        assertEquals(77d, candidate.evidenceScore(), 0.001d);
+        assertTrue(candidate.promoteToCase());
+        assertFalse(candidate.historicalHighRiskMatch());
+    }
+
+    @Test
+    public void defaultsMissingEvaluationFieldsToSafeValues() {
+        String json = "{\"signals\":[],"
+                + "\"cases\":[{\"title\":\"旧格式候选\",\"summary\":\"旧格式没有评测门槛字段\",\"caseType\":\"QUALITY\",\"severity\":\"MEDIUM\",\"importance\":50,\"confidence\":95,\"criticalRisk\":false,\"reason\":\"兼容旧格式\"}]}";
+
+        AnalysisResultParser.CaseCandidate candidate = parser.parse(json).cases().get(0);
+
+        assertFalse(candidate.businessRelated());
+        assertEquals(0d, candidate.businessRelevance(), 0.001d);
+        assertEquals(0d, candidate.evidenceScore(), 0.001d);
+        assertFalse(candidate.promoteToCase());
     }
 
     @Test

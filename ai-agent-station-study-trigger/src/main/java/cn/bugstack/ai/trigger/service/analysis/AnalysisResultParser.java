@@ -45,10 +45,15 @@ public class AnalysisResultParser {
         for (int i = 0; i < caseArray.size(); i++) {
             JSONObject value = caseArray.getJSONObject(i);
             double importance = bounded(value.getDoubleValue("importance"), "importance");
+            double businessRelevance = bounded(value.getDoubleValue("businessRelevance"), "businessRelevance");
+            double evidenceScore = bounded(value.getDoubleValue("evidenceScore"), "evidenceScore");
             cases.add(new CaseCandidate(AnalysisTextLocalizer.caseTitle(required(value, "title")),
                     AnalysisTextLocalizer.caseSummary(required(value, "summary")),
                     required(value, "caseType").toUpperCase(Locale.ROOT), severity(value), importance,
-                    confidence(value), value.getBooleanValue("criticalRisk"), required(value, "reason")));
+                    confidence(value), value.getBooleanValue("criticalRisk"),
+                    value.getBooleanValue("businessRelated"), businessRelevance, evidenceScore,
+                    value.getBooleanValue("promoteToCase"), value.getBooleanValue("historicalHighRiskMatch"),
+                    required(value, "reason")));
         }
         return new AnalysisResult(List.copyOf(signals), List.copyOf(cases));
     }
@@ -77,5 +82,7 @@ public class AnalysisResultParser {
     public record AnalysisResult(List<SignalCandidate> signals, List<CaseCandidate> cases) {}
     public record SignalCandidate(String type, String severity, double confidence, String summary, String rationale) {}
     public record CaseCandidate(String title, String summary, String caseType, String severity,
-                                double importance, double confidence, boolean criticalRisk, String reason) {}
+                                double importance, double confidence, boolean criticalRisk,
+                                boolean businessRelated, double businessRelevance, double evidenceScore,
+                                boolean promoteToCase, boolean historicalHighRiskMatch, String reason) {}
 }

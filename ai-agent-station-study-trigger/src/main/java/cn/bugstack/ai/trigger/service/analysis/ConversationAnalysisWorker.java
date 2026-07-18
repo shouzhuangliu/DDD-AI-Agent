@@ -4,6 +4,7 @@ import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.operations.CaseScoringService;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
+import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -13,7 +14,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,12 +26,41 @@ import java.util.List;
 public class ConversationAnalysisWorker {
 
     private static final String SYSTEM_PROMPT = """
-            你是企业级智能体会话质量分析员。只返回一个纯 JSON 对象，不要 Markdown。
-            固定结构：{"signals":[{"type":"USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|TOOL_FAILURE|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","confidence":0,"summary":"","rationale":""}],"cases":[{"title":"","summary":"","caseType":"BUG|FAQ|FEATURE|RUNBOOK|QUALITY","severity":"LOW|MEDIUM|HIGH|CRITICAL","importance":0,"confidence":0,"criticalRisk":false,"reason":""}]}。
-            type、severity、caseType 必须使用上述英文枚举；title、summary、rationale、reason 必须使用简体中文。
-            Case 只代表真实业务突发问题、产品缺陷、工具失败、流程风险或高价值可复用经验；不要把“1”“hi”等测试输入、普通问候、单次轻微误答生成 Case。
-            signals 是模型观察信号，可以记录一次性质量现象；cases 必须有明确业务影响或可复用处理价值。
-            只根据证据生成 signals/cases，证据不足返回空数组。所有分数范围为 0 到 100。
+            你是企业级 Agent 运营质量评测员，只返回一个纯 JSON 对象，不要 Markdown。
+            你的任务不是总结普通聊天，而是判断当前对话是否暴露了当前 Agent 业务范围内的问题、缺口、异常或可复用经验。
+            普通问候、单字测试、OK、继续、好的、内部执行占位文案、没有明确业务证据的轻微误答，都不能生成 Case。
+            Signal 是低置信度观察，只能代表可能的问题线索；Case 必须代表真实业务影响、产品缺陷、工具失败、流程风险、Skill/MCP 能力缺口或高价值可复用经验。
+            固定结构：
+            {
+              "signals": [
+                {
+                  "type": "USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|TOOL_FAILURE|OTHER",
+                  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
+                  "confidence": 0,
+                  "summary": "中文摘要",
+                  "rationale": "中文证据说明"
+                }
+              ],
+              "cases": [
+                {
+                  "title": "中文标题",
+                  "summary": "中文摘要",
+                  "caseType": "BUG|FAQ|FEATURE|RUNBOOK|QUALITY",
+                  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
+                  "importance": 0,
+                  "confidence": 0,
+                  "criticalRisk": false,
+                  "businessRelated": false,
+                  "businessRelevance": 0,
+                  "evidenceScore": 0,
+                  "promoteToCase": false,
+                  "historicalHighRiskMatch": false,
+                  "reason": "中文升级或不升级理由"
+                }
+              ]
+            }
+            只有 businessRelevance >= 70、confidence >= 75、evidenceScore >= 60，且存在显式反馈、跨会话重复、严重业务风险或历史高危命中时，promoteToCase 才允许为 true。
+            证据不足时返回空数组。所有分数范围为 0 到 100。
             """;
 
     @Resource private IAnalysisJobDao jobDao;
@@ -42,6 +71,7 @@ public class ConversationAnalysisWorker {
     @Resource private ICaseEvidenceDao evidenceDao;
     @Resource private ICaseScoreSnapshotDao scoreSnapshotDao;
     @Resource private AnalysisResultParser parser;
+    @Resource private AgentEvaluationContextBuilder evaluationContextBuilder;
     @Resource private ApplicationContext applicationContext;
     @Resource private ShortTermMemoryService shortTermMemoryService;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
@@ -86,15 +116,8 @@ public class ConversationAnalysisWorker {
     private String analyze(AnalysisJob job, List<ChatMessage> messages) {
         OpenAiChatModel model = applicationContext.getBean(
                 AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(job.getModelId()), OpenAiChatModel.class);
-        StringBuilder evidence = new StringBuilder("agentId=").append(job.getAgentId()).append('\n');
-        int start = Math.max(0, messages.size() - 30);
-        for (int i = start; i < messages.size(); i++) {
-            ChatMessage message = messages.get(i);
-            evidence.append('[').append(message.getId()).append(' ').append(message.getRole()).append("] ")
-                    .append(message.getContent() == null ? "" : message.getContent()).append('\n');
-        }
         return ChatClient.builder(model).defaultSystem(SYSTEM_PROMPT).build()
-                .prompt().user(evidence.toString()).call().content();
+                .prompt().user(evaluationContextBuilder.build(job.getAgentId(), messages)).call().content();
     }
 
     private void persist(AnalysisJob job, AnalysisResultParser.AnalysisResult result, int explicitNegativeFeedback) {
@@ -119,8 +142,10 @@ public class ConversationAnalysisWorker {
                 .messageId(job.getAssistantMessageId()).excerpt(candidate.reason()).createdAt(now).build());
         int distinctSessions = jdbcTemplate.queryForObject(
                 "SELECT COUNT(DISTINCT session_id) FROM case_evidence WHERE case_id = ?", Integer.class, caseId);
-        if (!qualificationPolicy.shouldPromoteCase(distinctSessions, explicitNegativeFeedback,
-                candidate.confidence(), candidate.criticalRisk())) {
+        if (!candidate.businessRelated() || !candidate.promoteToCase()
+                || !qualificationPolicy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                distinctSessions, explicitNegativeFeedback, candidate.confidence(), candidate.criticalRisk(),
+                candidate.businessRelevance(), candidate.evidenceScore(), candidate.historicalHighRiskMatch()))) {
             return;
         }
         AiCase existing = caseDao.queryByAgentAndCaseId(job.getAgentId(), caseId);
