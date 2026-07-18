@@ -23,9 +23,9 @@ public class WorkflowTransitionPolicy {
                 "MERGED", Set.of("CANDIDATE")
         ));
         transitions.put(Resource.FEEDBACK, Map.of(
-                "OPEN", Set.of("AI_EVALUATING", "INVALID", "NEED_MORE_INFO"),
-                "AI_EVALUATING", Set.of("VALID", "INVALID", "NEED_MORE_INFO"),
-                "NEED_MORE_INFO", Set.of("AI_EVALUATING", "INVALID"),
+                "OPEN", Set.of("AI_EVALUATING", "PROMOTED", "INVALID", "NEED_MORE_INFO"),
+                "AI_EVALUATING", Set.of("VALID", "PROMOTED", "INVALID", "NEED_MORE_INFO"),
+                "NEED_MORE_INFO", Set.of("AI_EVALUATING", "PROMOTED", "INVALID"),
                 "VALID", Set.of("CLUSTERED", "PROMOTED", "RESOLVED"),
                 "CLUSTERED", Set.of("PROMOTED", "RESOLVED"),
                 "PROMOTED", Set.of("RESOLVED"),

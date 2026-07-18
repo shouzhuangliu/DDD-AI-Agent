@@ -50,7 +50,9 @@ public class WorkflowTransitionPolicyTest {
     }
 
     @Test
-    public void rejectsSkippingFeedbackEvaluation() {
-        assertFalse(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "OPEN", "PROMOTED"));
+    public void allowsManualFeedbackPromotionFromReviewStates() {
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "OPEN", "PROMOTED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "AI_EVALUATING", "PROMOTED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, "NEED_MORE_INFO", "PROMOTED"));
     }
 }

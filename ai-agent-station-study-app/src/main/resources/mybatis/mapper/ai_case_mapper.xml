@@ -35,7 +35,7 @@
     <select id="countByStatus" resultType="long">SELECT COUNT(*) FROM ai_case WHERE status=#{status}</select>
     <select id="countAll" resultType="long">SELECT COUNT(*) FROM ai_case</select>
     <select id="queryByKeyword" resultMap="CaseMap">SELECT * FROM ai_case WHERE status='active' AND (title LIKE CONCAT('%',#{keyword},'%') OR case_type LIKE CONCAT('%',#{keyword},'%') OR skill_id LIKE CONCAT('%',#{keyword},'%')) ORDER BY frequency DESC LIMIT #{limit}</select>
-    <select id="queryTopByAgent" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND status IN ('CONFIRMED','IN_PROGRESS','RESOLVED') ORDER BY total_score DESC, last_seen_at DESC, id DESC LIMIT #{limit}</select>
+    <select id="queryTopByAgent" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND status IN ('CANDIDATE','PENDING_REVIEW','CONFIRMED','IN_PROGRESS','RESOLVED') ORDER BY total_score DESC, last_seen_at DESC, id DESC LIMIT #{limit}</select>
     <select id="queryByAgentAndStatus" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND (#{status}='' OR status=#{status}) ORDER BY total_score DESC, updated_at DESC LIMIT #{limit}</select>
     <select id="queryByAgentAndCaseId" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND case_id=#{caseId} LIMIT 1</select>
     <select id="countByAgent" resultType="long">SELECT COUNT(*) FROM ai_case WHERE agent_id=#{agentId}</select>

@@ -9,8 +9,10 @@ import cn.bugstack.ai.infrastructure.dao.IAiSignalDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
+import cn.bugstack.ai.infrastructure.dao.po.CaseEvidence;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
@@ -40,6 +42,7 @@ public class AgentOperationsController {
     @Resource private IMemorySummaryDao memorySummaryDao;
     @Resource private IMemoryStateDao memoryStateDao;
     @Resource private IMemoryToolResultDao memoryToolResultDao;
+    @Resource private ICaseEvidenceDao caseEvidenceDao;
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
@@ -119,11 +122,16 @@ public class AgentOperationsController {
         }
         String toStatus = request.toStatus().trim().toUpperCase();
         transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, item.getStatus(), toStatus);
+        String matchedCaseId = safe(request.matchedCaseId());
+        if ("PROMOTED".equals(toStatus)) {
+            matchedCaseId = promoteFeedbackToCase(agentId, item, matchedCaseId, safe(request.reason()));
+        }
         int resolved = "RESOLVED".equals(toStatus) || "PROMOTED".equals(toStatus) || "INVALID".equals(toStatus) ? 1 : 0;
         int changed = feedbackDao.transitionStatus(feedbackId, agentId, item.getStatus(), toStatus,
-                safe(request.category()), safe(request.matchedCaseId()), resolved);
+                safe(request.category()), matchedCaseId, resolved);
         if (changed != 1) throw new IllegalStateException("Feedback changed concurrently; refresh and retry");
-        return Map.of("success", true, "feedbackId", feedbackId, "fromStatus", item.getStatus(), "toStatus", toStatus);
+        return Map.of("success", true, "feedbackId", feedbackId, "fromStatus", item.getStatus(), "toStatus", toStatus,
+                "caseId", matchedCaseId);
     }
 
     @GetMapping("/sources/{messageId}")
@@ -267,6 +275,61 @@ public class AgentOperationsController {
     }
 
     private int bounded(int limit) { return Math.max(1, Math.min(200, limit)); }
+    private String promoteFeedbackToCase(String agentId, AiFeedback feedback, String requestedCaseId, String reason) {
+        LocalDateTime now = LocalDateTime.now();
+        String caseId = requestedCaseId.isBlank() ? "case-feedback-" + feedback.getId() : requestedCaseId;
+        AiCase existing = caseDao.queryByAgentAndCaseId(agentId, caseId);
+        String message = safe(feedback.getMessage());
+        String title = buildCaseTitle(message, feedback.getFeedbackType());
+        String summary = message.isBlank() ? "由 Feedback 人工升级生成的候选 Case" : message;
+        if (existing == null) {
+            AiCase record = AiCase.builder()
+                    .caseId(caseId)
+                    .agentId(agentId)
+                    .title(title)
+                    .summary(summary)
+                    .caseType("QUALITY")
+                    .severity("MEDIUM")
+                    .frequency(1)
+                    .affectedSessions(feedback.getSessionId() == null || feedback.getSessionId().isBlank() ? 0 : 1)
+                    .importanceScore(65d)
+                    .confidence("AI_INFERRED".equals(feedback.getSourceType()) ? 70d : 85d)
+                    .totalScore("AI_INFERRED".equals(feedback.getSourceType()) ? 58d : 72d)
+                    .status("CANDIDATE")
+                    .skillId("")
+                    .sourceModel("")
+                    .extractionReason(reason.isBlank() ? "由 Feedback 人工升级为候选 Case" : reason)
+                    .owner("")
+                    .resolution("")
+                    .lastSeenAt(now)
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .build();
+            caseDao.insert(record);
+        } else {
+            caseDao.incrementFrequency(caseId);
+        }
+        caseEvidenceDao.insertIgnore(CaseEvidence.builder()
+                .caseId(caseId)
+                .agentId(agentId)
+                .evidenceType("FEEDBACK")
+                .evidenceId(feedback.getId())
+                .sessionId(safe(feedback.getSessionId()))
+                .messageId(feedback.getAssistantMessageId())
+                .excerpt(summary.substring(0, Math.min(summary.length(), 500)))
+                .createdAt(now)
+                .build());
+        return caseId;
+    }
+
+    private String buildCaseTitle(String message, String feedbackType) {
+        if (!message.isBlank()) {
+            String compact = message.replaceAll("\\s+", " ").trim();
+            return compact.length() <= 60 ? compact : compact.substring(0, 60);
+        }
+        return "Feedback 升级 Case：" + safe(feedbackType);
+    }
+
     private Map<String, Object> sourceOf(String agentId, Long messageId) {
         ChatMessage message = chatMessageDao.queryById(messageId);
         if (message == null || !agentId.equals(message.getAgentId())) throw new IllegalArgumentException("Message source does not belong to this Agent");
