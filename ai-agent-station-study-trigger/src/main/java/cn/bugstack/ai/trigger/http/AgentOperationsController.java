@@ -12,6 +12,7 @@ import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
+import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import jakarta.annotation.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +36,7 @@ public class AgentOperationsController {
     @Resource private IMemorySummaryDao memorySummaryDao;
     @Resource private IMemoryStateDao memoryStateDao;
     @Resource private IMemoryToolResultDao memoryToolResultDao;
+    @Resource private CaseMemoryPublisher caseMemoryPublisher;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
 
@@ -144,6 +146,8 @@ public class AgentOperationsController {
         if (changed != 1) throw new IllegalStateException("Case changed concurrently; refresh and retry");
         jdbcTemplate.update("INSERT INTO case_review_record(case_id,agent_id,from_status,to_status,actor,reason) VALUES (?,?,?,?,?,?)",
                 caseId, agentId, item.getStatus(), toStatus, request.actor().trim(), safe(request.reason()));
+        AiCase updated = caseDao.queryByAgentAndCaseId(agentId, caseId);
+        caseMemoryPublisher.publish(updated == null ? item : updated, toStatus, safe(request.reason()));
         return Map.of("success", true, "caseId", caseId, "fromStatus", item.getStatus(), "toStatus", toStatus);
     }
 
