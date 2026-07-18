@@ -12,13 +12,12 @@ import static org.junit.Assert.assertEquals;
 public class ReActToolAllowlistPolicyTest {
 
     @Test
-    public void defaultToolSetDoesNotExposeProjectInspectionOrMutationTools() {
+    public void nullBindingExposesNoTools() {
         ReActToolAllowlistPolicy policy = new ReActToolAllowlistPolicy();
 
         List<String> tools = policy.resolve(null);
 
-        assertTrue(tools.contains("query_cases"));
-        assertTrue(tools.contains("query_feedback"));
+        assertTrue(tools.isEmpty());
         assertFalse(tools.contains("run_bash"));
         assertFalse(tools.contains("write_file"));
         assertFalse(tools.contains("read_file"));

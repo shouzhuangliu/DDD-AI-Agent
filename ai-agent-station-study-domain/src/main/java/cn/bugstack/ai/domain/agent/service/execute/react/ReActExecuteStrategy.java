@@ -133,7 +133,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
             List<String> skillIds = repository.queryBoundSkillIds(agentId);
             List<String> mcpIds = repository.queryBoundMcpIds(agentId);
-            List<String> allowedTools = toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId));
+            List<String> allowedTools = resolveRuntimeTools(
+                    toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId)), skillIds, mcpIds);
 
             String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds, allowedTools);
 
@@ -253,6 +254,24 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         return tools.toArray();
     }
 
+    private List<String> resolveRuntimeTools(List<String> explicitlyAllowedTools, List<String> boundSkillIds, List<String> boundMcpIds) {
+        java.util.LinkedHashSet<String> tools = new java.util.LinkedHashSet<>(
+                explicitlyAllowedTools == null ? List.of() : explicitlyAllowedTools);
+        boolean hasSkills = boundSkillIds != null && !boundSkillIds.isEmpty();
+        boolean hasMcps = boundMcpIds != null && !boundMcpIds.isEmpty();
+        if (hasSkills) {
+            tools.add(ReActToolAllowlistPolicy.EXECUTE_SKILL);
+        } else {
+            tools.remove(ReActToolAllowlistPolicy.EXECUTE_SKILL);
+        }
+        if (hasMcps) {
+            tools.add(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
+        } else {
+            tools.remove(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
+        }
+        return new java.util.ArrayList<>(tools);
+    }
+
     /** 构建动态系统提示词：soul + 授权工具说明 + 绑定 skills + 绑定 MCP（仅名+描述） */
     private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds, List<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
@@ -261,7 +280,17 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             sb.append(agent.getSystemPrompt()).append("\n\n");
         }
 
-        sb.append("可用工具（只能使用下面列出的工具；用户只是反馈问题时不要主动排查项目）：\n");
+        sb.append("""
+                能力边界：
+                - 只能使用系统提示词中明确列出的工具，不能编造 Bash、ReadFile、WriteFile、Python、MySQL、Redis、SearchFile 等未授权工具。
+                - Skills 是当前 Agent 绑定的业务技能包；MCP 是当前 Agent 绑定的外部服务能力；二者不能混同。
+                - 用户只是反馈问题时，先记录/确认反馈，不要主动排查项目、读取文件或运行命令。
+
+                可用工具：
+                """);
+        if (allowedTools == null || allowedTools.isEmpty()) {
+            sb.append("- 无。当前 Agent 没有绑定任何可调用工具；如果用户询问工具/技能，请如实说明当前没有可调用配置。\n");
+        }
         if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) sb.append("- read_file(relativePath): 读取工作目录下指定相对路径的文本文件\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) sb.append("- write_file(relativePath, content): 在工作目录下写入或覆盖文本文件\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) sb.append("- run_bash(command): 在工作目录内执行一条白名单内的 shell 命令\n");
@@ -281,6 +310,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 }
             }
             sb.append("\n当用户请求的任务可以通过某个 Skill 完成时，请调用 execute_skill 工具获取操作手册。\n");
+        } else {
+            sb.append("\n该 Agent 当前没有绑定可执行 Skills。不要声称存在 demo skill、项目扫描 skill 或其他技能。\n");
         }
 
         // MCP 工具仅列名称+描述（不挂全量 schema，防上下文膨胀）
@@ -297,6 +328,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     调用前请确认参数格式正确。
                     """);
             }
+        } else {
+            sb.append("\n该 Agent 当前没有绑定 MCP。不要声称存在 MySQL、Redis、搜索、文件等 MCP 能力。\n");
         }
 
         return sb.toString();

@@ -3,7 +3,6 @@ package cn.bugstack.ai.domain.agent.service.execute.react;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -23,14 +22,11 @@ public class ReActToolAllowlistPolicy {
             READ_FILE, WRITE_FILE, RUN_BASH, EXECUTE_SKILL, CALL_MCP_TOOL,
             RETRIEVE_TOOL_CALL, QUERY_CASES, QUERY_FEEDBACK);
 
-    private static final List<String> DEFAULT_SAFE_TOOLS = List.of(
-            QUERY_CASES, QUERY_FEEDBACK, EXECUTE_SKILL, CALL_MCP_TOOL, RETRIEVE_TOOL_CALL);
-
     public List<String> resolve(List<String> boundTools) {
         if (boundTools == null) {
-            return DEFAULT_SAFE_TOOLS;
+            return List.of();
         }
-        LinkedHashSet<String> result = new LinkedHashSet<>();
+        Set<String> result = new java.util.LinkedHashSet<>();
         for (String tool : boundTools) {
             if (tool == null || tool.isBlank()) continue;
             String normalized = tool.trim().toLowerCase();

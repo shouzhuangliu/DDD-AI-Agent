@@ -23,6 +23,7 @@ import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +50,7 @@ public class AgentController {
     @Resource private CapabilityRegistryService capabilityRegistryService;
     @Resource private ConversationSessionService conversationSessionService;
     @Resource private AgentSoulService agentSoulService;
+    @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
 
     @GetMapping("/models")
     public List<AiModelOptionDTO> listModels() {
@@ -182,7 +184,27 @@ public class AgentController {
 
     @GetMapping("/skills")
     public List<SkillScannerService.SkillInfo> listSkills() {
-        return skillScannerService.scan(Paths.get(properties.getWorkDir(), "skills"));
+        return jdbcTemplate.query("""
+                        SELECT CONCAT(p.skill_key,'-',v.version) AS skill_id,
+                               p.name AS skill_name,
+                               p.description AS description
+                        FROM skill_release r
+                        JOIN skill_version v ON v.id = r.version_id
+                        JOIN skill_package p ON p.id = v.package_id
+                        WHERE r.status = 'ACTIVE'
+                        ORDER BY r.released_at DESC, r.id DESC
+                        """,
+                (rs, rowNum) -> {
+                    String skillId = rs.getString("skill_id");
+                    var runtime = skillScannerService.readSkill(Paths.get(properties.getWorkDir(), "skills", skillId));
+                    if (runtime != null) return runtime;
+                    return SkillScannerService.SkillInfo.builder()
+                            .skillId(skillId)
+                            .skillName(rs.getString("skill_name"))
+                            .description(rs.getString("description"))
+                            .content("")
+                            .build();
+                });
     }
 
     @GetMapping("/skills/{skillId}")
