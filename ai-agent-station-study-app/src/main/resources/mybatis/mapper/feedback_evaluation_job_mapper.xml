@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IFeedbackEvaluationJobDao">
+  <resultMap id="FeedbackEvaluationJobMap" type="cn.bugstack.ai.infrastructure.dao.po.FeedbackEvaluationJob">
+    <id column="id" property="id"/>
+    <result column="idempotency_key" property="idempotencyKey"/>
+    <result column="agent_id" property="agentId"/>
+    <result column="feedback_id" property="feedbackId"/>
+    <result column="policy_version" property="policyVersion"/>
+    <result column="status" property="status"/>
+    <result column="attempts" property="attempts"/>
+    <result column="max_attempts" property="maxAttempts"/>
+    <result column="lease_until" property="leaseUntil"/>
+    <result column="error_message" property="errorMessage"/>
+    <result column="created_at" property="createdAt"/>
+    <result column="updated_at" property="updatedAt"/>
+  </resultMap>
+  <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.FeedbackEvaluationJob" useGeneratedKeys="true" keyProperty="id">
+    INSERT IGNORE INTO feedback_evaluation_job (idempotency_key,agent_id,feedback_id,policy_version,status,attempts,max_attempts,created_at,updated_at)
+    VALUES (#{idempotencyKey},#{agentId},#{feedbackId},#{policyVersion},#{status},#{attempts},#{maxAttempts},#{createdAt},#{updatedAt})
+  </insert>
+</mapper>

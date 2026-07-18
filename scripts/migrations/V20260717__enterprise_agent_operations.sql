@@ -64,6 +64,26 @@ CREATE TABLE IF NOT EXISTS `analysis_job` (
   KEY `idx_analysis_agent` (`agent_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `feedback_evaluation_job` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `idempotency_key` VARCHAR(160) NOT NULL,
+  `agent_id` VARCHAR(32) NOT NULL,
+  `feedback_id` BIGINT UNSIGNED NOT NULL,
+  `policy_version` VARCHAR(32) NOT NULL DEFAULT 'v1',
+  `status` VARCHAR(24) NOT NULL DEFAULT 'PENDING',
+  `attempts` INT NOT NULL DEFAULT 0,
+  `max_attempts` INT NOT NULL DEFAULT 3,
+  `lease_until` DATETIME NULL,
+  `error_message` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_feedback_eval_idempotency` (`idempotency_key`),
+  KEY `idx_feedback_eval_claim` (`status`,`lease_until`,`created_at`),
+  KEY `idx_feedback_eval_agent` (`agent_id`,`created_at`),
+  KEY `idx_feedback_eval_feedback` (`feedback_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `ai_signal` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `agent_id` VARCHAR(32) NOT NULL,

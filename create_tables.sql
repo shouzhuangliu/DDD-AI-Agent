@@ -194,6 +194,26 @@ CREATE TABLE IF NOT EXISTS `ai_feedback` (
   KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户反馈原始流水';
 
+CREATE TABLE IF NOT EXISTS `feedback_evaluation_job` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT,
+  `idempotency_key` VARCHAR(160) NOT NULL COMMENT '幂等键',
+  `agent_id` VARCHAR(32) NOT NULL DEFAULT '' COMMENT 'Agent ID',
+  `feedback_id` BIGINT UNSIGNED NOT NULL COMMENT '业务 Feedback ID',
+  `policy_version` VARCHAR(32) NOT NULL DEFAULT 'v1' COMMENT '评测策略版本',
+  `status` VARCHAR(24) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/RUNNING/RETRY/COMPLETED/FAILED',
+  `attempts` INT NOT NULL DEFAULT 0 COMMENT '已尝试次数',
+  `max_attempts` INT NOT NULL DEFAULT 3 COMMENT '最大尝试次数',
+  `lease_until` DATETIME NULL COMMENT '租约截止时间',
+  `error_message` TEXT COMMENT '失败原因',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_feedback_eval_idempotency` (`idempotency_key`),
+  KEY `idx_feedback_eval_claim` (`status`,`lease_until`,`created_at`),
+  KEY `idx_feedback_eval_agent` (`agent_id`,`created_at`),
+  KEY `idx_feedback_eval_feedback` (`feedback_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务 Feedback AI 评测队列';
+
 CREATE TABLE IF NOT EXISTS `ai_case` (
   `id` BIGINT UNSIGNED AUTO_INCREMENT,
   `case_id` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '对应 skill_id',

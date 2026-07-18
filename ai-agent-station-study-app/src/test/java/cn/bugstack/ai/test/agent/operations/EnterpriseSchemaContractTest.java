@@ -18,7 +18,7 @@ public class EnterpriseSchemaContractTest {
         String sql = Files.readString(migration).toLowerCase();
 
         for (String table : new String[]{
-                "analysis_job", "ai_signal", "case_evidence", "case_score_snapshot", "case_review_record",
+                "analysis_job", "feedback_evaluation_job", "ai_signal", "case_evidence", "case_score_snapshot", "case_review_record",
                 "memory_summary", "memory_state", "memory_tool_result",
                 "mcp_server", "mcp_version", "mcp_test_run", "mcp_review", "mcp_release",
                 "skill_package", "skill_version", "skill_validation", "skill_review", "skill_release",

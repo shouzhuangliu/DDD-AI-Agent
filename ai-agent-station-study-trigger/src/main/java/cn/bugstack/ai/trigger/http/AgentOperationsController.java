@@ -14,7 +14,9 @@ import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
+import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,6 +30,7 @@ import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/v1/agents/{agentId}")
+@Slf4j
 public class AgentOperationsController {
 
     @Resource private IAiFeedbackDao feedbackDao;
@@ -38,6 +41,7 @@ public class AgentOperationsController {
     @Resource private IMemoryStateDao memoryStateDao;
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
+    @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
 
@@ -82,6 +86,11 @@ public class AgentOperationsController {
                 .createdAt(now).updatedAt(now)
                 .build();
         feedbackDao.insert(feedback);
+        try {
+            feedbackEvaluationJobQueue.enqueue(agentId, feedback.getId());
+        } catch (Exception exception) {
+            log.warn("Failed to enqueue feedback evaluation for feedback {}", feedback.getId(), exception);
+        }
         return Map.of("success", true, "id", feedback.getId(), "sourceType", feedback.getSourceType());
     }
 
