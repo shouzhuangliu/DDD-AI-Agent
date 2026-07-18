@@ -13,7 +13,7 @@ import org.springframework.context.ApplicationListener;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.CollectionUtils;
 
-import javax.annotation.Resource;
+import jakarta.annotation.Resource;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
