@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiSessionDao">
+    <resultMap id="SessionMap" type="cn.bugstack.ai.infrastructure.dao.po.AiSession">
+        <id column="id" property="id"/><result column="session_id" property="sessionId"/>
+        <result column="agent_id" property="agentId"/><result column="title" property="title"/>
+        <result column="message_count" property="messageCount"/><result column="status" property="status"/>
+        <result column="model_id" property="modelId"/><result column="preview" property="preview"/>
+        <result column="created_at" property="createdAt"/><result column="updated_at" property="updatedAt"/><result column="last_message_at" property="lastMessageAt"/>
+    </resultMap>
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiSession" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_session (session_id, agent_id, title, message_count, status, model_id, preview, created_at, updated_at, last_message_at)
+        VALUES (#{sessionId}, #{agentId}, #{title}, #{messageCount}, 1, #{modelId}, #{preview}, NOW(), NOW(), NOW())
+    </insert>
+    <update id="updateBySessionId" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiSession">
+        UPDATE ai_session SET title=#{title}, message_count=#{messageCount}, updated_at=NOW() WHERE session_id=#{sessionId}
+    </update>
+    <update id="updateTitle">UPDATE ai_session SET title=#{title}, updated_at=NOW() WHERE session_id=#{sessionId} AND status=1</update>
+    <update id="softDelete">UPDATE ai_session SET status=0, updated_at=NOW() WHERE session_id=#{sessionId} AND status=1</update>
+    <update id="incrementMessageCount">UPDATE ai_session SET message_count=message_count+1, updated_at=NOW() WHERE session_id=#{sessionId}</update>
+    <update id="touch">UPDATE ai_session SET message_count=message_count+1, updated_at=NOW(), last_message_at=NOW(), preview=#{preview}, model_id=CASE WHEN #{modelId}='' THEN model_id ELSE #{modelId} END WHERE session_id=#{sessionId}</update>
+    <select id="queryBySessionId" resultMap="SessionMap">SELECT * FROM ai_session WHERE session_id=#{sessionId} AND status=1</select>
+    <select id="queryByAgentAndSession" resultMap="SessionMap">SELECT * FROM ai_session WHERE agent_id=#{agentId} AND session_id=#{sessionId} AND status=1</select>
+    <select id="queryByAgentId" resultMap="SessionMap">SELECT * FROM ai_session WHERE agent_id=#{agentId} AND status=1 ORDER BY COALESCE(last_message_at,updated_at) DESC LIMIT #{limit}</select>
+    <select id="queryRecent" resultMap="SessionMap">SELECT * FROM ai_session WHERE status=1 ORDER BY updated_at DESC LIMIT #{limit}</select>
+    <select id="countByAgentId" resultType="long">SELECT COUNT(*) FROM ai_session WHERE agent_id=#{agentId} AND status=1</select>
+</mapper>

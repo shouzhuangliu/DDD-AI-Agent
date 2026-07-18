@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IChatMessageDao">
+    <resultMap id="ChatMessageMap" type="cn.bugstack.ai.infrastructure.dao.po.ChatMessage">
+        <id column="id" property="id"/><result column="session_id" property="sessionId"/>
+        <result column="agent_id" property="agentId"/><result column="turn" property="turn"/>
+        <result column="step" property="step"/><result column="role" property="role"/>
+        <result column="content" property="content"/><result column="tool_call_id" property="toolCallId"/>
+        <result column="tool_name" property="toolName"/><result column="tool_arguments" property="toolArguments"/>
+        <result column="tool_calls_json" property="toolCallsJson"/>
+        <result column="compressed" property="compressed"/><result column="created_at" property="createdAt"/>
+    </resultMap>
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.ChatMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO chat_message (session_id, agent_id, turn, step, role, content, tool_call_id, tool_name, tool_arguments, tool_calls_json, compressed, created_at)
+        VALUES (#{sessionId}, #{agentId}, #{turn}, #{step}, #{role}, #{content}, #{toolCallId}, #{toolName}, #{toolArguments}, #{toolCallsJson}, #{compressed}, #{createdAt})
+    </insert>
+    <select id="queryBySessionId" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE session_id=#{sessionId} ORDER BY id ASC</select>
+    <select id="queryByToolCallId" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE tool_call_id=#{toolCallId} LIMIT 1</select>
+    <select id="countBySessionId" resultType="long">SELECT COUNT(*) FROM chat_message WHERE session_id=#{sessionId}</select>
+    <select id="queryById" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE id=#{id}</select>
+    <update id="updateCompressed">UPDATE chat_message SET compressed=#{compressed} WHERE id=#{id}</update>
+</mapper>

@@ -1,0 +1,36 @@
+package cn.bugstack.ai.test.agent.operations;
+
+import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
+import org.junit.Test;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class WorkflowTransitionPolicyTest {
+
+    private final WorkflowTransitionPolicy policy = new WorkflowTransitionPolicy();
+
+    @Test
+    public void allowsCaseReviewLifecycle() {
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "CANDIDATE", "PENDING_REVIEW"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "PENDING_REVIEW", "CONFIRMED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "RESOLVED", "ARCHIVED"));
+    }
+
+    @Test
+    public void rejectsSkippingCaseReview() {
+        assertFalse(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "CANDIDATE", "RELEASED"));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void requireAllowedExplainsInvalidTransition() {
+        policy.requireAllowed(WorkflowTransitionPolicy.Resource.MCP, "DRAFT", "RELEASED");
+    }
+
+    @Test
+    public void allowsGovernedCapabilityLifecycle() {
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.MCP, "APPROVED", "RELEASED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.SKILL, "APPROVED", "SIGNED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.SKILL, "SIGNED", "RELEASED"));
+    }
+}

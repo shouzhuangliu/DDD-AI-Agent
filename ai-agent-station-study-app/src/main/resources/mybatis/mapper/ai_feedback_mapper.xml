@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao">
+    <resultMap id="FeedbackMap" type="cn.bugstack.ai.infrastructure.dao.po.AiFeedback">
+        <id column="id" property="id"/><result column="session_id" property="sessionId"/>
+        <result column="agent_id" property="agentId"/><result column="message" property="message"/>
+        <result column="assistant_message_id" property="assistantMessageId"/>
+        <result column="feedback_type" property="feedbackType"/><result column="rating" property="rating"/>
+        <result column="correction" property="correction"/><result column="source_type" property="sourceType"/>
+        <result column="category" property="category"/><result column="matched_case_id" property="matchedCaseId"/>
+        <result column="resolved" property="resolved"/><result column="status" property="status"/>
+        <result column="submitted_by" property="submittedBy"/><result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiFeedback" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_feedback (session_id, agent_id, assistant_message_id, feedback_type, rating,
+          message, correction, source_type, category, matched_case_id, resolved, status, submitted_by, created_at, updated_at)
+        VALUES (#{sessionId}, #{agentId}, #{assistantMessageId}, #{feedbackType}, #{rating},
+          #{message}, #{correction}, #{sourceType}, #{category}, #{matchedCaseId}, #{resolved}, #{status}, #{submittedBy}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="queryRecent" resultMap="FeedbackMap">SELECT * FROM ai_feedback ORDER BY created_at DESC LIMIT #{limit}</select>
+    <select id="countToday" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE DATE(created_at)=CURDATE()</select>
+    <select id="countByResolved" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE resolved=#{resolved}</select>
+    <select id="queryByAgentId" resultMap="FeedbackMap">SELECT * FROM ai_feedback WHERE agent_id=#{agentId} ORDER BY created_at DESC LIMIT #{limit}</select>
+    <select id="queryExplicitByAgentId" resultMap="FeedbackMap">SELECT * FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT' ORDER BY created_at DESC LIMIT #{limit}</select>
+    <select id="countExplicitByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT'</select>
+    <select id="countExplicitTodayByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT' AND DATE(created_at)=CURDATE()</select>
+    <select id="countNegativeByAgentId" resultType="long">SELECT COUNT(*) FROM ai_feedback WHERE agent_id=#{agentId} AND source_type='EXPLICIT' AND (feedback_type='THUMBS_DOWN' OR (rating IS NOT NULL AND rating &lt;= 2))</select>
+</mapper>

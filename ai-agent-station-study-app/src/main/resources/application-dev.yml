@@ -1,0 +1,77 @@
+server:
+  port: 8091
+
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 50
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+spring:
+  datasource:
+    mysql:
+      username: ${MYSQL_USERNAME:root}
+      password: ${MYSQL_PASSWORD:123456}
+      url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/${MYSQL_DATABASE:ai-agent-station-study}?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      type: com.zaxxer.hikari.HikariDataSource
+      hikari:
+        pool-name: MainHikariPool
+        minimum-idle: 5
+        idle-timeout: 180000
+        maximum-pool-size: 15
+        auto-commit: true
+        max-lifetime: 1800000
+        connection-timeout: 30000
+        connection-test-query: SELECT 1
+    pgvector:
+      driver-class-name: org.postgresql.Driver
+      username: ${PGVECTOR_USERNAME:postgres}
+      password: ${PGVECTOR_PASSWORD:123456}
+      url: jdbc:postgresql://${PGVECTOR_HOST:127.0.0.1}:${PGVECTOR_PORT:15432}/${PGVECTOR_DATABASE:ai-rag-knowledge}
+      type: com.zaxxer.hikari.HikariDataSource
+      hikari:
+        maximum-pool-size: 5
+        minimum-idle: 2
+        idle-timeout: 30000
+        connection-timeout: 30000
+
+  ai:
+    openai:
+      base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
+      api-key: ${SILICONFLOW_API_KEY:${OPENAI_API_KEY:local-development-key}}
+      embedding:
+        options:
+          model: ${SILICONFLOW_EMBEDDING_MODEL:BAAI/bge-m3}
+    agent:
+      auto-config:
+        enabled: true
+        client-ids: 3101,3102,3103,3104,3105
+      react:
+        work-dir: "${AI_AGENT_WORK_DIR:${user.dir}}"
+        bash:
+          enabled: true
+          whitelist: ls,cat,echo,grep,find,wc,head,tail,dir,type,more,less
+        request-timeout: 60
+
+logging:
+  level:
+    root: info
+  config: classpath:logback-spring.xml
+
+agent:
+  memory:
+    token-budget: 16000
+    retain-messages: 24
+    long-term:
+      # pgvector = local long-term memory with SiliconFlow BGE-M3 embeddings.
+      # mem0 = external Mem0 REST service. noop = disable cross-session memory.
+      provider: ${LONG_TERM_MEMORY_PROVIDER:pgvector}
+    mem0:
+      enabled: ${MEM0_ENABLED:false}
+      base-url: ${MEM0_BASE_URL:http://127.0.0.1:18888}
+      api-key: ${MEM0_API_KEY:}

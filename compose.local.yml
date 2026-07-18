@@ -1,0 +1,74 @@
+name: ai-agent-station-study-local
+
+services:
+  mysql:
+    image: mysql:8.0.32
+    container_name: ai-agent-local-mysql
+    restart: unless-stopped
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: "123456"
+    ports:
+      - "13306:3306"
+    volumes:
+      - local_mysql_data:/var/lib/mysql
+      - ./create_tables.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./init_data.sql:/docker-entrypoint-initdb.d/02-core-data.sql:ro
+      - ./init_intent_data.sql:/docker-entrypoint-initdb.d/03-intent-data.sql:ro
+      - ./init_react_data.sql:/docker-entrypoint-initdb.d/04-react-data.sql:ro
+      - ./scripts/migrations/V20260717__enterprise_agent_operations.sql:/docker-entrypoint-initdb.d/05-enterprise-agent-operations.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: ai-agent-local-pgvector
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_DB: ai-rag-knowledge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123456"
+    ports:
+      - "15432:5432"
+    volumes:
+      - local_pgvector_data:/var/lib/postgresql/data
+      - ./docs/dev-ops/pgvector/sql/init.sql:/docker-entrypoint-initdb.d/01-vector-store.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai-rag-knowledge"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Optional long-term memory service. It is intentionally profile-gated: Mem0
+  # needs real OpenAI-compatible LLM/embedding keys before memory writes work.
+  mem0:
+    image: mem0/mem0-api-server:latest
+    container_name: ai-agent-local-mem0
+    profiles: ["mem0"]
+    restart: unless-stopped
+    environment:
+      AUTH_DISABLED: "true"
+      # LLM: SenseNova OpenAI-compatible chat model.
+      OPENAI_API_KEY: ${MEM0_LLM_API_KEY:-${SENSENOVA_API_KEY:-}}
+      OPENAI_BASE_URL: ${MEM0_LLM_BASE_URL:-https://token.sensenova.cn/v1}
+      OPENAI_MODEL: ${MEM0_LLM_MODEL:-sensenova-6.7-flash-lite}
+      # Embedding: SiliconFlow BGE-M3 for Chinese/multilingual memory recall.
+      MEM0_EMBEDDING_API_KEY: ${MEM0_EMBEDDING_API_KEY:-${SILICONFLOW_API_KEY:-}}
+      MEM0_EMBEDDING_BASE_URL: ${MEM0_EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      MEM0_EMBEDDING_MODEL: ${MEM0_EMBEDDING_MODEL:-BAAI/bge-m3}
+    ports:
+      - "18888:8000"
+
+volumes:
+  local_mysql_data:
+  local_pgvector_data:

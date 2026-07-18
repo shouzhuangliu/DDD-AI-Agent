@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.MemoryToolResult"><id column="id" property="id"/><result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/><result column="message_id" property="messageId"/><result column="tool_name" property="toolName"/><result column="conclusion" property="conclusion"/><result column="key_parameters_json" property="keyParametersJson"/><result column="error_summary" property="errorSummary"/><result column="created_at" property="createdAt"/></resultMap>
+ <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.MemoryToolResult" useGeneratedKeys="true" keyProperty="id">INSERT IGNORE INTO memory_tool_result (agent_id,session_id,message_id,tool_name,conclusion,key_parameters_json,error_summary,created_at) VALUES (#{agentId},#{sessionId},#{messageId},#{toolName},#{conclusion},#{keyParametersJson},#{errorSummary},#{createdAt})</insert>
+ <select id="queryBySession" resultMap="M">SELECT * FROM memory_tool_result WHERE session_id=#{sessionId} ORDER BY id DESC LIMIT #{limit}</select>
+</mapper>

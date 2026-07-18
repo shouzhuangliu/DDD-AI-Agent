@@ -1,0 +1,6 @@
+{
+  "name": "enterprise-demo-skill",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "permissions": []
+}

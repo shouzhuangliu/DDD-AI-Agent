@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiSignalDao">
+  <resultMap id="SignalMap" type="cn.bugstack.ai.infrastructure.dao.po.AiSignal">
+    <id column="id" property="id"/><result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/>
+    <result column="assistant_message_id" property="assistantMessageId"/><result column="signal_type" property="signalType"/>
+    <result column="source_type" property="sourceType"/><result column="severity" property="severity"/>
+    <result column="confidence" property="confidence"/><result column="summary" property="summary"/>
+    <result column="rationale" property="rationale"/><result column="model_id" property="modelId"/>
+    <result column="status" property="status"/><result column="created_at" property="createdAt"/>
+  </resultMap>
+  <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiSignal" useGeneratedKeys="true" keyProperty="id">INSERT INTO ai_signal (agent_id,session_id,assistant_message_id,signal_type,source_type,severity,confidence,summary,rationale,model_id,status,created_at) VALUES (#{agentId},#{sessionId},#{assistantMessageId},#{signalType},#{sourceType},#{severity},#{confidence},#{summary},#{rationale},#{modelId},#{status},#{createdAt})</insert>
+  <select id="queryByAgentId" resultMap="SignalMap">SELECT * FROM ai_signal WHERE agent_id=#{agentId} ORDER BY created_at DESC LIMIT #{limit}</select>
+  <select id="countOpenByAgentId" resultType="long">SELECT COUNT(*) FROM ai_signal WHERE agent_id=#{agentId} AND status='OPEN'</select>
+</mapper>

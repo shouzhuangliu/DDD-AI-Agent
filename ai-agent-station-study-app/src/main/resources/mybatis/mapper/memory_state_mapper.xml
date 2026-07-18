@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IMemoryStateDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.MemoryState"><id column="id" property="id"/><result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/><result column="version" property="version"/><result column="goals_json" property="goalsJson"/><result column="constraints_json" property="constraintsJson"/><result column="entities_json" property="entitiesJson"/><result column="pending_json" property="pendingJson"/><result column="completed_json" property="completedJson"/><result column="created_at" property="createdAt"/></resultMap>
+ <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.MemoryState" useGeneratedKeys="true" keyProperty="id">INSERT INTO memory_state (agent_id,session_id,version,goals_json,constraints_json,entities_json,pending_json,completed_json,created_at) VALUES (#{agentId},#{sessionId},#{version},#{goalsJson},#{constraintsJson},#{entitiesJson},#{pendingJson},#{completedJson},#{createdAt})</insert>
+ <select id="queryLatest" resultMap="M">SELECT * FROM memory_state WHERE session_id=#{sessionId} ORDER BY version DESC LIMIT 1</select>
+</mapper>

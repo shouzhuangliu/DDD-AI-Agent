@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.MemorySummary"><id column="id" property="id"/><result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/><result column="version" property="version"/><result column="start_message_id" property="startMessageId"/><result column="end_message_id" property="endMessageId"/><result column="summary" property="summary"/><result column="model_id" property="modelId"/><result column="token_count" property="tokenCount"/><result column="status" property="status"/><result column="created_at" property="createdAt"/></resultMap>
+ <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.MemorySummary" useGeneratedKeys="true" keyProperty="id">INSERT INTO memory_summary (agent_id,session_id,version,start_message_id,end_message_id,summary,model_id,token_count,status,created_at) VALUES (#{agentId},#{sessionId},#{version},#{startMessageId},#{endMessageId},#{summary},#{modelId},#{tokenCount},#{status},#{createdAt})</insert>
+ <select id="queryLatest" resultMap="M">SELECT * FROM memory_summary WHERE session_id=#{sessionId} ORDER BY version DESC LIMIT 1</select>
+ <update id="supersede">UPDATE memory_summary SET status='SUPERSEDED' WHERE session_id=#{sessionId} AND status='ACTIVE'</update>
+ <select id="queryByAgent" resultMap="M">SELECT * FROM memory_summary WHERE agent_id=#{agentId} ORDER BY created_at DESC LIMIT #{limit}</select>
+</mapper>

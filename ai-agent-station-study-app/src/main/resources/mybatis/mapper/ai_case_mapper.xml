@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiCaseDao">
+    <resultMap id="CaseMap" type="cn.bugstack.ai.infrastructure.dao.po.AiCase">
+        <id column="id" property="id"/><result column="case_id" property="caseId"/>
+        <result column="agent_id" property="agentId"/><result column="title" property="title"/>
+        <result column="summary" property="summary"/><result column="case_type" property="caseType"/>
+        <result column="severity" property="severity"/>
+        <result column="frequency" property="frequency"/><result column="status" property="status"/>
+        <result column="affected_sessions" property="affectedSessions"/>
+        <result column="importance_score" property="importanceScore"/><result column="confidence" property="confidence"/>
+        <result column="total_score" property="totalScore"/>
+        <result column="skill_id" property="skillId"/><result column="created_at" property="createdAt"/>
+        <result column="source_model" property="sourceModel"/><result column="extraction_reason" property="extractionReason"/>
+        <result column="owner" property="owner"/><result column="resolution" property="resolution"/>
+        <result column="last_seen_at" property="lastSeenAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiCase" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_case (case_id, agent_id, title, summary, case_type, severity, frequency, affected_sessions,
+          importance_score, confidence, total_score, status, skill_id, source_model, extraction_reason,
+          owner, resolution, last_seen_at, created_at, updated_at)
+        VALUES (#{caseId}, #{agentId}, #{title}, #{summary}, #{caseType}, #{severity}, #{frequency}, #{affectedSessions},
+          #{importanceScore}, #{confidence}, #{totalScore}, #{status}, #{skillId}, #{sourceModel}, #{extractionReason},
+          #{owner}, #{resolution}, #{lastSeenAt}, #{createdAt}, #{updatedAt})
+    </insert>
+    <update id="updateByCaseId" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiCase">
+        UPDATE ai_case SET title=#{title}, case_type=#{caseType}, status=#{status}, skill_id=#{skillId}, updated_at=NOW() WHERE case_id=#{caseId}
+    </update>
+    <update id="incrementFrequency">UPDATE ai_case SET frequency=frequency+1, updated_at=NOW() WHERE case_id=#{caseId}</update>
+    <select id="queryByCaseId" resultMap="CaseMap">SELECT * FROM ai_case WHERE case_id=#{caseId}</select>
+    <select id="queryTop" resultMap="CaseMap">SELECT * FROM ai_case WHERE status='active' ORDER BY frequency DESC LIMIT #{limit}</select>
+    <select id="queryByStatus" resultMap="CaseMap">SELECT * FROM ai_case WHERE status=#{status} ORDER BY updated_at DESC</select>
+    <select id="countByStatus" resultType="long">SELECT COUNT(*) FROM ai_case WHERE status=#{status}</select>
+    <select id="countAll" resultType="long">SELECT COUNT(*) FROM ai_case</select>
+    <select id="queryByKeyword" resultMap="CaseMap">SELECT * FROM ai_case WHERE status='active' AND (title LIKE CONCAT('%',#{keyword},'%') OR case_type LIKE CONCAT('%',#{keyword},'%') OR skill_id LIKE CONCAT('%',#{keyword},'%')) ORDER BY frequency DESC LIMIT #{limit}</select>
+    <select id="queryTopByAgent" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND status IN ('CONFIRMED','IN_PROGRESS','RESOLVED') ORDER BY total_score DESC, last_seen_at DESC, id DESC LIMIT #{limit}</select>
+    <select id="queryByAgentAndStatus" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND (#{status}='' OR status=#{status}) ORDER BY total_score DESC, updated_at DESC LIMIT #{limit}</select>
+    <select id="queryByAgentAndCaseId" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND case_id=#{caseId} LIMIT 1</select>
+    <select id="countByAgent" resultType="long">SELECT COUNT(*) FROM ai_case WHERE agent_id=#{agentId}</select>
+    <select id="countByAgentAndStatus" resultType="long">SELECT COUNT(*) FROM ai_case WHERE agent_id=#{agentId} AND status=#{status}</select>
+    <update id="updateAnalysis" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiCase">UPDATE ai_case SET summary=#{summary}, severity=#{severity}, frequency=#{frequency}, affected_sessions=#{affectedSessions}, importance_score=#{importanceScore}, confidence=#{confidence}, total_score=#{totalScore}, status=#{status}, source_model=#{sourceModel}, extraction_reason=#{extractionReason}, last_seen_at=#{lastSeenAt}, updated_at=NOW() WHERE agent_id=#{agentId} AND case_id=#{caseId}</update>
+    <update id="transitionStatus">
+        UPDATE ai_case
+        SET status=#{toStatus},
+            owner=CASE WHEN #{owner}='' THEN owner ELSE #{owner} END,
+            resolution=CASE WHEN #{resolution}='' THEN resolution ELSE #{resolution} END,
+            updated_at=NOW()
+        WHERE agent_id=#{agentId} AND case_id=#{caseId} AND status=#{fromStatus}
+    </update>
+</mapper>

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 智能体工作台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+  body{font-family:'Inter',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;margin:0;height:100vh;display:flex}
+  #sidebar{width:200px;background:#1e293b;color:#e2e8f0;display:flex;flex-direction:column;flex-shrink:0}
+  #sidebar .nav-item{padding:12px 20px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:14px;transition:all .15s;border-left:3px solid transparent}
+  #sidebar .nav-item:hover{background:#334155}
+  #sidebar .nav-item.active{background:#334155;border-left-color:#0ea5e9;color:#38bdf8;font-weight:600}
+  #main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+  .page{display:none;flex:1;flex-direction:column;min-height:0;overflow-y:auto;padding:24px}
+  .page.active{display:flex}
+  .stat-card{background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px;text-align:center}
+  .agent-card{border:1px solid #e2e8f0;border-radius:12px;padding:20px;cursor:pointer;transition:all .2s;background:white}
+  .agent-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.08);border-color:#94a3b8;transform:translateY(-1px)}
+  .chat-view{display:none;flex:1;flex-direction:column;min-height:0}
+  .chat-view.active{display:flex}
+  .agent-list-view{display:flex;flex-direction:column;flex:1;min-height:0}
+  .agent-list-view.hidden{display:none}
+  pre{background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;font-size:12px}
+  .react-action{background:#f5f3ff;border-left:3px solid #7c3aed;padding:8px 12px;margin:6px 0;border-radius:4px;font-size:13px}
+  .react-observation{background:#f1f5f9;border-left:3px solid #94a3b8;padding:8px 12px;margin:6px 0;border-radius:4px;font-size:12px;color:#475569;max-height:200px;overflow:auto}
+  .stage{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;margin-right:8px}
+  .stage-analysis{background:#e3f2fd;color:#1976d2}.stage-execution{background:#f3e5f5;color:#7b1fa2}
+  .stage-supervision{background:#fff3e0;color:#ef6c00}.stage-summary{background:#e8f5e9;color:#2e7d32}
+  .stage-action{background:#f0e6ff;color:#7c3aed}.stage-observation{background:#f8fafc;color:#475569}
+  .stage-final{background:#e8f5e9;color:#2e7d32}.stage-error{background:#ffebee;color:#c62828}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal-content{background:white;border-radius:12px;padding:24px;max-width:640px;width:90%;max-height:80vh;overflow-y:auto}
+  .mono{font-family:'Consolas','Courier New',monospace;font-size:13px}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+  .msg-bubble{animation:fadeIn .3s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <div style="padding:20px;font-size:18px;font-weight:700;border-bottom:1px solid #334155;margin-bottom:8px">🤖 AI 工作台</div>
+  <div class="nav-item active" data-page="dashboard" onclick="navTo('dashboard')"><span>📊</span> 仪表盘</div>
+  <div class="nav-item" data-page="agents" onclick="navTo('agents')"><span>🤖</span> 智能体</div>
+  <div class="nav-item" data-page="mcp" onclick="navTo('mcp')"><span>🔧</span> MCP</div>
+  <div class="nav-item" data-page="skills" onclick="navTo('skills')"><span>📚</span> 技能</div>
+  <div class="nav-item" data-page="logs" onclick="navTo('logs')"><span>📋</span> 日志</div>
+  <div style="flex:1"></div>
+  <div style="padding:12px 20px;font-size:11px;color:#64748b">☁️ 运行中 · 8091</div>
+</div>
+<div id="main">
+
+<!-- ============ Dashboard 页 ============ -->
+<div id="page-dashboard" class="page active">
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-bottom:12px"><label style="font-size:12px;color:#64748b">当前智能体</label><select id="dashboardAgentSelect" onchange="selectDashboardAgent(this.value)" style="min-width:220px;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;background:white"></select></div>
+  <h2 style="font-size:20px;font-weight:700;margin:0 0 20px">📊 仪表盘</h2>
+  <div id="statsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <h3 style="font-size:14px;font-weight:600;margin:0 0 12px">🔥 高频案例前 5</h3>
+      <div id="topCasesList"></div>
+    </div>
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <h3 style="font-size:14px;font-weight:600;margin:0 0 12px">📝 最新反馈</h3>
+      <div id="recentFeedbackList"></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px">
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <h3 style="font-size:14px;font-weight:600;margin:0 0 4px">模型观察信号</h3>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px">模型观察信号，不计入用户反馈指标</div>
+      <div id="aiSignalsList"></div>
+    </div>
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <h3 style="font-size:14px;font-weight:600;margin:0 0 4px">短期记忆摘要</h3>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:12px">按会话滚动折叠并保留版本</div>
+      <div id="memorySummaryList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Agents 页 ============ -->
+<div id="page-agents" class="page">
+  <div class="agent-list-view" id="agentListView">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="font-size:20px;font-weight:700;margin:0">🤖 智能体</h2>
+      <button onclick="openAgentForm()" style="background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">+ 新建</button>
+    </div>
+    <div id="agentCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
+  </div>
+  <!-- 会话列表 -->
+  <div id="sessionListView" style="display:none;flex:1;flex-direction:column;min-height:0">
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #e2e8f0;margin-bottom:12px">
+      <button onclick="backToAgentCards()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#64748b">← 返回</button>
+      <span id="sessionAgentName" style="font-weight:600;font-size:16px;flex:1"></span>
+      <button onclick="newChat()" style="background:#0284c7;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer;font-size:13px">+ 新对话</button>
+    </div>
+    <div id="sessionList" style="flex:1;overflow-y:auto"></div>
+  </div>
+  <!-- 聊天视图 -->
+  <div id="chatView" style="display:none;flex:1;flex-direction:column;min-height:0">
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #e2e8f0;margin-bottom:12px">
+      <button onclick="backToSessions()" style="background:none;border:none;cursor:pointer;font-size:16px;color:#64748b">← 返回</button>
+      <span id="chatAgentName" style="font-weight:600;font-size:16px"></span>
+      <span id="chatAgentMode" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#dbeafe;color:#1e40af"></span>
+      <label for="chatModelSelect" style="font-size:12px;color:#64748b">模型</label>
+      <select id="chatModelSelect" style="max-width:260px;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;font-size:12px;background:white"></select>
+      <span style="font-size:12px;color:#94a3b8;margin-left:auto">会话: <span id="chatSessionId">-</span></span>
+    </div>
+    <div id="chatBox" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:4px 0">
+      <div style="text-align:center;color:#94a3b8;font-size:14px;margin-top:60px" id="welcomeMsg"></div>
+    </div>
+    <div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px">
+      <div style="display:flex;gap:10px">
+        <textarea id="chatInput" rows="2" style="flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:14px;resize:none;outline:none" placeholder="输入消息，Enter 发送"></textarea>
+        <button id="sendBtn" onclick="sendMessage()" style="background:#0284c7;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px">发送</button>
+      </div>
+      <div style="margin-top:6px;font-size:12px;color:#94a3b8"><span id="chatStatus"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MCP 页 ============ -->
+<div id="page-mcp" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h2 style="font-size:20px;font-weight:700;margin:0">🔧 MCP 工具</h2>
+    <button onclick="openMcpForm()" style="background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">+ 新增</button>
+  </div>
+  <div id="mcpList" style="background:white;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden"></div>
+</div>
+
+<!-- ============ Skills 页 ============ -->
+<div id="page-skills" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h2 style="font-size:20px;font-weight:700;margin:0">📚 Skills</h2>
+    <button onclick="openSkillUpload()" style="background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">+ 上传</button>
+  </div>
+  <div id="skillsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
+</div>
+
+<!-- ============ Logs 页 ============ -->
+<div id="page-logs" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h2 style="font-size:20px;font-weight:700;margin:0">📋 LLM 调用日志</h2>
+    <span style="font-size:12px;color:#94a3b8">点击行展开查看详情</span>
+  </div>
+  <div id="logsTableContainer" style="background:white;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden"></div>
+</div>
+</div>
+
+<div id="modalContainer"></div>
+
+<script>
+const API = '/api/v1';
+let currentChatAgent = null, chatSession = null, stageEl = null, sending = false;
+async function apiJson(url, options){
+  const response=await fetch(url,options), data=await response.json();
+  if(!response.ok||data.success===false)throw new Error(data.message||('HTTP '+response.status));
+  return data;
+}
+
+const STATUS_LABELS={CANDIDATE:'候选',PENDING_REVIEW:'待审核',CONFIRMED:'已确认',IN_PROGRESS:'处理中',RESOLVED:'已解决',ARCHIVED:'已归档',IGNORED:'已忽略',OPEN:'待处理',OBSERVED:'已观察',DRAFT:'草稿',CONNECTIVITY_CHECKED:'连通性已验证',DISCOVERED:'工具已发现',SCANNED:'安全已扫描',TESTED:'沙箱已测试',IN_REVIEW:'审核中',APPROVED:'已批准',SIGNED:'已签名',RELEASED:'已发布',ACTIVE:'生效中',success:'成功',failed:'失败',FAILURE:'失败'};
+const SEVERITY_LABELS={LOW:'低',MEDIUM:'中',HIGH:'高',CRITICAL:'严重'};
+const FEEDBACK_LABELS={THUMBS_UP:'有帮助',THUMBS_DOWN:'有问题',COMMENT:'补充反馈',NEGATIVE:'负面反馈',POSITIVE:'正面反馈'};
+const SIGNAL_LABELS={USER_CORRECTION:'用户纠正',REPEATED_QUESTION:'重复提问',IRRELEVANT_ANSWER:'答非所问',TOOL_FAILURE:'工具失败',OTHER:'其他观察'};
+const CASE_TYPE_LABELS={BUG:'缺陷',FAQ:'常见问题',FEATURE:'需求建议',RUNBOOK:'处置流程',QUALITY:'质量问题'};
+const SUBTYPE_LABELS={ANALYSIS_STRATEGY:'分析策略',ANALYSIS_PROGRESS:'分析进度',ANALYSIS_TASK_STATUS:'任务状态',analysis_strategy:'分析策略',analysis_progress:'分析进度',analysis_task_status:'任务状态',summary_overview:'总结',completed_work:'已完成内容',incomplete_reasons:'未完成原因',key_factors:'关键因素',efficiency_quality:'质量评估',suggestions:'建议',evaluation:'整体评估'};
+const CASE_TITLE_LABELS={'irrelevant response to user query':'答非所问','inappropriate response to greeting':'问候回复不当','ambiguous input handling':'模糊输入处理不当','generic execution summary':'泛化执行总结外露'};
+function label(dict,value){if(value===undefined||value===null||value==='')return '';const key=String(value);return dict[key]||dict[key.toUpperCase()]||key;}
+function localCaseTitle(value){const text=String(value||'').trim();return CASE_TITLE_LABELS[text.toLowerCase()]||text;}
+
+// ========== 导航 ==========
+function navTo(page) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  if (page === 'dashboard') loadDashboard();
+  if (page === 'agents') loadAgentCards();
+  if (page === 'mcp') loadMcpPage();
+  if (page === 'skills') loadSkillsPage();
+  if (page === 'logs') loadLogsPage();
+}
+
+// ========== 📊 Dashboard ==========
+async function loadDashboard() {
+  const agents = await fetch(API + '/agents').then(r=>r.json());
+  const selector = document.getElementById('dashboardAgentSelect');
+  if (!agents.length) { selector.innerHTML='<option value="">暂无 Agent</option>'; return; }
+  const requested = new URLSearchParams(location.search).get('agentId');
+  const selected = agents.some(a=>a.agentId===requested) ? requested : agents[0].agentId;
+  selector.innerHTML = agents.map(a=>'<option value="'+esc(a.agentId)+'" '+(a.agentId===selected?'selected':'')+'>'+esc(a.agentName||a.agentId)+'</option>').join('');
+  const [s, tc, rf, signals, memories] = await Promise.all([
+    fetch(API + '/agents/' + encodeURIComponent(selected) + '/workspace/stats').then(r=>r.json()),
+    fetch(API + '/agents/' + encodeURIComponent(selected) + '/cases/top?limit=5').then(r=>r.json()),
+    fetch(API + '/agents/' + encodeURIComponent(selected) + '/feedback?limit=10').then(r=>r.json()),
+    fetch(API + '/agents/' + encodeURIComponent(selected) + '/signals?limit=10').then(r=>r.json()),
+    fetch(API + '/agents/' + encodeURIComponent(selected) + '/memory?limit=10').then(r=>r.json())
+  ]);
+  document.getElementById('statsCards').innerHTML = [
+    {l:'今日真实反馈',v:s.todayFeedback,c:'#0284c7'},
+    {l:'真实反馈总数',v:s.explicitFeedback,c:'#0ea5e9'},
+    {l:'负面反馈',v:s.negativeFeedback,c:'#dc2626'},
+    {l:'满意度',v:s.satisfactionRate+'%',c:'#16a34a'},
+    {l:'案例总数',v:s.totalCases,c:'#7c3aed'},
+    {l:'待审核案例',v:s.pendingCases,c:'#d97706'},
+    {l:'处理中',v:s.highPriorityCases,c:'#dc2626'},
+    {l:'已解决',v:s.resolvedCases,c:'#16a34a'}
+  ].map(d => '<div class="stat-card"><div style="font-size:28px;font-weight:700;color:'+d.c+'">'+d.v+'</div><div style="font-size:12px;color:#64748b;margin-top:4px">'+d.l+'</div></div>').join('');
+
+  document.getElementById('topCasesList').innerHTML = tc.length
+    ? tc.map((c,i) => '<div onclick="openCaseDetail(\''+esc(selected)+'\',\''+esc(c.caseId)+'\')" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px;cursor:pointer">'
+      + '<span style="width:20px;font-weight:700;color:'+(i<3?'#dc2626':'#64748b')+'">#'+(i+1)+'</span>'
+      + '<span style="flex:1">' + esc(localCaseTitle(c.title)||c.caseId) + '</span>'
+      + '<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:10px;font-size:11px">评分 ' + (c.totalScore||0) + '</span>'
+      + '<span style="background:#f1f5f9;padding:2px 8px;border-radius:10px;font-size:11px">' + c.frequency + '次</span>'
+      + '<span style="font-size:10px;color:#94a3b8">' + esc(label(CASE_TYPE_LABELS,c.caseType)) + '</span>'
+      + '</div>').join('')
+    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无案例数据</div>';
+
+  document.getElementById('recentFeedbackList').innerHTML = rf.length
+    ? rf.map(f => '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:13px">'
+      + '<div style="display:flex;gap:6px;align-items:center"><span style="font-size:10px;color:#94a3b8">' + (f.createdAt||'').slice(0,16) + '</span>'
+      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1e40af">用户</span>'
+      + '<span style="font-size:10px;color:#64748b">' + esc(label(FEEDBACK_LABELS,f.feedbackType||'COMMENT')) + '</span>'
+      + '<span style="font-size:10px;padding:1px 6px;border-radius:6px;background:'+(f.resolved?'#dcfce7;color:#16a34a':'#fef3c7;color:#d97706')+'">'+(f.resolved?'已解决':'待处理')+'</span>'
+      + (f.matchedCaseId?'<span style="font-size:10px;color:#0284c7">→ '+f.matchedCaseId+'</span>':'')
+      + '</div><div style="color:#334155;margin-top:2px">' + esc(f.message||'').slice(0,80) + '</div></div>').join('')
+    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无反馈</div>';
+
+  document.getElementById('aiSignalsList').innerHTML = signals.length
+    ? signals.map(x => '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:12px"><div style="display:flex;gap:8px"><b style="color:#475569">'+esc(label(SIGNAL_LABELS,x.signalType||'OTHER'))+'</b><span style="color:#7c3aed">'+(x.confidence||0)+'%</span><span style="margin-left:auto;color:#94a3b8">'+(x.createdAt||'').slice(0,16)+'</span></div><div style="margin-top:3px;color:#334155">'+esc(x.summary||x.rationale||'')+'</div></div>').join('')
+    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无模型信号</div>';
+  document.getElementById('memorySummaryList').innerHTML = memories.length
+    ? memories.map(x => '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:12px"><div style="display:flex;gap:8px"><b>'+esc(x.sessionId||'')+'</b><span style="color:#0284c7">v'+(x.version||0)+'</span><span style="margin-left:auto;color:#94a3b8">'+(x.tokenCount||0)+' 词元</span></div><div style="margin-top:3px;color:#475569;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">'+esc(x.summary||'')+'</div></div>').join('')
+    : '<div style="color:#94a3b8;font-size:13px;padding:20px;text-align:center">暂无折叠记忆</div>';
+}
+function selectDashboardAgent(agentId){const u=new URL(location.href);u.searchParams.set('agentId',agentId);history.replaceState({},'',u);loadDashboard();}
+
+async function openCaseDetail(agentId,caseId){
+  const d=await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId));
+  const c=d.case||{}, transitions={CANDIDATE:['PENDING_REVIEW','IGNORED'],PENDING_REVIEW:['CONFIRMED','IGNORED','CANDIDATE'],CONFIRMED:['IN_PROGRESS','ARCHIVED'],IN_PROGRESS:['RESOLVED','CONFIRMED'],RESOLVED:['IN_PROGRESS','ARCHIVED'],ARCHIVED:['CONFIRMED'],IGNORED:['CANDIDATE']};
+  const buttons=(transitions[c.status]||[]).map(s=>'<button onclick="transitionCase(\''+esc(agentId)+'\',\''+esc(caseId)+'\',\''+s+'\')" style="border:none;background:#0284c7;color:white;padding:6px 10px;border-radius:6px;cursor:pointer">'+esc(label(STATUS_LABELS,s))+'</button>').join(' ');
+  const sourceLinks=(d.evidence||[]).filter(e=>e.source).map(e=>'<button onclick="closeModal();openConversation(\''+esc(e.source.agentId)+'\',\''+esc(e.source.sessionId)+'\','+e.source.messageId+')" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;padding:4px 8px;border-radius:6px;cursor:pointer">查看来源 '+esc((e.source.sessionId||'').slice(0,8))+'</button>').join(' ');
+  openModal('案例 · '+esc(localCaseTitle(c.title)||c.caseId),'<div style="font-size:12px;line-height:1.7"><div><b>状态：</b>'+esc(label(STATUS_LABELS,c.status))+'　<b>严重度：</b>'+esc(label(SEVERITY_LABELS,c.severity))+'　<b>综合分：</b>'+(c.totalScore||0)+'</div><div><b>重要性/置信度：</b>'+(c.importanceScore||0)+' / '+(c.confidence||0)+'</div><div><b>类型：</b>'+esc(label(CASE_TYPE_LABELS,c.caseType))+'　<b>模型：</b>'+esc(c.sourceModel||'')+'</div><div style="margin-top:8px"><b>摘要</b><div>'+esc(c.summary||'')+'</div></div><div style="margin-top:8px"><b>提取理由</b><div>'+esc(c.extractionReason||'')+'</div></div><div style="margin-top:8px"><b>证据：</b>'+(d.evidence||[]).length+'　<b>评分快照：</b>'+(d.scoreSnapshots||[]).length+'　<b>审核记录：</b>'+(d.reviews||[]).length+'</div>'+(sourceLinks?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+sourceLinks+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'+buttons+'</div></div>',null,null);
+}
+async function transitionCase(agentId,caseId,toStatus){
+  const reason=prompt('请输入本次状态变更原因（会写入审核记录）','人工审核'); if(reason===null)return;
+  await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId)+'/transition',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toStatus:toStatus,actor:'web-reviewer',reason:reason})});
+  closeModal(); await loadDashboard();
+}
+
+// ========== 📋 Logs ==========
+async function loadLogsPage() {
+  const list = await fetch(API + '/llm-logs?limit=100').then(r=>r.json());
+  const c = document.getElementById('logsTableContainer');
+  if (!list.length) { c.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8">暂无日志（对话后自动生成）</div>'; return; }
+  c.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc;text-align:left;color:#475569"><th style="padding:10px">时间</th><th style="padding:10px">Agent</th><th style="padding:10px">模式</th><th style="padding:10px">耗时</th><th style="padding:10px">状态</th><th style="padding:10px">历史/折叠</th><th style="padding:10px">回复长度</th></tr></thead><tbody>'
+  + list.map(log => '<tr style="border-top:1px solid #f1f5f9;cursor:pointer" onclick="toggleLogDetail('+log.id+')"><td style="padding:10px;font-size:11px;color:#64748b">'+(log.createdAt||'').slice(0,16)+'</td><td style="padding:10px">'+esc(log.agentId)+'</td><td style="padding:10px"><span style="padding:1px 6px;border-radius:6px;font-size:11px;background:'+(log.mode==='react'?'#f0e6ff;color:#7c3aed':'#dbeafe;color:#1e40af')+'">'+(log.mode||'')+'</span></td><td style="padding:10px">'+log.durationMs+'ms</td><td style="padding:10px"><span style="color:'+(log.status==='success'?'#16a34a':'#dc2626')+'">'+esc(label(STATUS_LABELS,log.status))+'</span></td><td style="padding:10px;color:#64748b">'+log.historyMsgCount+'/'+log.foldedMsgCount+'</td><td style="padding:10px;color:#64748b">'+log.assistantResponseLen+'</td></tr>'
+  + '<tr id="log-detail-'+log.id+'" style="display:none"><td colspan="7" style="padding:12px;background:#f8fafc"><div style="font-size:12px;color:#64748b;display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><b>会话：</b> '+esc(log.sessionId)+'</div><div><b>模型：</b> '+esc(log.modelName)+'</div><div><b>输入词元：</b> '+log.inputTokens+'</div><div><b>输出词元：</b> '+log.outputTokens+'</div><div><b>总词元：</b> '+log.totalTokens+'</div><div><b>系统提示:</b> '+log.systemPromptLen+'字符</div><div><b>用户消息:</b> '+log.userMessageLen+'字符</div><div><b>回复:</b> '+log.assistantResponseLen+'字符</div></div>'+(log.errorMessage?'<div style="margin-top:8px;color:#dc2626">❌ '+esc(log.errorMessage)+'</div>':'')+'</td></tr>').join('')
+  + '</tbody></table>';
+}
+function toggleLogDetail(id) {
+  const tr = document.getElementById('log-detail-' + id);
+  if (tr) tr.style.display = tr.style.display === 'none' ? 'table-row' : 'none';
+}
+
+// ========== Agents 卡片 ==========
+async function loadAgentCards() {
+  const list = await fetch(API + '/agents').then(r=>r.json());
+  const container = document.getElementById('agentCards');
+  if (!list.length) { container.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:40px;grid-column:1/-1">暂无 Agent</div>'; return; }
+  const rows = await Promise.all(list.map(async a => {
+    const b = await fetch(API + '/agents/' + a.agentId + '/bindings').then(r=>r.json());
+    const sk = (b.skillIds||[]).length, mk = (b.mcpIds||[]).length;
+    const isReact = a.channel === 'react';
+    return '<div class="agent-card" onclick="selectAgent(\'' + a.agentId + '\')">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+      + '<div style="font-size:28px;margin-bottom:8px">' + (isReact ? '🧠' : '🤖') + '</div>'
+      + '<button onclick="event.stopPropagation();editAgent(\'' + a.agentId + '\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:#94a3b8;padding:2px">⚙️</button></div>'
+      + '<div style="font-weight:600;font-size:15px;margin-bottom:4px">' + esc(a.agentName||a.agentId) + '</div>'
+      + '<div style="font-size:12px;color:#64748b;margin-bottom:10px;min-height:20px">' + esc(a.description||'') + '</div>'
+      + '<div style="display:flex;gap:8px;font-size:11px">'
+      + '<span style="padding:2px 8px;border-radius:10px;background:'+(isReact?'#f0e6ff;color:#7c3aed':'#dbeafe;color:#1e40af')+'">'+(isReact?'ReAct':'Auto')+'</span>'
+      + '<span style="padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#475569">📚'+sk+'</span>'
+      + '<span style="padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#475569">🔧'+mk+'</span></div></div>';
+  }));
+  container.innerHTML = rows.join('');
+}
+
+function selectAgent(agentId) {
+  fetch(API + '/agents').then(r=>r.json()).then(list => {
+    const a = list.find(x => x.agentId === agentId); if (!a) return;
+    currentChatAgent = a;
+    document.getElementById('agentListView').style.display = 'none';
+    document.getElementById('sessionListView').style.display = 'flex';
+    document.getElementById('sessionAgentName').textContent = a.agentName||a.agentId;
+    loadSessions(agentId);
+  });
+}
+async function openConversation(agentId, sessionId, messageId) {
+  navTo('agents');
+  const agents=await fetch(API+'/agents').then(r=>r.json());
+  currentChatAgent=agents.find(a=>a.agentId===agentId);
+  if(!currentChatAgent)return;
+  document.getElementById('agentListView').style.display='none';
+  await openSession(sessionId,messageId);
+}
+function backToAgentCards() {
+  document.getElementById('sessionListView').style.display = 'none';
+  document.getElementById('agentListView').style.display = '';
+  document.getElementById('chatView').style.display = 'none';
+}
+async function loadSessions(agentId) {
+  const list = await fetch(API + '/agents/' + encodeURIComponent(agentId) + '/sessions').then(r=>r.json());
+  const c = document.getElementById('sessionList');
+  c.innerHTML = list.length
+    ? list.map(s => '<div onclick="openSession(\''+s.sessionId+'\')" style="padding:10px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;border-radius:8px" onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'
+      + '<div style="font-weight:500;font-size:14px">' + esc(s.title||'新对话') + '</div>'
+      + '<div style="font-size:11px;color:#94a3b8;margin-top:4px">' + (s.messageCount||0) + '条消息 · ' + (s.updatedAt||'').slice(0,16) + '</div></div>').join('')
+    : '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:14px">暂无对话<br><button onclick="newChat()" style="margin-top:12px;background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">+ 开始新对话</button></div>';
+}
+async function openSession(sessionId, messageId) {
+  if (!currentChatAgent) return;
+  const detail = await apiJson(API + '/agents/' + encodeURIComponent(currentChatAgent.agentId) + '/sessions/' + encodeURIComponent(sessionId));
+  chatSession = sessionId; showChatView(detail.messages || [], detail.memory || {}, messageId);
+}
+async function newChat() {
+  if (!currentChatAgent) return;
+  const modelId = document.getElementById('chatModelSelect').value || currentChatAgent.modelId || '';
+  const created = await apiJson(API + '/agents/' + encodeURIComponent(currentChatAgent.agentId) + '/sessions', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'新对话',modelId:modelId})});
+  chatSession = created.sessionId; showChatView([], {}, null);
+}
+async function loadChatModels() {
+  const select = document.getElementById('chatModelSelect');
+  const previous = select.value;
+  try {
+    const models = await fetch(API + '/models').then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    select.innerHTML = models.map(m =>
+      '<option value="'+esc(m.modelId)+'" '+(!m.configured?'disabled':'')+'>'+
+      esc(m.providerName+' · '+m.modelName+(m.configured?'':'（未配置密钥）'))+'</option>'
+    ).join('');
+    const preferred = previous || (currentChatAgent && currentChatAgent.modelId) || '';
+    const preferredOption = Array.from(select.options).find(o => o.value === preferred && !o.disabled);
+    if (preferredOption) select.value = preferred;
+    else {
+      const firstAvailable = Array.from(select.options).find(o => !o.disabled);
+      if (firstAvailable) select.value = firstAvailable.value;
+    }
+    select.disabled = !Array.from(select.options).some(o => !o.disabled);
+  } catch (e) {
+    select.innerHTML = '<option value="">模型列表加载失败</option>';
+    select.disabled = true;
+  }
+}
+function showChatView(messages, memory, highlightMessageId) {
+  if (!currentChatAgent) return;
+  document.getElementById('sessionListView').style.display = 'none';
+  document.getElementById('chatView').style.display = 'flex';
+  document.getElementById('chatAgentName').textContent = currentChatAgent.agentName||currentChatAgent.agentId;
+  document.getElementById('chatAgentMode').textContent = currentChatAgent.channel === 'react' ? 'ReAct' : 'Auto';
+  document.getElementById('chatAgentMode').style.background = currentChatAgent.channel === 'react' ? '#f0e6ff' : '#dbeafe';
+  document.getElementById('chatAgentMode').style.color = currentChatAgent.channel === 'react' ? '#7c3aed' : '#1e40af';
+  document.getElementById('chatSessionId').textContent = chatSession;
+  const box=document.getElementById('chatBox'); box.innerHTML='';
+  const summary=memory&&memory.summary&&memory.summary.summary;
+  if(summary){const note=document.createElement('div');note.style='padding:8px 12px;background:#f8fafc;color:#64748b;border-radius:8px;font-size:12px';note.textContent='已恢复会话记忆：'+summary;box.appendChild(note);}
+  (messages||[]).filter(m=>m.role==='user'||m.role==='assistant').forEach(m=>renderStoredMessage(m,highlightMessageId));
+  if(!(messages||[]).length)box.innerHTML='<div style="text-align:center;color:#94a3b8;font-size:14px;margin-top:60px" id="welcomeMsg">开始对话</div>';
+  stageEl = null;
+  loadChatModels();
+}
+function backToSessions() {
+  document.getElementById('chatView').style.display = 'none';
+  document.getElementById('sessionListView').style.display = 'flex';
+  if (currentChatAgent) loadSessions(currentChatAgent.agentId);
+}
+async function sendMessage() {
+  if(sending||!currentChatAgent)return; const input=document.getElementById('chatInput'); const msg=input.value.trim(); if(!msg)return; input.value='';
+  if (!chatSession) { await newChat(); }
+  appendUserMsg(msg); sending=true; document.getElementById('sendBtn').disabled=true; document.getElementById('chatStatus').textContent='思考中…'; stageEl=null;
+  try {
+    const resp=await fetch('/api/v1/agent/auto_agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({aiAgentId:currentChatAgent.agentId,message:msg,sessionId:chatSession,maxStep:4,mode:currentChatAgent.channel,modelId:document.getElementById('chatModelSelect').value})});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const reader=resp.body.getReader(),dec=new TextDecoder('utf-8');let buf='';
+    while(true){const{done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const c=buf.slice(0,i);buf=buf.slice(i+2);handleSSE(c);}}
+    await attachFeedbackToLatestAssistant();
+  }catch(e){addMsg('error','error',0,'⚠️ '+e.message,true);}
+  finally{sending=false;document.getElementById('sendBtn').disabled=false;document.getElementById('chatStatus').textContent='';}
+}
+async function attachFeedbackToLatestAssistant(){
+  if(!chatSession||!currentChatAgent)return;
+  const messages=await fetch(API+'/agents/'+encodeURIComponent(currentChatAgent.agentId)+'/sessions/'+encodeURIComponent(chatSession)+'/messages').then(r=>r.json());
+  const assistant=[...messages].reverse().find(m=>m.role==='assistant'); if(!assistant)return;
+  const bodies=document.querySelectorAll('.stage-body'); const target=bodies[bodies.length-1]; if(!target||target.querySelector('.feedback-actions'))return;
+  const actions=document.createElement('div'); actions.className='feedback-actions'; actions.style='display:flex;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0';
+  actions.innerHTML='<button onclick="submitExplicitFeedback('+assistant.id+',\'THUMBS_UP\')" style="border:1px solid #cbd5e1;background:white;border-radius:6px;padding:3px 9px;cursor:pointer">👍 有帮助</button><button onclick="submitExplicitFeedback('+assistant.id+',\'THUMBS_DOWN\')" style="border:1px solid #cbd5e1;background:white;border-radius:6px;padding:3px 9px;cursor:pointer">👎 有问题</button><button onclick="submitExplicitFeedback('+assistant.id+',\'COMMENT\')" style="border:0;background:none;color:#0284c7;cursor:pointer">补充反馈</button>';
+  target.appendChild(actions);
+}
+async function submitExplicitFeedback(messageId,type){
+  let message=''; if(type!=='THUMBS_UP'){message=prompt(type==='THUMBS_DOWN'?'请说明哪里有问题（可留空）':'请输入你的反馈')||'';}
+  const resp=await fetch(API+'/agents/'+encodeURIComponent(currentChatAgent.agentId)+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:chatSession,assistantMessageId:messageId,feedbackType:type,message:message,submittedBy:'web-user'})});
+  const result=await resp.json(); alert(result.success?'反馈已记录':'反馈失败：'+result.message);
+}
+const TAGS={analysis:{c:'stage-analysis',l:'📊'},execution:{c:'stage-execution',l:'🚀'},supervision:{c:'stage-supervision',l:'🔍'},summary:{c:'stage-summary',l:'✅'},action:{c:'stage-action',l:'🔧'},observation:{c:'stage-observation',l:'📋'},final:{c:'stage-final',l:'✨'},error:{c:'stage-error',l:'❌'},complete:{c:'stage-complete',l:'🏁'}};
+function appendUserMsg(t){const w=document.getElementById('welcomeMsg');if(w)w.remove();const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='display:flex;justify-content:flex-end;animation:fadeIn .3s';d.innerHTML='<div style="background:#0284c7;color:white;border-radius:12px 12px 4px 12px;padding:10px 16px;max-width:75%;font-size:14px;white-space:pre-wrap">'+esc(t)+'</div>';box.appendChild(d);box.scrollTop=box.scrollHeight;}
+function renderStoredMessage(message, highlightMessageId){
+  const box=document.getElementById('chatBox'), isUser=message.role==='user', d=document.createElement('div');
+  d.id='message-'+message.id; d.style='display:flex;'+(isUser?'justify-content:flex-end;':'')+(String(message.id)===String(highlightMessageId)?'outline:2px solid #0284c7;border-radius:12px;':'');
+  d.innerHTML=isUser?'<div style="background:#0284c7;color:white;border-radius:12px 12px 4px 12px;padding:10px 16px;max-width:75%;font-size:14px;white-space:pre-wrap">'+esc(message.content||'')+'</div>':'<div class="stage-body" style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%;font-size:14px;color:#334155;line-height:1.5">'+DOMPurify.sanitize(marked.parse(message.content||''))+'</div>';
+  box.appendChild(d); if(String(message.id)===String(highlightMessageId))setTimeout(()=>d.scrollIntoView({block:'center',behavior:'smooth'}),0);
+}
+function addMsg(type,subType,step,content,completed){const w=document.getElementById('welcomeMsg');if(w)w.remove();if(!stageEl||stageEl.dataset.type!==type||(step&&stageEl.dataset.step!=step)){const tag=TAGS[type]||TAGS.final;const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='animation:fadeIn .3s';d.innerHTML='<div style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%"><div style="margin-bottom:4px"><span class="stage '+tag.c+'">'+tag.l+'</span>'+(step?'<span style="font-size:11px;color:#94a3b8">#'+step+'</span>':'')+'</div><div class="stage-body" style="font-size:14px;color:#334155;line-height:1.5"></div></div>';box.appendChild(d);box.scrollTop=box.scrollHeight;stageEl=d.querySelector('.stage-body');stageEl.dataset.type=type;if(step)stageEl.dataset.step=step;}
+  if(type==='action'){const e=document.createElement('div');e.className='react-action';e.innerHTML='<span style="font-weight:600;color:#7c3aed">'+(subType||'')+'</span> '+content;stageEl.appendChild(e);}
+  else if(type==='observation'){const e=document.createElement('div');e.className='react-observation';e.innerHTML='<pre>'+content+'</pre>';stageEl.appendChild(e);}
+  else if(type==='final'||type==='complete'){stageEl.innerHTML=DOMPurify.sanitize(marked.parse(content));}
+  else if(type==='error'){stageEl.innerHTML='<div style="color:#dc2626">'+content+'</div>';}else{const b=document.createElement('div');b.style='margin:4px 0;padding:4px 8px;background:#f1f5f9;border-radius:4px;font-size:13px';b.innerHTML=(subType?'<div style="font-size:10px;color:#94a3b8">'+esc(label(SUBTYPE_LABELS,subType))+'</div>':'')+DOMPurify.sanitize(marked.parse(content));stageEl.appendChild(b);}
+  document.getElementById('chatBox').scrollTop=document.getElementById('chatBox').scrollHeight;
+}
+function handleSSE(chunk){for(const line of chunk.split('\n').filter(l=>l.startsWith('data:'))){const json=line.slice(5).trim();if(!json)continue;try{const o=JSON.parse(json);addMsg(o.type,o.subType,o.step,o.content||'',o.completed);if(o.type==='complete')document.getElementById('chatStatus').textContent='已完成';}catch(e){}}}
+document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}});
+
+// ========== Agent 编辑 ==========
+async function editAgent(agentId) {
+  const [aResp, bResp, sResp, mResp] = await Promise.all([
+    fetch(API+'/agents').then(r=>r.json()),fetch(API+'/agents/'+agentId+'/bindings').then(r=>r.json()),
+    fetch(API+'/skills').then(r=>r.json()),fetch(API+'/mcp-tools').then(r=>r.json())
+  ]);
+  const a = aResp.find(x=>x.agentId===agentId); if(!a) return;
+  const bs = bResp.skillIds||[], bm = bResp.mcpIds||[];
+  openModal('⚙️ '+(a.agentName||a.agentId),
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'
+    +'<div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">名称</label><input id="efN" value="'+esc(a.agentName||'')+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div>'
+    +'<div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">描述</label><input id="efD" value="'+esc(a.description||'')+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div>'
+    +'<div><label style="font-size:12px;color:#64748b">模式</label><select id="efC" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"><option value="react" '+(a.channel==='react'?'selected':'')+'>ReAct</option><option value="auto" '+(a.channel==='auto'?'selected':'')+'>Auto</option></select></div>'
+    +'<div><label style="font-size:12px;color:#64748b">模型 ID</label><input id="efM" value="'+esc(a.modelId||'2001')+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div>'
+    +'<div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">灵魂</label><textarea id="efS" rows="4" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:13px;font-family:Consolas;margin-top:4px">'+esc(a.systemPrompt||'')+'</textarea></div>'
+    +'<div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:12px"><h4 style="margin:0 0 8px;font-size:14px">📚 Skills</h4>'+(sResp.length?sResp.map(s=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><input type="checkbox" class="cb-sk" value="'+s.skillId+'" '+(bs.includes(s.skillId)?'checked':'')+'> '+esc(s.skillName)+' <span style="color:#94a3b8;font-size:11px">('+s.skillId+')</span></label>').join(''):'<div style="font-size:12px;color:#94a3b8">暂无</div>')+'</div>'
+    +'<div style="grid-column:1/-1;border-top:1px solid #e2e8f0;padding-top:12px"><h4 style="margin:0 0 8px;font-size:14px">🔧 MCP</h4>'+(mResp.length?mResp.map(t=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><input type="checkbox" class="cb-mcp" value="'+t.mcpId+'" '+(bm.includes(t.mcpId)?'checked':'')+'> '+esc(t.mcpName)+' <span style="color:#94a3b8;font-size:11px">('+t.mcpId+')</span></label>').join(''):'<div style="font-size:12px;color:#94a3b8">暂无</div>')+'</div>'
+    +'</div>', '保存', async()=>{
+      const r1=await fetch(API+'/agents/'+agentId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentName:g('efN'),description:g('efD'),channel:g('efC'),systemPrompt:g('efS'),modelId:g('efM'),status:1})});
+      const j1=await r1.json(); if(!j1.success){alert(j1.message);return false;}
+      await fetch(API+'/agents/'+agentId+'/bindings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({skillIds:Array.from(document.querySelectorAll('.cb-sk:checked')).map(cb=>cb.value),mcpIds:Array.from(document.querySelectorAll('.cb-mcp:checked')).map(cb=>cb.value)})});
+      closeModal(); loadAgentCards(); return true;
+    });
+}
+function openAgentForm() {openModal('新建 Agent','<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">agentId</label><input id="afI" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px" required></div><div><label style="font-size:12px;color:#64748b">名称</label><input id="afN" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div><div><label style="font-size:12px;color:#64748b">模式</label><select id="afC" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"><option value="react">ReAct</option><option value="auto">Auto</option></select></div><div style="grid-column:1/-1"><label style="font-size:12px;color:#64748b">灵魂</label><textarea id="afS" rows="4" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:13px;font-family:Consolas;margin-top:4px"></textarea></div><div><label style="font-size:12px;color:#64748b">模型 ID</label><input id="afM" value="2001" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div></div>','创建',async()=>{const body={agentId:g('afI'),agentName:g('afN'),channel:g('afC'),systemPrompt:g('afS'),modelId:g('afM'),status:1};const r=await fetch(API+'/agents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(j.success){closeModal();loadAgentCards();}else alert(j.message);return j.success;});}
+
+// ========== MCP ==========
+async function loadMcpPage(){const list=await fetch(API+'/mcp-tools').then(r=>r.json());const c=document.getElementById('mcpList');if(!list.length){c.innerHTML='<div style="text-align:center;padding:40px;color:#94a3b8">暂无</div>';return;}c.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="background:#f8fafc;text-align:left;color:#475569"><th style="padding:12px">ID</th><th style="padding:12px">名称</th><th style="padding:12px">类型</th><th style="padding:12px">状态</th><th style="padding:12px">超时</th><th style="padding:12px">操作</th></tr></thead><tbody>'+list.map(t=>'<tr style="border-top:1px solid #f1f5f9"><td style="padding:12px;font-family:Consolas;font-size:13px">'+t.id+'</td><td style="padding:12px;font-weight:500">'+esc(t.mcpName)+'<br><span style="font-size:12px;color:#94a3b8">'+t.mcpId+'</span></td><td style="padding:12px"><span style="padding:2px 8px;border-radius:10px;font-size:12px;background:'+(t.transportType==='sse'?'#e0e7ff;color:#4338ca':'#fef3c7;color:#92400e')+'">'+t.transportType+'</span></td><td style="padding:12px">'+(t.status===1?'<span style="color:#16a34a">启用</span>':'<span style="color:#dc2626">禁用</span>')+'</td><td style="padding:12px;color:#64748b">'+t.requestTimeout+'s</td><td style="padding:12px"><button onclick="deleteMcp('+t.id+')" style="color:#dc2626;background:none;border:none;cursor:pointer;font-size:13px">删除</button></td></tr>').join('')+'</tbody></table>';}
+async function deleteMcp(id){if(confirm('删除？')){await fetch(API+'/mcp-tools/'+id,{method:'DELETE'});loadMcpPage();}}
+function openMcpForm(){openModal('新增 MCP','<div style="display:grid;gap:12px"><div><label style="font-size:12px;color:#64748b">mcpId</label><input id="mfId" value="mcp_'+Date.now()+'" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div><div><label style="font-size:12px;color:#64748b">名称</label><input id="mfN" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px" required></div><div><label style="font-size:12px;color:#64748b">传输类型</label><select id="mfT" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"><option value="sse">SSE</option><option value="stdio">STDIO</option></select></div><div><label style="font-size:12px;color:#64748b">传输配置(JSON)</label><textarea id="mfC" rows="3" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:13px;font-family:Consolas;margin-top:4px"></textarea></div><div><label style="font-size:12px;color:#64748b">超时(秒)</label><input id="mfTout" type="number" value="60" style="width:100px;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div></div>','创建',async()=>{const body={mcpId:g('mfId'),mcpName:g('mfN'),transportType:g('mfT'),transportConfig:g('mfC'),requestTimeout:parseInt(g('mfTout'))||60,status:1};const r=await fetch(API+'/mcp-tools',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(j.success){closeModal();loadMcpPage();}return j.success;});}
+
+// ========== Skills ==========
+async function loadSkillsPage(){const list=await fetch(API+'/skills').then(r=>r.json());const c=document.getElementById('skillsCards');if(!list.length){c.innerHTML='<div style="text-align:center;color:#94a3b8;padding:40px;grid-column:1/-1">暂无</div>';return;}c.innerHTML=list.map(s=>'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px"><div style="font-size:24px;margin-bottom:8px">📘</div><div style="font-weight:600;font-size:15px;margin-bottom:4px">'+esc(s.skillName)+'</div><div style="font-size:12px;color:#64748b;margin-bottom:8px">'+esc(s.description||'')+'</div><div style="font-size:11px;color:#94a3b8">'+s.skillId+'</div><button onclick="viewSkill(\''+s.skillId+'\')" style="color:#0284c7;background:none;border:none;cursor:pointer;font-size:13px;padding:0;margin-top:8px">查看 →</button></div>').join('');}
+function viewSkill(skillId){fetch(API+'/skills/'+skillId).then(r=>r.json()).then(d=>{if(d.success)openModal(d.skill.skillName,'<pre>'+esc(d.skill.content)+'</pre>','关闭');});}
+function openSkillUpload(){openModal('上传 Skill','<div style="display:grid;gap:12px"><div><label style="font-size:12px;color:#64748b">skillId</label><input id="sfId" value="my-skill" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px" required></div><div><label style="font-size:12px;color:#64748b">名称</label><input id="sfN" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div><div><label style="font-size:12px;color:#64748b">描述</label><input id="sfD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:14px;margin-top:4px"></div><div><label style="font-size:12px;color:#64748b">内容</label><textarea id="sfC" rows="10" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:13px;font-family:Consolas;margin-top:4px"># My Skill\n\n## Steps\n1. Do something\n2. Report results</textarea></div></div>','上传',async()=>{const body={skillId:g('sfId'),name:g('sfN'),description:g('sfD'),content:g('sfC')};const r=await fetch(API+'/skills/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(j.success){closeModal();loadSkillsPage();}return j.success;});}
+
+// ========== 企业级能力供应链（覆盖原型页面） ==========
+function cv(o,...keys){for(const k of keys){if(o&&o[k]!==undefined&&o[k]!==null)return o[k];}return '';}
+function capHeaders(actor,role,json=true){const h={'X-Actor':actor,'X-Role':role};if(json)h['Content-Type']='application/json';return h;}
+async function capPost(url,actor,role,body){const r=await fetch(API+url,{method:'POST',headers:capHeaders(actor,role),body:body===undefined?undefined:JSON.stringify(body)});const j=await r.json();if(!r.ok||j.success===false)throw new Error(j.message||'操作失败');return j;}
+
+async function loadMcpPage(){
+  const list=await fetch(API+'/capabilities/mcps').then(r=>r.json()); const c=document.getElementById('mcpList');
+  c.innerHTML=list.length?list.map(x=>'<div style="padding:16px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:12px"><div style="flex:1"><b>'+esc(cv(x,'name','NAME'))+'</b><div class="mono" style="color:#64748b">'+esc(cv(x,'mcp_key','MCP_KEY'))+'</div><div style="font-size:12px;color:#94a3b8">负责人 '+esc(cv(x,'owner','OWNER'))+' · 最新版本 '+esc(cv(x,'latest_version','LATEST_VERSION')||'-')+'</div></div><span style="padding:3px 9px;border-radius:10px;background:#f1f5f9;font-size:11px">'+esc(label(STATUS_LABELS,cv(x,'lifecycle_status','LIFECYCLE_STATUS')||cv(x,'registration_status','REGISTRATION_STATUS')))+'</span><button onclick="manageMcp('+cv(x,'id','ID')+')" style="color:#0284c7;background:none;border:0;cursor:pointer">注册流程 →</button></div>').join(''):'<div style="padding:40px;text-align:center;color:#94a3b8">暂无 MCP 注册记录</div>';
+}
+function openMcpForm(){openModal('注册 MCP 与首个版本','<div style="display:grid;gap:10px"><input id="emKey" placeholder="唯一标识，如 search-mcp" style="padding:9px;border:1px solid #cbd5e1;border-radius:6px"><input id="emName" placeholder="名称" style="padding:9px;border:1px solid #cbd5e1;border-radius:6px"><textarea id="emDesc" placeholder="能力说明" style="padding:9px;border:1px solid #cbd5e1;border-radius:6px"></textarea><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input id="emVer" value="1.0.0" placeholder="版本"><select id="emTransport"><option value="sse">SSE</option><option value="streamable-http">Streamable HTTP</option><option value="stdio">STDIO</option></select></div><textarea id="emConfig" rows="5" placeholder=\'{"baseUri":"http://localhost:3000"}\' style="font-family:Consolas;padding:9px"></textarea><input id="emCredential" placeholder="密钥引用（不是明文密钥），可选"></div>','注册',async()=>{try{const server=await capPost('/capabilities/mcps','local-developer','DEVELOPER',{mcpKey:g('emKey'),name:g('emName'),description:g('emDesc')});await capPost('/capabilities/mcps/'+server.id+'/versions','local-developer','DEVELOPER',{version:g('emVer'),transportType:g('emTransport'),endpointConfig:g('emConfig'),credentialRef:g('emCredential')});closeModal();loadMcpPage();return true;}catch(e){alert(e.message);return false;}});}
+async function manageMcp(serverId){const versions=await fetch(API+'/capabilities/mcps/'+serverId+'/versions').then(r=>r.json());openModal('MCP 版本供应链',versions.length?versions.map(x=>capVersionRow('mcp',cv(x,'id','ID'),cv(x,'version','VERSION'),cv(x,'status','STATUS'))).join(''):'<div>暂无版本</div>','关闭');}
+function capVersionRow(kind,id,version,status){let action='';if(kind==='mcp'){if(status==='DRAFT')action='<button onclick="mcpAction('+id+',\'test\')">连通性测试</button>';if(status==='CONNECTIVITY_CHECKED')action='<button onclick="mcpAction('+id+',\'discover\')">发现工具</button>';if(status==='DISCOVERED')action='<button onclick="mcpAction('+id+',\'scan\')">安全扫描</button>';if(status==='SCANNED')action='<button onclick="mcpAction('+id+',\'sandbox\')">沙箱测试</button>';if(status==='TESTED')action='<button onclick="mcpAction('+id+',\'submit\')">提交审核</button>';if(status==='IN_REVIEW')action='<button onclick="mcpAction('+id+',\'reviewTest\')">测试审核</button> <button onclick="mcpAction('+id+',\'reviewSecurity\')">安全审核</button>';if(status==='APPROVED')action='<button onclick="mcpAction('+id+',\'release\')">发布</button>';if(status==='RELEASED')action='<button onclick="bindReleasedCapability(\'mcp\','+id+')">绑定 Agent</button>';}else{if(status==='VALIDATED')action='<button onclick="skillAction('+id+',\'scan\')">安全扫描</button>';if(status==='SCANNED')action='<button onclick="skillAction('+id+',\'test\')">沙箱测试</button>';if(status==='TESTED')action='<button onclick="skillAction('+id+',\'submit\')">提交审核</button>';if(status==='IN_REVIEW')action='<button onclick="skillAction('+id+',\'reviewTest\')">测试审核</button> <button onclick="skillAction('+id+',\'reviewSecurity\')">安全审核</button>';if(status==='APPROVED')action='<button onclick="skillAction('+id+',\'sign\')">签名</button>';if(status==='SIGNED')action='<button onclick="skillAction('+id+',\'release\')">发布</button>';if(status==='RELEASED')action='<button onclick="bindReleasedCapability(\'skill\','+id+')">绑定 Agent</button>';}
+  return '<div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;margin:8px 0"><div style="display:flex;justify-content:space-between"><b>v'+esc(version)+'</b><span style="font-size:11px;background:#f1f5f9;padding:3px 8px;border-radius:9px">'+esc(label(STATUS_LABELS,status))+'</span></div><div style="margin-top:10px;display:flex;gap:8px">'+action+'<button onclick="viewCapabilityDetail(\''+kind+'\','+id+')">报告</button></div></div>';}
+async function mcpAction(id,a){try{if(a==='test')await capPost('/capabilities/mcp-versions/'+id+'/connectivity-test','local-tester','TESTER');if(a==='discover'){const tools=JSON.parse(prompt('粘贴发现工具 JSON 数组','[]')||'[]');await capPost('/capabilities/mcp-versions/'+id+'/discovery','local-tester','TESTER',{tools});}if(a==='scan')await capPost('/capabilities/mcp-versions/'+id+'/security-scan','local-security','SECURITY_REVIEWER');if(a==='sandbox')await capPost('/capabilities/mcp-versions/'+id+'/sandbox-test','local-tester','TESTER',{suite:'default',passed:true});if(a==='submit')await capPost('/capabilities/mcp-versions/'+id+'/submit-review','local-developer','DEVELOPER');if(a==='reviewTest')await capPost('/capabilities/mcp-versions/'+id+'/reviews','mcp-test-reviewer','TEST_REVIEWER',{reviewType:'TEST',decision:'APPROVED'});if(a==='reviewSecurity')await capPost('/capabilities/mcp-versions/'+id+'/reviews','mcp-security-reviewer','SECURITY_REVIEWER',{reviewType:'SECURITY',decision:'APPROVED'});if(a==='release')await capPost('/capabilities/mcp-versions/'+id+'/releases','local-release-manager','RELEASE_MANAGER',{environment:'DEV',rolloutPercent:100});closeModal();loadMcpPage();alert('流程状态已更新');}catch(e){alert(e.message);}}
+
+async function loadSkillsPage(){const list=await fetch(API+'/capabilities/skills').then(r=>r.json());const c=document.getElementById('skillsCards');c.innerHTML=list.length?list.map(x=>'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px"><div style="font-weight:700">'+esc(cv(x,'name','NAME'))+'</div><div style="font-size:12px;color:#64748b;margin:6px 0">'+esc(cv(x,'description','DESCRIPTION'))+'</div><div class="mono">'+esc(cv(x,'skill_key','SKILL_KEY'))+'</div><div style="margin:8px 0;font-size:12px">'+esc(label(STATUS_LABELS,cv(x,'lifecycle_status','LIFECYCLE_STATUS')||'未上传版本'))+'</div><button onclick="manageSkill('+cv(x,'id','ID')+')" style="color:#0284c7;border:0;background:none;cursor:pointer">验证与发布 →</button></div>').join(''):'<div style="padding:40px;color:#94a3b8">暂无 Skill 包</div>';}
+function openSkillUpload(){openModal('上传 Skill ZIP 到隔离区','<div style="display:grid;gap:10px"><input id="esKey" placeholder="Skill 唯一标识"><input id="esName" placeholder="名称"><input id="esDesc" placeholder="说明"><input id="esVer" value="1.0.0" placeholder="版本"><input id="esZip" type="file" accept=".zip"><div style="font-size:12px;color:#64748b">ZIP 根目录必须包含 skill.json 与 SKILL.md；上传后先进入隔离区。</div></div>','隔离上传',async()=>{try{const file=document.getElementById('esZip').files[0];if(!file)throw new Error('请选择 ZIP');const fd=new FormData();fd.append('skillKey',g('esKey'));fd.append('name',g('esName'));fd.append('description',g('esDesc'));fd.append('version',g('esVer'));fd.append('file',file);const r=await fetch(API+'/capabilities/skills/upload',{method:'POST',headers:capHeaders('local-developer','DEVELOPER',false),body:fd});const j=await r.json();if(!r.ok)throw new Error(j.message);closeModal();loadSkillsPage();return true;}catch(e){alert(e.message);return false;}});}
+async function manageSkill(packageId){const versions=await fetch(API+'/capabilities/skills/'+packageId+'/versions').then(r=>r.json());openModal('Skill ZIP 供应链',versions.length?versions.map(x=>capVersionRow('skill',cv(x,'id','ID'),cv(x,'version','VERSION'),cv(x,'status','STATUS'))).join(''):'<div>暂无版本</div>','关闭');}
+async function skillAction(id,a){try{if(a==='scan')await capPost('/capabilities/skill-versions/'+id+'/security-scan','local-security','SECURITY_REVIEWER');if(a==='test')await capPost('/capabilities/skill-versions/'+id+'/sandbox-test','local-tester','TESTER');if(a==='submit')await capPost('/capabilities/skill-versions/'+id+'/submit-review','local-developer','DEVELOPER');if(a==='reviewTest')await capPost('/capabilities/skill-versions/'+id+'/reviews','skill-test-reviewer','TEST_REVIEWER',{reviewType:'TEST',decision:'APPROVED'});if(a==='reviewSecurity')await capPost('/capabilities/skill-versions/'+id+'/reviews','skill-security-reviewer','SECURITY_REVIEWER',{reviewType:'SECURITY',decision:'APPROVED'});if(a==='sign')await capPost('/capabilities/skill-versions/'+id+'/sign','local-release-manager','RELEASE_MANAGER');if(a==='release')await capPost('/capabilities/skill-versions/'+id+'/releases','local-release-manager','RELEASE_MANAGER',{environment:'DEV',rolloutPercent:100});closeModal();loadSkillsPage();alert('流程状态已更新');}catch(e){alert(e.message);}}
+async function viewCapabilityDetail(kind,id){const url=kind==='mcp'?'/capabilities/mcp-versions/'+id:'/capabilities/skill-versions/'+id;const d=await fetch(API+url).then(r=>r.json());openModal('验证、审核与发布报告','<pre>'+esc(JSON.stringify(d,null,2))+'</pre>','关闭');}
+async function bindReleasedCapability(kind,versionId){try{const detail=await fetch(API+(kind==='mcp'?'/capabilities/mcp-versions/':'/capabilities/skill-versions/')+versionId).then(r=>r.json());const releases=(detail.releases||[]).filter(r=>cv(r,'status','STATUS')==='ACTIVE');if(!releases.length)throw new Error('没有活动发布');const agents=await fetch(API+'/agents').then(r=>r.json());const agentId=prompt('输入要绑定的 Agent ID\n'+agents.map(a=>a.agentId).join('\n'),agents[0]?.agentId||'');if(!agentId)return;const releaseId=cv(releases[0],'id','ID');await capPost('/capabilities/agents/'+encodeURIComponent(agentId)+'/'+kind+'-bindings','local-agent-admin','AGENT_ADMIN',{releaseId:releaseId});alert('已绑定到 '+agentId);}catch(e){alert(e.message);}}
+
+// ========== 弹窗 ==========
+function openModal(title,bodyHTML,btnText,onSave){document.getElementById('modalContainer').innerHTML='<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal-content"><div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px"><h2 style="margin:0;font-size:18px;font-weight:700">'+title+'</h2><button onclick="closeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8">&times;</button></div>'+(onSave?'<form onsubmit="event.preventDefault();saveModal(this)">':'')+bodyHTML+(onSave?'<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px"><button type="button" onclick="closeModal()" style="border:1px solid #e2e8f0;background:white;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">取消</button><button type="submit" style="background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">'+btnText+'</button></div></form>':'')+'</div></div>';window._modalSave=onSave||null;}
+async function saveModal(form){const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent='保存中…';try{const ok=await window._modalSave();if(ok)closeModal();}catch(e){alert(e.message);}btn.disabled=false;btn.textContent='保存';}
+function closeModal(){document.getElementById('modalContainer').innerHTML='';}
+function g(id){return document.getElementById(id).value;}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+function escAttr(s){return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ');}
+async function loadSessions(agentId) {
+  const list = await fetch(API + '/agents/' + encodeURIComponent(agentId) + '/sessions').then(r=>r.json());
+  const c = document.getElementById('sessionList');
+  c.innerHTML = list.length
+    ? list.map(s => '<div onclick="openSession(\''+escAttr(s.sessionId)+'\')" style="padding:10px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;border-radius:8px" onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<div style="font-weight:500;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(s.title||'新对话') + '</div>'
+      + '<button onclick="event.stopPropagation();renameSession(\''+escAttr(s.sessionId)+'\',\''+escAttr(s.title||'新对话')+'\')" style="border:1px solid #cbd5e1;background:white;color:#475569;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:12px">重命名</button>'
+      + '<button onclick="event.stopPropagation();deleteSession(\''+escAttr(s.sessionId)+'\')" style="border:1px solid #fecaca;background:#fff1f2;color:#dc2626;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:12px">删除</button>'
+      + '</div>'
+      + '<div style="font-size:11px;color:#94a3b8;margin-top:4px">' + (s.messageCount||0) + ' 条消息 · ' + (s.updatedAt||'').slice(0,16) + '</div></div>').join('')
+    : '<div style="text-align:center;padding:40px;color:#94a3b8;font-size:14px">暂无对话<br><button onclick="newChat()" style="margin-top:12px;background:#0284c7;color:white;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:14px">+ 开始新对话</button></div>';
+}
+async function renameSession(sessionId, currentTitle) {
+  if (!currentChatAgent) return;
+  const title = prompt('请输入新的对话标题', currentTitle || '新对话');
+  if (title === null) return;
+  const resp = await apiJson(API + '/agents/' + encodeURIComponent(currentChatAgent.agentId) + '/sessions/' + encodeURIComponent(sessionId) + '/title', {
+    method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:title})
+  });
+  if (chatSession === sessionId && resp.session && resp.session.title) document.getElementById('chatSessionId').textContent = sessionId;
+  await loadSessions(currentChatAgent.agentId);
+}
+async function deleteSession(sessionId) {
+  if (!currentChatAgent) return;
+  if (!confirm('确定删除这个对话记录吗？删除后列表不再显示，但系统会保留来源证据。')) return;
+  await apiJson(API + '/agents/' + encodeURIComponent(currentChatAgent.agentId) + '/sessions/' + encodeURIComponent(sessionId), {method:'DELETE'});
+  if (chatSession === sessionId) {
+    chatSession = null;
+    document.getElementById('chatView').style.display = 'none';
+    document.getElementById('sessionListView').style.display = 'flex';
+  }
+  await loadSessions(currentChatAgent.agentId);
+}
+async function newChat() {
+  if (!currentChatAgent) return;
+  const modelId = document.getElementById('chatModelSelect').value || currentChatAgent.modelId || '';
+  const created = await apiJson(API + '/agents/' + encodeURIComponent(currentChatAgent.agentId) + '/sessions', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'新对话',modelId:modelId})});
+  chatSession = created.sessionId; showChatView([], {}, null);
+}
+loadDashboard().catch(error => {
+  console.error('Dashboard initialization failed', error);
+  document.getElementById('statsCards').innerHTML='<div style="color:#dc2626">仪表盘加载失败：'+esc(error.message)+'</div>';
+});
+</script>
+</body>
+</html>

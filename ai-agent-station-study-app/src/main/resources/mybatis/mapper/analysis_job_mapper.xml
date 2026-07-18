@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAnalysisJobDao">
+  <resultMap id="JobMap" type="cn.bugstack.ai.infrastructure.dao.po.AnalysisJob">
+    <id column="id" property="id"/><result column="idempotency_key" property="idempotencyKey"/>
+    <result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/>
+    <result column="assistant_message_id" property="assistantMessageId"/><result column="policy_version" property="policyVersion"/>
+    <result column="model_id" property="modelId"/><result column="status" property="status"/>
+    <result column="attempts" property="attempts"/><result column="max_attempts" property="maxAttempts"/>
+    <result column="lease_until" property="leaseUntil"/><result column="error_message" property="errorMessage"/>
+    <result column="created_at" property="createdAt"/><result column="updated_at" property="updatedAt"/>
+  </resultMap>
+  <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.AnalysisJob" useGeneratedKeys="true" keyProperty="id">
+    INSERT IGNORE INTO analysis_job (idempotency_key,agent_id,session_id,assistant_message_id,policy_version,model_id,status,attempts,max_attempts,created_at,updated_at)
+    VALUES (#{idempotencyKey},#{agentId},#{sessionId},#{assistantMessageId},#{policyVersion},#{modelId},#{status},#{attempts},#{maxAttempts},#{createdAt},#{updatedAt})
+  </insert>
+  <select id="queryClaimable" resultMap="JobMap">SELECT * FROM analysis_job WHERE status IN ('PENDING','RETRY') AND attempts &lt; max_attempts AND (lease_until IS NULL OR lease_until &lt; NOW()) ORDER BY created_at LIMIT 1</select>
+  <update id="claim">UPDATE analysis_job SET status='RUNNING', attempts=attempts+1, lease_until=#{leaseUntil}, updated_at=NOW() WHERE id=#{id} AND status IN ('PENDING','RETRY') AND (lease_until IS NULL OR lease_until &lt; NOW())</update>
+  <update id="markComplete">UPDATE analysis_job SET status='COMPLETED', lease_until=NULL, error_message=NULL, updated_at=NOW() WHERE id=#{id}</update>
+  <update id="markFailure">UPDATE analysis_job SET status=#{status}, lease_until=NULL, error_message=#{errorMessage}, updated_at=NOW() WHERE id=#{id}</update>
+</mapper>
