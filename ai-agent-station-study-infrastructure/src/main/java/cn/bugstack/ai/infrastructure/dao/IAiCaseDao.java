@@ -28,4 +28,9 @@ public interface IAiCaseDao {
                          @Param("toStatus") String toStatus,
                          @Param("owner") String owner,
                          @Param("resolution") String resolution);
+    int mergeTo(@Param("agentId") String agentId,
+                @Param("caseId") String caseId,
+                @Param("fromStatus") String fromStatus,
+                @Param("targetCaseId") String targetCaseId,
+                @Param("resolution") String resolution);
 }

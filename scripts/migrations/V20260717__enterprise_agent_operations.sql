@@ -35,6 +35,7 @@ CALL add_column_if_missing('ai_case','affected_sessions','INT NOT NULL DEFAULT 0
 CALL add_column_if_missing('ai_case','last_seen_at','DATETIME NULL');
 CALL add_column_if_missing('ai_case','owner','VARCHAR(64) NOT NULL DEFAULT ''''');
 CALL add_column_if_missing('ai_case','resolution','TEXT NULL');
+CALL add_column_if_missing('ai_case','merged_to_case_id','VARCHAR(64) NOT NULL DEFAULT ''''');
 
 UPDATE ai_case SET status='CONFIRMED' WHERE status='active';
 UPDATE ai_case SET status='ARCHIVED' WHERE status='archived';

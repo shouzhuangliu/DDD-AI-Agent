@@ -26,6 +26,7 @@ public class AiCase {
     private String extractionReason;
     private String owner;
     private String resolution;
+    private String mergedToCaseId;
     private LocalDateTime lastSeenAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

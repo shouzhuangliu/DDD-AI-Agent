@@ -13,6 +13,7 @@
         <result column="skill_id" property="skillId"/><result column="created_at" property="createdAt"/>
         <result column="source_model" property="sourceModel"/><result column="extraction_reason" property="extractionReason"/>
         <result column="owner" property="owner"/><result column="resolution" property="resolution"/>
+        <result column="merged_to_case_id" property="mergedToCaseId"/>
         <result column="last_seen_at" property="lastSeenAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -45,6 +46,14 @@
         SET status=#{toStatus},
             owner=CASE WHEN #{owner}='' THEN owner ELSE #{owner} END,
             resolution=CASE WHEN #{resolution}='' THEN resolution ELSE #{resolution} END,
+            updated_at=NOW()
+        WHERE agent_id=#{agentId} AND case_id=#{caseId} AND status=#{fromStatus}
+    </update>
+    <update id="mergeTo">
+        UPDATE ai_case
+        SET status='MERGED',
+            merged_to_case_id=#{targetCaseId},
+            resolution=#{resolution},
             updated_at=NOW()
         WHERE agent_id=#{agentId} AND case_id=#{caseId} AND status=#{fromStatus}
     </update>

@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS `ai_feedback` (
   `category` VARCHAR(32) DEFAULT '' COMMENT '分类: bug/feature/consult/other',
   `matched_case_id` VARCHAR(64) DEFAULT '' COMMENT '匹配到的 case id',
   `resolved` TINYINT DEFAULT 0 COMMENT '是否已解决',
+  `merged_to_case_id` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '合并目标 Case ID',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_agent` (`agent_id`),

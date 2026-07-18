@@ -13,13 +13,14 @@ public class WorkflowTransitionPolicy {
 
     public WorkflowTransitionPolicy() {
         transitions.put(Resource.CASE, Map.of(
-                "CANDIDATE", Set.of("PENDING_REVIEW", "IGNORED"),
-                "PENDING_REVIEW", Set.of("CONFIRMED", "IGNORED", "CANDIDATE"),
-                "CONFIRMED", Set.of("IN_PROGRESS", "ARCHIVED"),
+                "CANDIDATE", Set.of("PENDING_REVIEW", "IGNORED", "MERGED"),
+                "PENDING_REVIEW", Set.of("CONFIRMED", "IGNORED", "CANDIDATE", "MERGED"),
+                "CONFIRMED", Set.of("IN_PROGRESS", "ARCHIVED", "MERGED"),
                 "IN_PROGRESS", Set.of("RESOLVED", "CONFIRMED"),
                 "RESOLVED", Set.of("IN_PROGRESS", "ARCHIVED"),
                 "ARCHIVED", Set.of("CONFIRMED"),
-                "IGNORED", Set.of("CANDIDATE")
+                "IGNORED", Set.of("CANDIDATE"),
+                "MERGED", Set.of("CANDIDATE")
         ));
         transitions.put(Resource.FEEDBACK, Map.of(
                 "OPEN", Set.of("AI_EVALUATING", "INVALID", "NEED_MORE_INFO"),

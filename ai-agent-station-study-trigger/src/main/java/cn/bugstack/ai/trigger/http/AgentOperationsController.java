@@ -172,6 +172,32 @@ public class AgentOperationsController {
         return Map.of("success", true, "caseId", caseId, "fromStatus", item.getStatus(), "toStatus", toStatus);
     }
 
+    @PostMapping("/cases/{caseId}/merge")
+    @Transactional
+    public Map<String, Object> mergeCase(@PathVariable("agentId") String agentId,
+                                         @PathVariable("caseId") String caseId,
+                                         @RequestBody CaseMergeRequest request) {
+        if (request == null || blank(request.targetCaseId()) || blank(request.actor())) {
+            throw new IllegalArgumentException("targetCaseId and actor are required");
+        }
+        String targetCaseId = request.targetCaseId().trim();
+        if (caseId.equals(targetCaseId)) {
+            throw new IllegalArgumentException("Case cannot merge into itself");
+        }
+        AiCase source = caseDao.queryByAgentAndCaseId(agentId, caseId);
+        if (source == null) throw new IllegalArgumentException("Case does not belong to this Agent");
+        AiCase target = caseDao.queryByAgentAndCaseId(agentId, targetCaseId);
+        if (target == null) throw new IllegalArgumentException("Target Case does not belong to this Agent");
+        transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.CASE, source.getStatus(), "MERGED");
+        String reason = safe(request.reason());
+        String resolution = "合并到 Case: " + targetCaseId + (reason.isEmpty() ? "" : "；原因：" + reason);
+        int changed = caseDao.mergeTo(agentId, caseId, source.getStatus(), targetCaseId, resolution);
+        if (changed != 1) throw new IllegalStateException("Case changed concurrently; refresh and retry");
+        jdbcTemplate.update("INSERT INTO case_review_record(case_id,agent_id,from_status,to_status,actor,reason) VALUES (?,?,?,?,?,?)",
+                caseId, agentId, source.getStatus(), "MERGED", request.actor().trim(), resolution);
+        return Map.of("success", true, "caseId", caseId, "mergedToCaseId", targetCaseId);
+    }
+
     @GetMapping("/workspace/stats")
     public Map<String, Object> stats(@PathVariable("agentId") String agentId) {
         long feedback = feedbackDao.countExplicitByAgentId(agentId);
@@ -217,5 +243,6 @@ public class AgentOperationsController {
     private static String safe(String value) { return value == null ? "" : value.trim(); }
 
     public record CaseTransitionRequest(String toStatus, String actor, String reason, String owner, String resolution) {}
+    public record CaseMergeRequest(String targetCaseId, String actor, String reason) {}
     public record FeedbackTransitionRequest(String toStatus, String actor, String reason, String category, String matchedCaseId) {}
 }

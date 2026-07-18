@@ -161,7 +161,7 @@ async function apiJson(url, options){
   return data;
 }
 
-const STATUS_LABELS={CANDIDATE:'候选 Case',PENDING_REVIEW:'待人工审核',CONFIRMED:'审核通过',IN_PROGRESS:'开发处理中',RESOLVED:'已解决',ARCHIVED:'已归档',IGNORED:'已忽略',OPEN:'待处理',OBSERVED:'仅观察',DRAFT:'草稿',CONNECTIVITY_CHECKED:'连通性已验证',DISCOVERED:'工具已发现',SCANNED:'安全已扫描',TESTED:'沙箱已测试',IN_REVIEW:'审核中',APPROVED:'已批准',SIGNED:'已签名',RELEASED:'已发布',ACTIVE:'生效中',success:'成功',failed:'失败',FAILURE:'失败'};
+const STATUS_LABELS={CANDIDATE:'候选 Case',PENDING_REVIEW:'待人工审核',CONFIRMED:'审核通过',IN_PROGRESS:'开发处理中',RESOLVED:'已解决',ARCHIVED:'已归档',IGNORED:'已忽略',MERGED:'已合并',OPEN:'待处理',OBSERVED:'仅观察',DRAFT:'草稿',CONNECTIVITY_CHECKED:'连通性已验证',DISCOVERED:'工具已发现',SCANNED:'安全已扫描',TESTED:'沙箱已测试',IN_REVIEW:'审核中',APPROVED:'已批准',SIGNED:'已签名',RELEASED:'已发布',ACTIVE:'生效中',success:'成功',failed:'失败',FAILURE:'失败'};
 const SEVERITY_LABELS={LOW:'低',MEDIUM:'中',HIGH:'高',CRITICAL:'严重'};
 const FEEDBACK_LABELS={THUMBS_UP:'有帮助',THUMBS_DOWN:'有问题',COMMENT:'补充反馈',NEGATIVE:'负面反馈',POSITIVE:'正面反馈'};
 const SIGNAL_LABELS={USER_CORRECTION:'用户纠正',REPEATED_QUESTION:'重复提问',IRRELEVANT_ANSWER:'答非所问',TOOL_FAILURE:'工具失败',OTHER:'其他观察'};
@@ -256,13 +256,20 @@ async function transitionFeedback(agentId,feedbackId,toStatus){
 async function openCaseDetail(agentId,caseId){
   const d=await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId));
   const c=d.case||{}, transitions={CANDIDATE:['PENDING_REVIEW','IGNORED'],PENDING_REVIEW:['CONFIRMED','IGNORED','CANDIDATE'],CONFIRMED:['IN_PROGRESS','ARCHIVED'],IN_PROGRESS:['RESOLVED','CONFIRMED'],RESOLVED:['IN_PROGRESS','ARCHIVED'],ARCHIVED:['CONFIRMED'],IGNORED:['CANDIDATE']};
-  const buttons=(transitions[c.status]||[]).map(s=>'<button onclick="transitionCase(\''+esc(agentId)+'\',\''+esc(caseId)+'\',\''+s+'\')" style="border:none;background:#0284c7;color:white;padding:6px 10px;border-radius:6px;cursor:pointer">'+esc(label(STATUS_LABELS,s))+'</button>').join(' ');
+  const buttons=(transitions[c.status]||[]).map(s=>'<button onclick="transitionCase(\''+esc(agentId)+'\',\''+esc(caseId)+'\',\''+s+'\')" style="border:none;background:#0284c7;color:white;padding:6px 10px;border-radius:6px;cursor:pointer">'+esc(label(STATUS_LABELS,s))+'</button>').join(' ')
+    + (['CANDIDATE','PENDING_REVIEW','CONFIRMED'].includes(c.status)?' <button onclick="mergeCase(\''+esc(agentId)+'\',\''+esc(caseId)+'\')" style="border:none;background:#7c3aed;color:white;padding:6px 10px;border-radius:6px;cursor:pointer">合并到其它 Case</button>':'');
   const sourceLinks=(d.evidence||[]).filter(e=>e.source).map(e=>'<button onclick="closeModal();openConversation(\''+esc(e.source.agentId)+'\',\''+esc(e.source.sessionId)+'\','+e.source.messageId+')" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;padding:4px 8px;border-radius:6px;cursor:pointer">查看来源 '+esc((e.source.sessionId||'').slice(0,8))+'</button>').join(' ');
   openModal('Case · '+esc(localCaseTitle(c.title)||c.caseId),'<div style="font-size:12px;line-height:1.7"><div><b>状态：</b>'+esc(label(STATUS_LABELS,c.status))+'　<b>严重度：</b>'+esc(label(SEVERITY_LABELS,c.severity))+'　<b>综合分：</b>'+(c.totalScore||0)+'</div><div><b>重要性/置信度：</b>'+(c.importanceScore||0)+' / '+(c.confidence||0)+'</div><div><b>类型：</b>'+esc(label(CASE_TYPE_LABELS,c.caseType))+'　<b>模型：</b>'+esc(c.sourceModel||'')+'</div><div style="margin-top:8px"><b>AI 归因摘要</b><div>'+esc(c.summary||'')+'</div></div><div style="margin-top:8px"><b>升级理由 / 证据说明</b><div>'+esc(c.extractionReason||'')+'</div></div><div style="margin-top:8px"><b>证据链：</b>'+(d.evidence||[]).length+'　<b>评分快照：</b>'+(d.scoreSnapshots||[]).length+'　<b>审核记录：</b>'+(d.reviews||[]).length+'</div>'+(sourceLinks?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+sourceLinks+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">'+buttons+'</div></div>',null,null);
 }
 async function transitionCase(agentId,caseId,toStatus){
   const reason=prompt('请输入本次状态变更原因（会写入审核记录）','人工审核'); if(reason===null)return;
   await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId)+'/transition',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toStatus:toStatus,actor:'web-reviewer',reason:reason})});
+  closeModal(); await loadDashboard();
+}
+async function mergeCase(agentId,caseId){
+  const targetCaseId=prompt('请输入目标 Case ID'); if(!targetCaseId)return;
+  const reason=prompt('请输入合并原因','重复或相似 Case 合并'); if(reason===null)return;
+  await apiJson(API+'/agents/'+encodeURIComponent(agentId)+'/cases/'+encodeURIComponent(caseId)+'/merge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({targetCaseId:targetCaseId,actor:'web-reviewer',reason:reason})});
   closeModal(); await loadDashboard();
 }
 

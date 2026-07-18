@@ -22,6 +22,13 @@ public class WorkflowTransitionPolicyTest {
         assertFalse(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "CANDIDATE", "RELEASED"));
     }
 
+    @Test
+    public void allowsCaseMergeFromReviewStates() {
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "CANDIDATE", "MERGED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "PENDING_REVIEW", "MERGED"));
+        assertTrue(policy.isAllowed(WorkflowTransitionPolicy.Resource.CASE, "CONFIRMED", "MERGED"));
+    }
+
     @Test(expected = IllegalStateException.class)
     public void requireAllowedExplainsInvalidTransition() {
         policy.requireAllowed(WorkflowTransitionPolicy.Resource.MCP, "DRAFT", "RELEASED");
