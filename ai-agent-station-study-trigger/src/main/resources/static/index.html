@@ -458,9 +458,10 @@ function showChatView(messages, memory, highlightMessageId) {
   document.getElementById('sessionListView').style.display = 'none';
   document.getElementById('chatView').style.display = 'flex';
   document.getElementById('chatAgentName').textContent = currentChatAgent.agentName||currentChatAgent.agentId;
-  document.getElementById('chatAgentMode').textContent = currentChatAgent.channel === 'react' ? 'ReAct' : 'Auto';
-  document.getElementById('chatAgentMode').style.background = currentChatAgent.channel === 'react' ? '#f0e6ff' : '#dbeafe';
-  document.getElementById('chatAgentMode').style.color = currentChatAgent.channel === 'react' ? '#7c3aed' : '#1e40af';
+  document.getElementById('chatAgentMode').textContent = '协同';
+  document.getElementById('chatAgentMode').title = 'Chat 先响应普通对话，需要工具/规划/执行时再调度 '+(currentChatAgent.channel === 'react' ? 'ReAct' : 'Auto')+' Agent';
+  document.getElementById('chatAgentMode').style.background = '#dcfce7';
+  document.getElementById('chatAgentMode').style.color = '#166534';
   document.getElementById('chatSessionId').textContent = chatSession;
   const box=document.getElementById('chatBox'); box.innerHTML='';
   const summary=memory&&memory.summary&&memory.summary.summary;
@@ -502,7 +503,7 @@ async function submitExplicitFeedback(messageId,type){
   const resp=await fetch(API+'/agents/'+encodeURIComponent(currentChatAgent.agentId)+'/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:chatSession,assistantMessageId:messageId,feedbackType:type,message:message,submittedBy:'web-user'})});
   const result=await resp.json(); alert(result.success?'反馈已记录':'反馈失败：'+result.message);
 }
-const TAGS={analysis:{c:'stage-analysis',l:'📊'},execution:{c:'stage-execution',l:'🚀'},supervision:{c:'stage-supervision',l:'🔍'},summary:{c:'stage-summary',l:'✅'},action:{c:'stage-action',l:'🔧'},observation:{c:'stage-observation',l:'📋'},final:{c:'stage-final',l:'✨'},error:{c:'stage-error',l:'❌'},complete:{c:'stage-complete',l:'🏁'}};
+const TAGS={chat:{c:'stage-final',l:'💬'},analysis:{c:'stage-analysis',l:'📊'},execution:{c:'stage-execution',l:'🚀'},supervision:{c:'stage-supervision',l:'🔍'},summary:{c:'stage-summary',l:'✅'},action:{c:'stage-action',l:'🔧'},observation:{c:'stage-observation',l:'📋'},final:{c:'stage-final',l:'✨'},error:{c:'stage-error',l:'❌'},complete:{c:'stage-complete',l:'🏁'}};
 function appendUserMsg(t){const w=document.getElementById('welcomeMsg');if(w)w.remove();const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='display:flex;justify-content:flex-end;animation:fadeIn .3s';d.innerHTML='<div style="background:#0284c7;color:white;border-radius:12px 12px 4px 12px;padding:10px 16px;max-width:75%;font-size:14px;white-space:pre-wrap">'+esc(t)+'</div>';box.appendChild(d);box.scrollTop=box.scrollHeight;}
 function renderStoredMessage(message, highlightMessageId){
   const box=document.getElementById('chatBox'), isUser=message.role==='user', d=document.createElement('div');
@@ -510,7 +511,7 @@ function renderStoredMessage(message, highlightMessageId){
   d.innerHTML=isUser?'<div style="background:#0284c7;color:white;border-radius:12px 12px 4px 12px;padding:10px 16px;max-width:75%;font-size:14px;white-space:pre-wrap">'+esc(message.content||'')+'</div>':'<div class="stage-body" style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%;font-size:14px;color:#334155;line-height:1.5">'+DOMPurify.sanitize(marked.parse(message.content||''))+'</div>';
   box.appendChild(d); if(String(message.id)===String(highlightMessageId))setTimeout(()=>d.scrollIntoView({block:'center',behavior:'smooth'}),0);
 }
-function addMsg(type,subType,step,content,completed){const w=document.getElementById('welcomeMsg');if(w)w.remove();if(!stageEl||stageEl.dataset.type!==type||(step&&stageEl.dataset.step!=step)){const tag=TAGS[type]||TAGS.final;const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='animation:fadeIn .3s';d.innerHTML='<div style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%"><div style="margin-bottom:4px"><span class="stage '+tag.c+'">'+tag.l+'</span>'+(step?'<span style="font-size:11px;color:#94a3b8">#'+step+'</span>':'')+'</div><div class="stage-body" style="font-size:14px;color:#334155;line-height:1.5"></div></div>';box.appendChild(d);box.scrollTop=box.scrollHeight;stageEl=d.querySelector('.stage-body');stageEl.dataset.type=type;if(step)stageEl.dataset.step=step;}
+function addMsg(type,subType,step,content,completed){const w=document.getElementById('welcomeMsg');if(w)w.remove();if(type==='chat'){const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='display:flex;animation:fadeIn .3s';d.innerHTML='<div class="stage-body" style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%;font-size:14px;color:#334155;line-height:1.5">'+DOMPurify.sanitize(marked.parse(content||''))+'</div>';box.appendChild(d);box.scrollTop=box.scrollHeight;stageEl=null;return;}if(!stageEl||stageEl.dataset.type!==type||(step&&stageEl.dataset.step!=step)){const tag=TAGS[type]||TAGS.final;const box=document.getElementById('chatBox');const d=document.createElement('div');d.style='animation:fadeIn .3s';d.innerHTML='<div style="background:#f8fafc;border-radius:12px 12px 12px 4px;padding:12px 16px;max-width:80%"><div style="margin-bottom:4px"><span class="stage '+tag.c+'">'+tag.l+'</span>'+(step?'<span style="font-size:11px;color:#94a3b8">#'+step+'</span>':'')+'</div><div class="stage-body" style="font-size:14px;color:#334155;line-height:1.5"></div></div>';box.appendChild(d);box.scrollTop=box.scrollHeight;stageEl=d.querySelector('.stage-body');stageEl.dataset.type=type;if(step)stageEl.dataset.step=step;}
   if(type==='action'){const e=document.createElement('div');e.className='react-action';e.innerHTML='<span style="font-weight:600;color:#7c3aed">'+(subType||'')+'</span> '+content;stageEl.appendChild(e);}
   else if(type==='observation'){const e=document.createElement('div');e.className='react-observation';e.innerHTML='<pre>'+content+'</pre>';stageEl.appendChild(e);}
   else if(type==='final'||type==='complete'){stageEl.innerHTML=DOMPurify.sanitize(marked.parse(content));}

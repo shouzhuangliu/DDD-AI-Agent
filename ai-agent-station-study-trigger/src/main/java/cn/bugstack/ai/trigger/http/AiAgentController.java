@@ -6,6 +6,8 @@ import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentModeEnum;
 import cn.bugstack.ai.domain.agent.service.execute.IExecuteStrategy;
+import cn.bugstack.ai.domain.agent.service.execute.chat.ChatExecuteStrategy;
+import cn.bugstack.ai.domain.agent.service.execute.route.ChatAgentRoutePolicy;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import com.alibaba.fastjson.JSON;
@@ -47,6 +49,9 @@ public class AiAgentController implements IAiAgentService {
     @Resource
     private ConversationSessionService conversationSessionService;
 
+    @Resource
+    private ChatAgentRoutePolicy chatAgentRoutePolicy;
+
     /** 模式 -> 策略，启动时按 getType() 建立 */
     private final Map<String, IExecuteStrategy> strategyMap = new HashMap<>();
 
@@ -84,11 +89,21 @@ public class AiAgentController implements IAiAgentService {
                     reqMode = "react";
                 }
             }
-            AiAgentModeEnum mode = AiAgentModeEnum.getByCode(reqMode);
-            IExecuteStrategy strategy = strategyMap.get(mode.getCode());
+            ChatAgentRoutePolicy.RouteDecision routeDecision = chatAgentRoutePolicy.route(request.getMessage(), reqMode);
+            String routedMode = "plan".equals(routeDecision.route()) ? AiAgentModeEnum.AUTO.getCode() : routeDecision.route();
+            IExecuteStrategy strategy = strategyMap.get(routedMode);
+            if (strategy == null) {
+                AiAgentModeEnum mode = AiAgentModeEnum.getByCode(routedMode);
+                strategy = strategyMap.get(mode.getCode());
+            }
+            if (strategy == null) {
+                strategy = strategyMap.get(ChatExecuteStrategy.TYPE);
+            }
             if (strategy == null) {
                 strategy = strategyMap.get(AiAgentModeEnum.AUTO.getCode());
             }
+            log.info("Chat/Agent 协同路由: agentId={}, sessionId={}, preferredMode={}, route={}, strategy={}, reason={}",
+                    request.getAiAgentId(), request.getSessionId(), reqMode, routeDecision.route(), strategy.getType(), routeDecision.reason());
             final IExecuteStrategy finalStrategy = strategy;
 
             // 3. 构建执行命令实体
