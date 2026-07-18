@@ -19,4 +19,8 @@
     INSERT IGNORE INTO feedback_evaluation_job (idempotency_key,agent_id,feedback_id,policy_version,status,attempts,max_attempts,created_at,updated_at)
     VALUES (#{idempotencyKey},#{agentId},#{feedbackId},#{policyVersion},#{status},#{attempts},#{maxAttempts},#{createdAt},#{updatedAt})
   </insert>
+  <select id="queryClaimable" resultMap="FeedbackEvaluationJobMap">SELECT * FROM feedback_evaluation_job WHERE status IN ('PENDING','RETRY') AND attempts &lt; max_attempts AND (lease_until IS NULL OR lease_until &lt; NOW()) ORDER BY created_at LIMIT 1</select>
+  <update id="claim">UPDATE feedback_evaluation_job SET status='RUNNING', attempts=attempts+1, lease_until=#{leaseUntil}, updated_at=NOW() WHERE id=#{id} AND status IN ('PENDING','RETRY') AND (lease_until IS NULL OR lease_until &lt; NOW())</update>
+  <update id="markComplete">UPDATE feedback_evaluation_job SET status='COMPLETED', lease_until=NULL, error_message=NULL, updated_at=NOW() WHERE id=#{id}</update>
+  <update id="markFailure">UPDATE feedback_evaluation_job SET status=#{status}, lease_until=NULL, error_message=#{errorMessage}, updated_at=NOW() WHERE id=#{id}</update>
 </mapper>
