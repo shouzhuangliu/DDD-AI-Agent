@@ -55,6 +55,7 @@ const agentToolOptions = ref([]);
 const agentSkillOptions = ref([]);
 const agentMcpOptions = ref([]);
 const agentBindingSummary = ref({});
+const agentBindingDetail = ref(null);
 let bindingOptionsPromise = null;
 let bindingOptionsLoadedAt = 0;
 
@@ -345,6 +346,9 @@ function setModal(kind, title, mode = 'create', form = {}, extra = {}) {
 
 function closeModal() {
   modal.open = false;
+  if (modal.kind === 'agent') {
+    agentBindingDetail.value = null;
+  }
 }
 
 function capHeaders(actor, role, json = true) {
@@ -1013,6 +1017,15 @@ function defaultAgentModelId() {
     || '';
 }
 
+function effectiveToolSourceLabel(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'agent_binding') return '手动勾选';
+  if (normalized === 'skill_binding') return '由 Skill 自动赋能';
+  if (normalized === 'mcp_binding') return '由 MCP 自动赋能';
+  if (normalized === 'task_cascade') return '由子任务能力级联';
+  return '未知来源';
+}
+
 function modelLabel(modelId) {
   if (!modelId) return '未绑定';
   const found = models.value.find(item => item.modelId === modelId);
@@ -1040,7 +1053,18 @@ async function openAgentEdit(agentId) {
   await loadAgentBindingOptions();
   const agent = agents.value.find(item => item.agentId === agentId);
   if (!agent) return;
-  const bindings = await request(`/agents/${encodeURIComponent(agentId)}/bindings`, {}, {});
+  const [bindings, detail] = await Promise.all([
+    request(`/agents/${encodeURIComponent(agentId)}/bindings`, {}, {}),
+    request(`/agents/${encodeURIComponent(agentId)}/bindings/detail`, {}, {}),
+  ]);
+  agentBindingDetail.value = detail || {
+    workspace: '',
+    effectiveToolIds: [],
+    effectiveTools: [],
+    skills: [],
+    mcps: [],
+    tools: [],
+  };
   setModal('agent', '编辑智能体 ' + (agent.agentName || agent.agentId), 'edit', {
     agentId: agent.agentId,
     agentName: agent.agentName || '',
@@ -2471,6 +2495,34 @@ onMounted(() => {
                   </div>
                   <div class="pill">{{ pick(mcp, 'mcpId', 'MCP_ID') }}</div>
                 </label>
+              </div>
+            </div>
+
+            <div class="field field-full">
+              <label>运行时能力预览</label>
+              <div class="bind-runtime-panel">
+                <div class="field-hint">
+                  当前工作目录：{{ agentBindingDetail?.workspace || modal.form.workDir || '将使用默认 Agent 工作目录' }}
+                </div>
+                <div v-if="(agentBindingDetail?.effectiveTools || []).length" class="bind-list">
+                  <div
+                    v-for="tool in (agentBindingDetail?.effectiveTools || [])"
+                    :key="tool.toolId"
+                    class="bind-item bind-item-static"
+                  >
+                    <div class="bind-main">
+                      <div class="bind-title">{{ tool.name || tool.toolId }}</div>
+                      <div class="bind-sub">{{ tool.description || tool.toolId }}</div>
+                    </div>
+                    <div class="bind-runtime-tags">
+                      <span class="pill">{{ tool.toolId }}</span>
+                      <span class="pill brand">{{ effectiveToolSourceLabel(tool.source) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="empty-inline">
+                  当前还没有可展示的运行时生效工具；保存绑定后会自动计算。
+                </div>
               </div>
             </div>
 
