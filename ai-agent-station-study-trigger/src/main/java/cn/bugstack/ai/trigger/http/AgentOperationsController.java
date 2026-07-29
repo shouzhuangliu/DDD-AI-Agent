@@ -18,6 +18,7 @@ import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
+import cn.bugstack.ai.trigger.service.analysis.ConversationQualificationPolicy;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/agents/{agentId}")
@@ -48,6 +50,7 @@ public class AgentOperationsController {
     @Resource private AgentMemoryProfileService agentMemoryProfileService;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
+    private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
     @PostMapping("/feedback")
     public Map<String, Object> submitFeedback(@PathVariable("agentId") String agentId,
@@ -129,6 +132,7 @@ public class AgentOperationsController {
         transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, item.getStatus(), toStatus);
         String matchedCaseId = safe(request.matchedCaseId());
         if ("PROMOTED".equals(toStatus)) {
+            ensureFeedbackEligibleForPromotion(item, safe(request.reason()));
             matchedCaseId = promoteFeedbackToCase(agentId, item, matchedCaseId, safe(request.reason()));
         }
         int resolved = "RESOLVED".equals(toStatus) || "PROMOTED".equals(toStatus) || "INVALID".equals(toStatus) ? 1 : 0;
@@ -304,6 +308,30 @@ public class AgentOperationsController {
     }
 
     private int bounded(int limit) { return Math.max(1, Math.min(200, limit)); }
+
+    private void ensureFeedbackEligibleForPromotion(AiFeedback feedback, String reason) {
+        String status = safe(feedback.getStatus()).toUpperCase();
+        String sourceType = safe(feedback.getSourceType()).toUpperCase();
+        boolean statusQualified = Set.of("VALID", "CLUSTERED").contains(status);
+        boolean explicitSource = Set.of("EXPLICIT", "USER", "OPERATIONS").contains(sourceType);
+        ConversationQualificationPolicy.CasePromotionInput input =
+                new ConversationQualificationPolicy.CasePromotionInput(
+                        1,
+                        explicitNegativeFeedback(feedback),
+                        promotionConfidence(statusQualified, explicitSource),
+                        false,
+                        businessRelevanceScore(feedback),
+                        evidenceScore(feedback, reason),
+                        false
+                );
+        if (!statusQualified && !explicitSource) {
+            throw new IllegalArgumentException("当前反馈尚未通过评测，不能直接升级为 Case");
+        }
+        if (!qualificationPolicy.shouldPromoteCase(input)) {
+            throw new IllegalArgumentException("当前反馈证据不足，不能直接升级为 Case，请先补充信息或等待更多业务佐证");
+        }
+    }
+
     private String promoteFeedbackToCase(String agentId, AiFeedback feedback, String requestedCaseId, String reason) {
         LocalDateTime now = LocalDateTime.now();
         String caseId = requestedCaseId.isBlank() ? "case-feedback-" + feedback.getId() : requestedCaseId;
@@ -357,6 +385,40 @@ public class AgentOperationsController {
             return compact.length() <= 60 ? compact : compact.substring(0, 60);
         }
         return "Feedback 升级 Case：" + safe(feedbackType);
+    }
+
+    private int explicitNegativeFeedback(AiFeedback feedback) {
+        if (feedback == null) return 0;
+        if (feedback.getRating() != null && feedback.getRating() <= 2) return 1;
+        return Set.of("THUMBS_DOWN", "NEGATIVE", "ISSUE_REPORT").contains(safe(feedback.getFeedbackType()).toUpperCase()) ? 1 : 0;
+    }
+
+    private double promotionConfidence(boolean statusQualified, boolean explicitSource) {
+        if (statusQualified) return 85d;
+        if (explicitSource) return 78d;
+        return 60d;
+    }
+
+    private double businessRelevanceScore(AiFeedback feedback) {
+        String text = (safe(feedback.getMessage()) + " " + safe(feedback.getCategory())).toLowerCase();
+        return containsAny(text, "订单", "商品", "库存", "缓存", "支付", "退款", "数据库", "db", "接口", "用户",
+                "物流", "价格", "显卡", "业务", "内存", "sku", "页面", "补货", "缺货", "不一致") ? 90d : 40d;
+    }
+
+    private double evidenceScore(AiFeedback feedback, String reason) {
+        String text = (safe(feedback.getMessage()) + " " + safe(reason) + " " + safe(feedback.getCorrection())).toLowerCase();
+        double score = 35d;
+        if (containsAny(text, "型号", "id", "sku", "订单号", "页面", "接口", "显卡", "内存", "ddr", "截图", "日志", "下单")) score += 35d;
+        if (text.matches(".*\\d{2,}.*")) score += 20d;
+        if (text.length() >= 18) score += 10d;
+        return Math.min(score, 100d);
+    }
+
+    private boolean containsAny(String text, String... candidates) {
+        for (String candidate : candidates) {
+            if (text.contains(candidate.toLowerCase())) return true;
+        }
+        return false;
     }
 
     private Map<String, Object> sourceOf(String agentId, Long messageId) {
