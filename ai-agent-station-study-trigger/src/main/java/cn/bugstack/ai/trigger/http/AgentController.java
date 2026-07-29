@@ -58,6 +58,7 @@ public class AgentController {
     @Resource private AgentSoulService agentSoulService;
     @Resource private SkillCatalogService skillCatalogService;
     @Resource private AgentWorkspaceService agentWorkspaceService;
+    @Resource private ReActToolAllowlistPolicy reActToolAllowlistPolicy;
 
     @Data
     public static class ModelBindingRequest {
@@ -367,6 +368,7 @@ public class AgentController {
         List<String> skillIds = agentRepository.queryBoundSkillIds(agentId);
         List<String> mcpIds = agentRepository.queryBoundMcpIds(agentId);
         List<String> toolIds = agentRepository.queryBoundToolIds(agentId);
+        List<String> effectiveToolIds = effectiveToolIds(toolIds, skillIds, mcpIds);
         Path workspace = agentWorkspaceService.resolveWorkDir(agentId, agent.getWorkDir(), properties.getWorkDir());
         List<Map<String, Object>> skills = skillIds.stream()
                 .map(skillId -> {
@@ -395,6 +397,16 @@ public class AgentController {
                         "riskLevel", option.riskLevel(),
                         "bound", true
                 )).toList();
+        List<Map<String, Object>> effectiveTools = effectiveToolIds.stream()
+                .map(toolOptionMap::get)
+                .filter(java.util.Objects::nonNull)
+                .map(option -> Map.<String, Object>of(
+                        "toolId", option.toolId(),
+                        "name", option.name(),
+                        "description", option.description(),
+                        "riskLevel", option.riskLevel(),
+                        "source", impliedToolSource(option.toolId(), toolIds, skillIds, mcpIds)
+                )).toList();
         List<Map<String, Object>> mcps = agentRepository.queryMcpToolsByIds(mcpIds).stream()
                 .map(mcp -> Map.<String, Object>of(
                         "mcpId", firstNonBlank(mcp.getMcpId(), ""),
@@ -409,7 +421,9 @@ public class AgentController {
                 "workspace", workspace.toString(),
                 "skills", skills,
                 "mcps", mcps,
-                "tools", tools
+                "tools", tools,
+                "effectiveToolIds", effectiveToolIds,
+                "effectiveTools", effectiveTools
         );
     }
 
@@ -417,7 +431,7 @@ public class AgentController {
     public Map<String, Object> updateBindings(@PathVariable("agentId") String agentId, @RequestBody Map<String, List<String>> body) {
         List<String> skillIds = body.getOrDefault("skillIds", List.of());
         List<String> mcpIds = body.getOrDefault("mcpIds", List.of());
-        List<String> toolIds = body.getOrDefault("toolIds", List.of());
+        List<String> toolIds = reActToolAllowlistPolicy.resolve(body.getOrDefault("toolIds", List.of()));
         try {
             capabilityRegistryService.requireReleasedRuntimeBindings(skillIds, mcpIds);
             agentRepository.bindSkills(agentId, skillIds);
@@ -432,6 +446,40 @@ public class AgentController {
     @GetMapping("/agent-tools")
     public List<ReActToolAllowlistPolicy.ToolOption> agentTools() {
         return ReActToolAllowlistPolicy.options();
+    }
+
+    private List<String> effectiveToolIds(List<String> boundToolIds, List<String> skillIds, List<String> mcpIds) {
+        java.util.LinkedHashSet<String> tools = new java.util.LinkedHashSet<>(reActToolAllowlistPolicy.resolve(boundToolIds));
+        if (skillIds != null && !skillIds.isEmpty()) {
+            tools.add(ReActToolAllowlistPolicy.READ_FILE);
+        }
+        if (mcpIds != null && !mcpIds.isEmpty()) {
+            tools.add(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
+        } else {
+            tools.remove(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
+        }
+        if (tools.contains(ReActToolAllowlistPolicy.TASK)) {
+            tools.add(ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS);
+        }
+        return new java.util.ArrayList<>(tools);
+    }
+
+    private String impliedToolSource(String toolId, List<String> boundToolIds, List<String> skillIds, List<String> mcpIds) {
+        String normalized = firstNonBlank(toolId, "").trim().toLowerCase();
+        if (reActToolAllowlistPolicy.resolve(boundToolIds).contains(normalized)) {
+            return "agent_binding";
+        }
+        if (ReActToolAllowlistPolicy.READ_FILE.equals(normalized) && skillIds != null && !skillIds.isEmpty()) {
+            return "skill_binding";
+        }
+        if (ReActToolAllowlistPolicy.CALL_MCP_TOOL.equals(normalized) && mcpIds != null && !mcpIds.isEmpty()) {
+            return "mcp_binding";
+        }
+        if (ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS.equals(normalized)
+                && reActToolAllowlistPolicy.resolve(boundToolIds).contains(ReActToolAllowlistPolicy.TASK)) {
+            return "task_cascade";
+        }
+        return "agent_binding";
     }
 
     @GetMapping("/agents/{agentId}/souls")

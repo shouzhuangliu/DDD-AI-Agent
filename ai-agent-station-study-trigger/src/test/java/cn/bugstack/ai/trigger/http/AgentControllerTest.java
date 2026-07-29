@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.http;
 
 import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
@@ -39,6 +40,7 @@ class AgentControllerTest {
         ReflectionTestUtils.setField(controller, "agentRepository", agentRepository);
         ReflectionTestUtils.setField(controller, "skillScannerService", skillScannerService);
         ReflectionTestUtils.setField(controller, "agentWorkspaceService", agentWorkspaceService);
+        ReflectionTestUtils.setField(controller, "reActToolAllowlistPolicy", new ReActToolAllowlistPolicy());
         ReActToolProperties properties = new ReActToolProperties();
         properties.setWorkDir("D:/repo");
         ReflectionTestUtils.setField(controller, "properties", properties);
@@ -76,6 +78,7 @@ class AgentControllerTest {
         List<Map<String, Object>> skills = cast(result.get("skills"));
         List<Map<String, Object>> tools = cast(result.get("tools"));
         List<Map<String, Object>> mcps = cast(result.get("mcps"));
+        List<Map<String, Object>> effectiveTools = cast(result.get("effectiveTools"));
         assertEquals(1, skills.size());
         assertEquals("enterprise-demo-skill-1.0.0", skills.getFirst().get("skillId"));
         assertEquals(".ma/skills/enterprise-demo-skill-1.0.0/SKILL.md", skills.getFirst().get("runtimePath"));
@@ -83,6 +86,11 @@ class AgentControllerTest {
         assertEquals("read_file", tools.getFirst().get("toolId"));
         assertEquals(1, mcps.size());
         assertEquals("enterprise-demo-mcp", mcps.getFirst().get("mcpId"));
+        assertEquals(2, effectiveTools.size());
+        assertEquals("read_file", effectiveTools.get(0).get("toolId"));
+        assertEquals("agent_binding", effectiveTools.get(0).get("source"));
+        assertEquals("call_mcp_tool", effectiveTools.get(1).get("toolId"));
+        assertEquals("mcp_binding", effectiveTools.get(1).get("source"));
         assertTrue(result.get("workspace").toString().contains("workspaces"));
     }
 
