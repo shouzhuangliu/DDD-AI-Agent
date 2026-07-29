@@ -463,6 +463,7 @@ public class AgentOperationsController {
             case "INVALID" -> "NOT_ELIGIBLE";
             default -> "NOT_PROMOTED";
         };
+        PromotionReadiness promotionReadiness = promotionReadiness(item);
         String sourceLabel = switch (safe(item.getSourceType()).toUpperCase()) {
             case "EXPLICIT", "USER" -> "用户反馈";
             case "OPERATIONS" -> "运维反馈";
@@ -498,8 +499,14 @@ public class AgentOperationsController {
         view.put("status", status);
         view.put("statusLabel", statusLabel);
         view.put("aiStatus", aiStatus);
+        view.put("aiStatusLabel", labelStatus(aiStatus));
         view.put("reviewStatus", reviewStatus);
+        view.put("reviewStatusLabel", labelStatus(reviewStatus));
         view.put("promotionStatus", promotionStatus);
+        view.put("promotionStatusLabel", labelStatus(promotionStatus));
+        view.put("promotionEligible", promotionReadiness.eligible());
+        view.put("promotionReadinessLabel", promotionReadiness.label());
+        view.put("promotionReadinessReason", promotionReadiness.reason());
         view.put("submittedBy", safe(item.getSubmittedBy()));
         view.put("createdAt", item.getCreatedAt());
         view.put("updatedAt", item.getUpdatedAt());
@@ -561,8 +568,78 @@ public class AgentOperationsController {
         return "已识别" + String.join("、", evidence) + "。";
     }
 
+    private PromotionReadiness promotionReadiness(AiFeedback item) {
+        String status = safe(item.getStatus()).toUpperCase();
+        boolean qualifiedStatus = Set.of("VALID", "CLUSTERED").contains(status);
+        double businessScore = businessRelevanceScore(item);
+        double evidenceScore = evidenceScore(item, "");
+        int negativeFeedback = explicitNegativeFeedback(item);
+        boolean eligible = qualificationPolicy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1,
+                negativeFeedback,
+                promotionConfidence(qualifiedStatus, isExplicitSource(item)),
+                false,
+                businessScore,
+                evidenceScore,
+                false
+        ));
+        if (eligible) {
+            return new PromotionReadiness(true, "满足升级条件", "当前反馈已通过状态校验，且业务相关性与证据强度达到升级 Case 的阈值。");
+        }
+        if (!qualifiedStatus) {
+            return new PromotionReadiness(false, "还不能升级", "当前仍处于“" + rawFeedbackStatusLabel(item.getStatus()) + "”，需要先完成 AI 评测并进入“已判定有效/待升级Case”。");
+        }
+        if (businessScore < 70d) {
+            return new PromotionReadiness(false, "业务相关性不足", "当前描述还没有稳定落到明确业务对象，建议补充具体商品、页面、订单或接口上下文。");
+        }
+        if (evidenceScore < 60d) {
+            return new PromotionReadiness(false, "证据不足", "当前缺少足够证据，建议补充型号、订单号、截图、日志或稳定复现场景。");
+        }
+        return new PromotionReadiness(false, "建议继续聚类", "虽然已判定为有效反馈，但单次证据仍偏弱，建议与同类反馈聚类后再升级为 Case。");
+    }
+
+    private boolean isExplicitSource(AiFeedback item) {
+        return Set.of("EXPLICIT", "USER", "OPERATIONS").contains(safe(item.getSourceType()).toUpperCase());
+    }
+
+    private String labelStatus(String value) {
+        return switch (safe(value).toUpperCase()) {
+            case "NEW" -> "新反馈";
+            case "AI_EVALUATING" -> "AI评测中";
+            case "NEED_MORE_INFO" -> "需要补充信息";
+            case "AI_VALID" -> "评测通过";
+            case "AI_INVALID" -> "评测不通过";
+            case "PENDING_AI" -> "待AI评测";
+            case "WAITING_USER" -> "等待补充";
+            case "PENDING_REVIEW" -> "待人工审核";
+            case "PROMOTED" -> "已升级Case";
+            case "READY_FOR_CASE" -> "可升级Case";
+            case "NOT_PROMOTED" -> "未升级";
+            case "NOT_ELIGIBLE" -> "不可升级";
+            case "REJECTED" -> "已驳回";
+            case "CLOSED" -> "已关闭";
+            default -> safe(value);
+        };
+    }
+
+    private String rawFeedbackStatusLabel(String value) {
+        return switch (safe(value).toUpperCase()) {
+            case "OPEN" -> "新反馈";
+            case "AI_EVALUATING" -> "AI评测中";
+            case "NEED_MORE_INFO" -> "需要补充信息";
+            case "VALID" -> "已判定有效";
+            case "CLUSTERED" -> "待升级Case";
+            case "PROMOTED" -> "已升级Case";
+            case "INVALID" -> "无效反馈";
+            case "RESOLVED" -> "已关闭";
+            default -> safe(value);
+        };
+    }
+
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
     private static String safe(String value) { return value == null ? "" : value.trim(); }
+
+    private record PromotionReadiness(boolean eligible, String label, String reason) {}
 
     public record CaseTransitionRequest(String toStatus, String actor, String reason, String owner, String resolution) {}
     public record CaseMergeRequest(String targetCaseId, String actor, String reason) {}

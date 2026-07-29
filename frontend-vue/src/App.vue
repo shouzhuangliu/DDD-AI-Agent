@@ -1808,8 +1808,8 @@ onMounted(() => {
                           <div class="muted" style="font-size:12px;margin-top:4px">{{ item.message || '-' }}</div>
                           <div class="actions" style="margin-top:8px">
                             <span class="pill">{{ item.statusLabel || labelStatus(item.status) }}</span>
-                            <span class="pill">{{ labelStatus(item.aiStatus) }}</span>
-                            <span class="pill">{{ labelStatus(item.promotionStatus) }}</span>
+                            <span class="pill">{{ item.aiStatusLabel || labelStatus(item.aiStatus) }}</span>
+                            <span class="pill">{{ item.promotionStatusLabel || labelStatus(item.promotionStatus) }}</span>
                           </div>
                         </div>
                         <div class="actions">
@@ -1839,8 +1839,9 @@ onMounted(() => {
                       <div class="muted" style="margin-top:6px">{{ selectedFeedback.message || '-' }}</div>
                       <div class="actions" style="margin-top:10px; flex-wrap:wrap">
                         <span class="pill">{{ selectedFeedback.statusLabel || labelStatus(selectedFeedback.status) }}</span>
-                        <span class="pill">{{ labelStatus(selectedFeedback.aiStatus) }}</span>
-                        <span class="pill">{{ labelStatus(selectedFeedback.promotionStatus) }}</span>
+                        <span class="pill">{{ selectedFeedback.aiStatusLabel || labelStatus(selectedFeedback.aiStatus) }}</span>
+                        <span class="pill">{{ selectedFeedback.reviewStatusLabel || labelStatus(selectedFeedback.reviewStatus) }}</span>
+                        <span class="pill">{{ selectedFeedback.promotionStatusLabel || labelStatus(selectedFeedback.promotionStatus) }}</span>
                         <span class="pill brand">{{ feedbackSourceLabel(selectedFeedback.sourceType) }}</span>
                       </div>
                     </div>
@@ -1850,6 +1851,13 @@ onMounted(() => {
                         <div>{{ feedbackStatusHint(selectedFeedback.status) }}</div>
                         <small>{{ feedbackReasonText(selectedFeedback) }}</small>
                         <small>{{ feedbackActionAdvice(selectedFeedback) }}</small>
+                      </div>
+                    </div>
+                    <div class="profile-section">
+                      <div class="profile-section-title">升级 Case 资格</div>
+                      <div class="profile-entry">
+                        <div>{{ selectedFeedback.promotionReadinessLabel || (selectedFeedback.promotionEligible ? '满足升级条件' : '暂不满足升级条件') }}</div>
+                        <small>{{ selectedFeedback.promotionReadinessReason || '当前暂无升级资格说明。' }}</small>
                       </div>
                     </div>
                     <div class="profile-section">
