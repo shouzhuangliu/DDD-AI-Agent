@@ -1468,8 +1468,8 @@ onMounted(() => {
     <div class="layout">
       <aside class="sidebar">
         <button class="nav-btn" :class="{ active: tab === 'dashboard' }" @click="switchTab('dashboard')">控制台</button>
-        <button class="nav-btn" :class="{ active: tab === 'feedback' }" @click="switchTab('feedback')">Feedback</button>
-        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">Cases</button>
+        <button class="nav-btn" :class="{ active: tab === 'feedback' }" @click="switchTab('feedback')">反馈</button>
+        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">案例</button>
         <button class="nav-btn" :class="{ active: tab === 'agents' }" @click="switchTab('agents')">智能体</button>
         <button class="nav-btn" :class="{ active: tab === 'conversations' }" @click="switchTab('conversations')">对话</button>
         <button class="nav-btn" :class="{ active: tab === 'models' }" @click="switchTab('models')">模型</button>
@@ -1510,7 +1510,7 @@ onMounted(() => {
 
             <div class="grid-2">
               <section class="panel">
-                <div class="panel-title">Top Cases</div>
+                <div class="panel-title">重点案例</div>
                 <div class="list">
                   <div v-if="!topCases.length" class="empty">信息</div>
                   <div v-for="item in topCases" :key="item.caseId" class="item clickable" @click="openWorkspaceDetail('Case 详情', item)">
