@@ -23,7 +23,7 @@ docker compose -f compose.local.yml ps
 | MySQL | `127.0.0.1:13306` | `root` | `123456` / `ai-agent-station-study` |
 | pgvector | `127.0.0.1:15432` | `postgres` | `123456` / `ai-rag-knowledge` |
 
-新数据卷会自动执行 `scripts/migrations/V20260717__enterprise_agent_operations.sql`。已有数据卷可手动重复执行该幂等迁移。
+新数据卷会自动执行 `ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260717__enterprise_agent_operations.sql`。已有数据卷可手动重复执行该幂等迁移。
 
 ## IDEA 启动
 

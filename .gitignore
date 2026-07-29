@@ -47,3 +47,29 @@ build/
 .claude/
 .env
 .env.local
+
+# Reference project copied locally for architecture comparison
+/angx-main/
+
+# Local dependency/cache/runtime data
+/.m2_repo/
+/.ma/
+
+# Frontend dependencies and build output
+**/node_modules/
+**/dist/
+**/coverage/
+
+# Python local caches
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local helper scripts
+/git_merge.bat
+/install_codex.bat
+/tools/fix_agent_controller.ps1
+
+# Local MCP/runtime data (keep directory placeholders)
+**/data/*.jsonl
+**/data/*.db

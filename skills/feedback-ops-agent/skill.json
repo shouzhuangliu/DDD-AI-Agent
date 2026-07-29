@@ -1,0 +1,16 @@
+{
+  "name": "feedback-ops-agent",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "category": "enterprise-operations",
+  "permissions": ["feedback.read", "feedback.write", "case.evidence.write", "service.health.read"],
+  "references": [
+    "references/01-intake.md",
+    "references/02-classification.md",
+    "references/03-incident-triage.md",
+    "references/04-case-evidence.md",
+    "references/05-case-review.md",
+    "references/06-case-resolution.md",
+    "references/07-agent-profile.md"
+  ]
+}
