@@ -21,6 +21,7 @@ const agentProfile = ref(null);
 const caseStatusFilter = ref('');
 const selectedCase = ref(null);
 const selectedCaseDetail = ref(null);
+const selectedFeedback = ref(null);
 const feedback = ref([]);
 const signals = ref([]);
 const memories = ref([]);
@@ -484,6 +485,11 @@ async function loadFeedbackWorkspace() {
     feedback.value = normalizeList(feedbackData);
     signals.value = normalizeList(signalData);
     memories.value = normalizeList(memoryData);
+    if (!selectedFeedback.value || !feedback.value.some(item => item.id === selectedFeedback.value.id)) {
+      selectedFeedback.value = feedback.value[0] || null;
+    } else {
+      selectedFeedback.value = feedback.value.find(item => item.id === selectedFeedback.value.id) || null;
+    }
   });
 }
 
@@ -512,6 +518,26 @@ function caseActions(status) {
 
 function feedbackActions(status) {
   return FEEDBACK_ACTIONS[String(status || '').toUpperCase()] || [];
+}
+
+function feedbackStatusHint(status) {
+  const normalized = String(status || '').toUpperCase();
+  return {
+    OPEN: '新进入队列，等待人工提交 AI 评测或直接判定无效。',
+    AI_EVALUATING: '正在确认这条反馈是否属于当前 Agent 负责的业务问题。',
+    NEED_MORE_INFO: '证据不足，需要补充商品型号、页面入口、订单号或截图等上下文。',
+    VALID: '已确认是有效业务反馈，下一步可以升级为 Case 或先归并同类问题。',
+    CLUSTERED: '已进入待升级问题簇，适合和同类反馈合并后统一升级。',
+    PROMOTED: '已升级为 Case，后续进入案例审核、处理和复盘流程。',
+    RESOLVED: '反馈流程已经关闭，如后续再次出现可以重新打开。',
+    INVALID: '已判定为无效反馈，或暂不属于当前 Agent 的业务范围。',
+  }[normalized] || '当前反馈正在流转中。';
+}
+
+function feedbackNextStep(item) {
+  const actions = feedbackActions(item?.status);
+  if (!actions.length) return '当前阶段暂无可执行动作。';
+  return `建议下一步：${actions.map(action => action.label).join(' / ')}`;
 }
 
 function caseStatusText(status) {
@@ -573,7 +599,11 @@ function openFeedbackTransition(item, action) {
   setModal('feedbackTransition', `${action.label}: ${item.sourceLabel || item.feedbackType || item.id}`, 'edit', {
     toStatus: action.status,
     actionLabel: action.label,
-    reason: '',
+    reason: action.status === 'PROMOTED'
+      ? '该反馈已确认有效，升级为 Case 进入后续处理流程。'
+      : action.status === 'INVALID'
+        ? '信息不足或不属于当前 Agent 的业务处理范围。'
+        : '',
     category: item.category || '',
     matchedCaseId: item.matchedCaseId || '',
   }, { feedbackId: item.id, fromStatus: item.status });
@@ -588,7 +618,7 @@ async function saveFeedbackTransition() {
   }
   modal.saving = true;
   await withLoading(async () => {
-    await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/feedback/${encodeURIComponent(modal.extra.feedbackId)}/transition`, {
+    const result = await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/feedback/${encodeURIComponent(modal.extra.feedbackId)}/transition`, {
       method: 'POST',
       headers: capHeaders('local-reviewer', 'OPERATOR'),
       body: {
@@ -603,8 +633,17 @@ async function saveFeedbackTransition() {
     await loadFeedbackWorkspace();
     await loadDashboardData(selectedAgentId.value);
     await loadCaseWorkspace();
+    if (toStatus === 'PROMOTED' && result?.caseId) {
+      tab.value = 'cases';
+      const promotedCase = cases.value.find(item => item.caseId === result.caseId);
+      if (promotedCase) await openCase(promotedCase);
+    }
   });
   modal.saving = false;
+}
+
+function openFeedback(item) {
+  selectedFeedback.value = item;
 }
 
 async function openCase(item) {
@@ -1645,7 +1684,7 @@ onMounted(() => {
                   <div class="panel-title">业务反馈</div>
                   <div class="list">
                     <div v-if="!feedback.length" class="empty">暂无业务反馈</div>
-                    <div v-for="item in feedback" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
+                    <div v-for="item in feedback" :key="item.id" class="item clickable" :class="{ active: selectedFeedback?.id === item.id }" @click="openFeedback(item)">
                       <div class="item-row">
                         <div>
                           <div style="font-weight:600">{{ item.sourceLabel || item.feedbackType || 'ISSUE_REPORT' }}</div>
@@ -1657,7 +1696,7 @@ onMounted(() => {
                           </div>
                         </div>
                         <div class="actions">
-                          <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看</button>
+                          <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">原始数据</button>
                         </div>
                       </div>
                       <div class="actions case-actions" @click.stop>
@@ -1675,22 +1714,54 @@ onMounted(() => {
                   </div>
                 </section>
                 <section class="panel">
-                  <div class="panel-title">AI 观察信号</div>
-                  <div class="list">
-                    <div v-if="!signals.length" class="empty">暂无 AI 观察信号</div>
-                    <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
-                      <div class="item-row">
-                        <div>
-                          <div style="font-weight:600">{{ item.signalType || item.sourceType || '-' }}</div>
-                          <div class="muted" style="font-size:12px;margin-top:4px">{{ item.summary || item.rationale || '-' }}</div>
-                        </div>
-                        <div class="actions">
-                          <span class="pill">{{ item.severity || '-' }}</span>
-                          <span class="pill">{{ labelStatus(item.status) }}</span>
+                  <div class="panel-title">反馈详情</div>
+                  <div v-if="!selectedFeedback" class="empty">请选择左侧一条反馈查看详情</div>
+                  <template v-else>
+                    <div class="profile-entry">
+                      <div style="font-weight:700">{{ selectedFeedback.sourceLabel || selectedFeedback.feedbackType || `反馈 #${selectedFeedback.id}` }}</div>
+                      <div class="muted" style="margin-top:6px">{{ selectedFeedback.message || '-' }}</div>
+                      <div class="actions" style="margin-top:10px; flex-wrap:wrap">
+                        <span class="pill">{{ selectedFeedback.statusLabel || labelStatus(selectedFeedback.status) }}</span>
+                        <span class="pill">{{ labelStatus(selectedFeedback.aiStatus) }}</span>
+                        <span class="pill">{{ labelStatus(selectedFeedback.promotionStatus) }}</span>
+                        <span class="pill brand">{{ feedbackSourceLabel(selectedFeedback.sourceType) }}</span>
+                      </div>
+                    </div>
+                    <div class="profile-section">
+                      <div class="profile-section-title">当前判断</div>
+                      <div class="profile-entry">
+                        <div>{{ feedbackStatusHint(selectedFeedback.status) }}</div>
+                        <small>{{ feedbackNextStep(selectedFeedback) }}</small>
+                      </div>
+                    </div>
+                    <div class="profile-section">
+                      <div class="profile-section-title">业务上下文</div>
+                      <div class="profile-entry">
+                        <div>反馈分类：{{ selectedFeedback.category || '未分类' }}</div>
+                        <small>提交来源：{{ feedbackSourceLabel(selectedFeedback.sourceType) }} / 提交人：{{ selectedFeedback.submittedBy || '-' }}</small>
+                        <small v-if="selectedFeedback.matchedCaseId">已关联 Case：{{ selectedFeedback.matchedCaseId }}</small>
+                        <small v-else>当前尚未关联 Case</small>
+                      </div>
+                    </div>
+                    <div class="profile-section">
+                      <div class="profile-section-title">AI 观察信号</div>
+                      <div class="list">
+                        <div v-if="!signals.length" class="empty">暂无 AI 观察信号</div>
+                        <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
+                          <div class="item-row">
+                            <div>
+                              <div style="font-weight:600">{{ item.signalType || item.sourceType || '-' }}</div>
+                              <div class="muted" style="font-size:12px;margin-top:4px">{{ item.summary || item.rationale || '-' }}</div>
+                            </div>
+                            <div class="actions">
+                              <span class="pill">{{ item.severity || '-' }}</span>
+                              <span class="pill">{{ labelStatus(item.status) }}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </template>
                 </section>
               </div>
               <section class="panel section-gap">
