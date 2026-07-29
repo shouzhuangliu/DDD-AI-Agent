@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -82,16 +83,45 @@ class AgentControllerTest {
         assertEquals(1, skills.size());
         assertEquals("enterprise-demo-skill-1.0.0", skills.getFirst().get("skillId"));
         assertEquals(".ma/skills/enterprise-demo-skill-1.0.0/SKILL.md", skills.getFirst().get("runtimePath"));
+        assertEquals(true, skills.getFirst().get("runtimeAvailable"));
         assertEquals(1, tools.size());
         assertEquals("read_file", tools.getFirst().get("toolId"));
         assertEquals(1, mcps.size());
         assertEquals("enterprise-demo-mcp", mcps.getFirst().get("mcpId"));
+        assertEquals(true, mcps.getFirst().get("runtimeAvailable"));
         assertEquals(2, effectiveTools.size());
         assertEquals("read_file", effectiveTools.get(0).get("toolId"));
         assertEquals("agent_binding", effectiveTools.get(0).get("source"));
         assertEquals("call_mcp_tool", effectiveTools.get(1).get("toolId"));
         assertEquals("mcp_binding", effectiveTools.get(1).get("source"));
         assertTrue(result.get("workspace").toString().contains("workspaces"));
+    }
+
+    @Test
+    void marksMissingRuntimeBindingsAsUnavailable() {
+        when(aiAgentDao.queryByAgentId("ops")).thenReturn(AiAgent.builder()
+                .agentId("ops")
+                .workDir("D:/repo")
+                .build());
+        when(agentRepository.queryBoundSkillIds("ops")).thenReturn(List.of("missing-skill"));
+        when(agentRepository.queryBoundMcpIds("ops")).thenReturn(List.of("missing-mcp"));
+        when(agentRepository.queryBoundToolIds("ops")).thenReturn(List.of());
+        when(agentWorkspaceService.resolveWorkDir("ops", "D:/repo", "D:/repo"))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/ops"));
+        when(agentRepository.queryMcpToolsByIds(List.of("missing-mcp"))).thenReturn(List.of());
+
+        Map<String, Object> result = controller.getBindingDetails("ops");
+
+        List<Map<String, Object>> skills = cast(result.get("skills"));
+        List<Map<String, Object>> mcps = cast(result.get("mcps"));
+        assertEquals(1, skills.size());
+        assertEquals("missing-skill", skills.getFirst().get("skillId"));
+        assertFalse((Boolean) skills.getFirst().get("runtimeAvailable"));
+        assertEquals("UNAVAILABLE", skills.getFirst().get("runtimeStatus"));
+        assertEquals(1, mcps.size());
+        assertEquals("missing-mcp", mcps.getFirst().get("mcpId"));
+        assertFalse((Boolean) mcps.getFirst().get("runtimeAvailable"));
+        assertEquals("UNAVAILABLE", mcps.getFirst().get("runtimeStatus"));
     }
 
     @SuppressWarnings("unchecked")

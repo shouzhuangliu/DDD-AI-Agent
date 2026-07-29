@@ -1074,6 +1074,15 @@ function effectiveToolSourceLabel(value) {
   return '未知来源';
 }
 
+function runtimeAvailabilityClass(value) {
+  return value ? 'success' : 'danger';
+}
+
+function runtimeAvailabilityText(item, fallbackAvailable, fallbackUnavailable) {
+  if (item?.runtimeStatusText) return item.runtimeStatusText;
+  return item?.runtimeAvailable ? fallbackAvailable : fallbackUnavailable;
+}
+
 function modelLabel(modelId) {
   if (!modelId) return '未绑定';
   const found = models.value.find(item => item.modelId === modelId);
@@ -2597,6 +2606,44 @@ onMounted(() => {
               <div class="bind-runtime-panel">
                 <div class="field-hint">
                   当前工作目录：{{ agentBindingDetail?.workspace || modal.form.workDir || '将使用默认 Agent 工作目录' }}
+                </div>
+                <div v-if="(agentBindingDetail?.skills || []).length" class="bind-runtime-section">
+                  <div class="bind-runtime-section-title">Skill 装配状态</div>
+                  <div class="bind-list">
+                    <div
+                      v-for="skill in (agentBindingDetail?.skills || [])"
+                      :key="skill.skillId"
+                      class="bind-item bind-item-static"
+                    >
+                      <div class="bind-main">
+                        <div class="bind-title">{{ skill.skillName || skill.skillId }}</div>
+                        <div class="bind-sub">{{ runtimeAvailabilityText(skill, '已同步到运行时', '运行时未发现该 Skill') }}</div>
+                      </div>
+                      <div class="bind-runtime-tags">
+                        <span class="pill">{{ skill.skillId }}</span>
+                        <span class="pill" :class="runtimeAvailabilityClass(skill.runtimeAvailable)">{{ skill.runtimeStatusText || (skill.runtimeAvailable ? '已装配' : '未装配') }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="(agentBindingDetail?.mcps || []).length" class="bind-runtime-section">
+                  <div class="bind-runtime-section-title">MCP 装配状态</div>
+                  <div class="bind-list">
+                    <div
+                      v-for="mcp in (agentBindingDetail?.mcps || [])"
+                      :key="mcp.mcpId"
+                      class="bind-item bind-item-static"
+                    >
+                      <div class="bind-main">
+                        <div class="bind-title">{{ mcp.mcpName || mcp.mcpId }}</div>
+                        <div class="bind-sub">{{ runtimeAvailabilityText(mcp, '已同步到运行时', '运行时未发现该 MCP') }}</div>
+                      </div>
+                      <div class="bind-runtime-tags">
+                        <span class="pill">{{ mcp.mcpId }}</span>
+                        <span class="pill" :class="runtimeAvailabilityClass(mcp.runtimeAvailable)">{{ mcp.runtimeStatusText || (mcp.runtimeAvailable ? '已装配' : '未装配') }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div v-if="(agentBindingDetail?.effectiveTools || []).length" class="bind-list">
                   <div

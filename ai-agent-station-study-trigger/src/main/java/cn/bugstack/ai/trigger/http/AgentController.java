@@ -3,6 +3,7 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.api.dto.AiClientApiOptionDTO;
 import cn.bugstack.ai.api.dto.AiModelOptionDTO;
 import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
+import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
 import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.armory.ModelCredentialResolver;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
@@ -373,11 +374,15 @@ public class AgentController {
         List<Map<String, Object>> skills = skillIds.stream()
                 .map(skillId -> {
                     var metadata = skillScannerService.readSkillMetadataFromWorkDir(workspace.toString(), skillId);
+                    boolean runtimeAvailable = metadata != null;
                     return Map.<String, Object>of(
                             "skillId", skillId,
                             "skillName", metadata == null ? skillId : firstNonBlank(metadata.getSkillName(), skillId),
                             "description", metadata == null ? "" : firstNonBlank(metadata.getDescription(), ""),
                             "runtimePath", ".ma/skills/" + skillId + "/SKILL.md",
+                            "runtimeAvailable", runtimeAvailable,
+                            "runtimeStatus", runtimeAvailable ? "AVAILABLE" : "UNAVAILABLE",
+                            "runtimeStatusText", runtimeAvailable ? "已同步到运行时" : "运行时未发现该 Skill",
                             "bound", true
                     );
                 }).toList();
@@ -407,14 +412,30 @@ public class AgentController {
                         "riskLevel", option.riskLevel(),
                         "source", impliedToolSource(option.toolId(), toolIds, skillIds, mcpIds)
                 )).toList();
-        List<Map<String, Object>> mcps = agentRepository.queryMcpToolsByIds(mcpIds).stream()
-                .map(mcp -> Map.<String, Object>of(
-                        "mcpId", firstNonBlank(mcp.getMcpId(), ""),
-                        "mcpName", firstNonBlank(mcp.getMcpName(), firstNonBlank(mcp.getMcpId(), "")),
-                        "description", "",
-                        "transportType", firstNonBlank(mcp.getTransportType(), ""),
-                        "bound", true
-                )).toList();
+        Map<String, AiClientToolMcpVO> boundMcpMap = agentRepository.queryMcpToolsByIds(mcpIds).stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(mcp -> mcp.getMcpId() != null && !mcp.getMcpId().isBlank())
+                .collect(java.util.stream.Collectors.toMap(
+                        AiClientToolMcpVO::getMcpId,
+                        mcp -> mcp,
+                        (first, ignored) -> first,
+                        java.util.LinkedHashMap::new
+                ));
+        List<Map<String, Object>> mcps = mcpIds.stream()
+                .map(mcpId -> {
+                    AiClientToolMcpVO mcp = boundMcpMap.get(mcpId);
+                    boolean runtimeAvailable = mcp != null;
+                    return Map.<String, Object>of(
+                            "mcpId", firstNonBlank(mcpId, ""),
+                            "mcpName", mcp == null ? firstNonBlank(mcpId, "") : firstNonBlank(mcp.getMcpName(), firstNonBlank(mcp.getMcpId(), "")),
+                            "description", "",
+                            "transportType", mcp == null ? "" : firstNonBlank(mcp.getTransportType(), ""),
+                            "runtimeAvailable", runtimeAvailable,
+                            "runtimeStatus", runtimeAvailable ? "AVAILABLE" : "UNAVAILABLE",
+                            "runtimeStatusText", runtimeAvailable ? "已同步到运行时" : "运行时未发现该 MCP",
+                            "bound", true
+                    );
+                }).toList();
         return Map.of(
                 "success", true,
                 "agentId", agentId,
