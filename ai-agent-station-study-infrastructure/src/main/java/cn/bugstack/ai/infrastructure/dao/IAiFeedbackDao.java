@@ -21,6 +21,8 @@ public interface IAiFeedbackDao {
     long countExplicitByAgentId(@Param("agentId") String agentId);
     long countExplicitTodayByAgentId(@Param("agentId") String agentId);
     long countNegativeByAgentId(@Param("agentId") String agentId);
+    long countAiObservedByAgentId(@Param("agentId") String agentId);
+    long countReadyForCaseByAgentId(@Param("agentId") String agentId);
     int transitionStatus(@Param("id") long id,
                          @Param("agentId") String agentId,
                          @Param("fromStatus") String fromStatus,

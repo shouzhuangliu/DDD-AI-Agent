@@ -277,16 +277,27 @@ public class AgentOperationsController {
     public Map<String, Object> stats(@PathVariable("agentId") String agentId) {
         long feedback = feedbackDao.countExplicitByAgentId(agentId);
         long negative = feedbackDao.countNegativeByAgentId(agentId);
-        return Map.of(
-                "agentId", agentId,
-                "todayFeedback", feedbackDao.countExplicitTodayByAgentId(agentId),
-                "explicitFeedback", feedback,
-                "negativeFeedback", negative,
-                "satisfactionRate", feedback == 0 ? 0 : Math.round((feedback - negative) * 10000d / feedback) / 100d,
-                "totalCases", caseDao.countByAgent(agentId),
-                "pendingCases", caseDao.countByAgentAndStatus(agentId, "PENDING_REVIEW"),
-                "highPriorityCases", caseDao.countByAgentAndStatus(agentId, "IN_PROGRESS"),
-                "resolvedCases", caseDao.countByAgentAndStatus(agentId, "RESOLVED"));
+        long aiObserved = feedbackDao.countAiObservedByAgentId(agentId);
+        long readyForCase = feedbackDao.countReadyForCaseByAgentId(agentId);
+        long candidateCases = caseDao.countByAgentAndStatus(agentId, "CANDIDATE");
+        long reviewCases = caseDao.countByAgentAndStatus(agentId, "PENDING_REVIEW");
+        long inProgressCases = caseDao.countByAgentAndStatus(agentId, "IN_PROGRESS");
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("todayFeedback", feedbackDao.countExplicitTodayByAgentId(agentId));
+        result.put("businessFeedback", feedback);
+        result.put("explicitFeedback", feedback);
+        result.put("negativeFeedback", negative);
+        result.put("aiObservationCount", aiObserved);
+        result.put("readyForCaseFeedback", readyForCase);
+        result.put("satisfactionRate", feedback == 0 ? 0 : Math.round((feedback - negative) * 10000d / feedback) / 100d);
+        result.put("totalCases", caseDao.countByAgent(agentId));
+        result.put("candidateCases", candidateCases);
+        result.put("pendingCases", reviewCases);
+        result.put("highPriorityCases", inProgressCases);
+        result.put("inProgressCases", inProgressCases);
+        result.put("resolvedCases", caseDao.countByAgentAndStatus(agentId, "RESOLVED"));
+        return result;
     }
 
     @GetMapping("/sessions/{sessionId}/messages")

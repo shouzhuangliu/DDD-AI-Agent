@@ -106,4 +106,33 @@ class AgentOperationsControllerTest {
         verify(caseDao).insert(any());
         verify(caseEvidenceDao).insertIgnore(any());
     }
+
+    @Test
+    void statsSeparatesBusinessFeedbackAiSignalsAndCaseStages() {
+        when(feedbackDao.countExplicitByAgentId("cs")).thenReturn(8L);
+        when(feedbackDao.countExplicitTodayByAgentId("cs")).thenReturn(3L);
+        when(feedbackDao.countNegativeByAgentId("cs")).thenReturn(2L);
+        when(feedbackDao.countAiObservedByAgentId("cs")).thenReturn(5L);
+        when(feedbackDao.countReadyForCaseByAgentId("cs")).thenReturn(2L);
+        when(caseDao.countByAgent("cs")).thenReturn(6L);
+        when(caseDao.countByAgentAndStatus("cs", "CANDIDATE")).thenReturn(1L);
+        when(caseDao.countByAgentAndStatus("cs", "PENDING_REVIEW")).thenReturn(2L);
+        when(caseDao.countByAgentAndStatus("cs", "IN_PROGRESS")).thenReturn(1L);
+        when(caseDao.countByAgentAndStatus("cs", "RESOLVED")).thenReturn(2L);
+
+        Map<String, Object> result = controller.stats("cs");
+
+        assertEquals(3L, result.get("todayFeedback"));
+        assertEquals(8L, result.get("businessFeedback"));
+        assertEquals(8L, result.get("explicitFeedback"));
+        assertEquals(2L, result.get("negativeFeedback"));
+        assertEquals(5L, result.get("aiObservationCount"));
+        assertEquals(2L, result.get("readyForCaseFeedback"));
+        assertEquals(1L, result.get("candidateCases"));
+        assertEquals(2L, result.get("pendingCases"));
+        assertEquals(1L, result.get("inProgressCases"));
+        assertEquals(1L, result.get("highPriorityCases"));
+        assertEquals(2L, result.get("resolvedCases"));
+        assertEquals(75.0d, result.get("satisfactionRate"));
+    }
 }

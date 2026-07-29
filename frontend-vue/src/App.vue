@@ -176,13 +176,15 @@ const CASE_TEXT = {
 
 const dashboardCards = computed(() => ([
   { label: '今日反馈', value: stats.value.todayFeedback ?? 0 },
-  { label: '明确反馈', value: stats.value.explicitFeedback ?? 0 },
+  { label: '业务反馈总数', value: stats.value.businessFeedback ?? stats.value.explicitFeedback ?? 0 },
   { label: '负面反馈', value: stats.value.negativeFeedback ?? 0 },
-  { label: '满意度', value: `${stats.value.satisfactionRate ?? 0}%` },
-  { label: '案例总数', value: stats.value.totalCases ?? 0 },
-  { label: '待处理案例', value: stats.value.pendingCases ?? 0 },
-  { label: '高优先级案例', value: stats.value.highPriorityCases ?? 0 },
+  { label: 'AI观察线索', value: stats.value.aiObservationCount ?? 0 },
+  { label: '待升级反馈', value: stats.value.readyForCaseFeedback ?? 0 },
+  { label: '候选Case', value: stats.value.candidateCases ?? 0 },
+  { label: '待审核Case', value: stats.value.pendingCases ?? 0 },
+  { label: '处理中Case', value: stats.value.inProgressCases ?? stats.value.highPriorityCases ?? 0 },
   { label: '已解决案例', value: stats.value.resolvedCases ?? 0 },
+  { label: '满意度', value: `${stats.value.satisfactionRate ?? 0}%` },
 ]));
 
 const STATUS_LABELS = {
