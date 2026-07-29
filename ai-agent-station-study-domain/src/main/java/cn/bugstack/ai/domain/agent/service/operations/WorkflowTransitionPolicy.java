@@ -23,11 +23,11 @@ public class WorkflowTransitionPolicy {
                 "MERGED", Set.of("CANDIDATE")
         ));
         transitions.put(Resource.FEEDBACK, Map.of(
-                "OPEN", Set.of("AI_EVALUATING", "PROMOTED", "INVALID", "NEED_MORE_INFO"),
-                "AI_EVALUATING", Set.of("VALID", "PROMOTED", "INVALID", "NEED_MORE_INFO"),
-                "NEED_MORE_INFO", Set.of("AI_EVALUATING", "PROMOTED", "INVALID"),
-                "VALID", Set.of("CLUSTERED", "PROMOTED", "RESOLVED"),
-                "CLUSTERED", Set.of("PROMOTED", "RESOLVED"),
+                "OPEN", Set.of("AI_EVALUATING", "INVALID"),
+                "AI_EVALUATING", Set.of("VALID", "INVALID", "NEED_MORE_INFO"),
+                "NEED_MORE_INFO", Set.of("AI_EVALUATING", "INVALID"),
+                "VALID", Set.of("CLUSTERED", "PROMOTED", "INVALID"),
+                "CLUSTERED", Set.of("PROMOTED", "VALID", "INVALID"),
                 "PROMOTED", Set.of("RESOLVED"),
                 "INVALID", Set.of("OPEN"),
                 "RESOLVED", Set.of("OPEN")
@@ -70,7 +70,34 @@ public class WorkflowTransitionPolicy {
 
     public void requireAllowed(Resource resource, String from, String to) {
         if (!isAllowed(resource, from, to)) {
-            throw new IllegalStateException("Invalid " + resource + " transition: " + from + " -> " + to);
+            throw new IllegalStateException(resourceLabel(resource) + "状态流转不允许：" + statusLabel(resource, from) + " -> " + statusLabel(resource, to));
         }
+    }
+
+    private String resourceLabel(Resource resource) {
+        return switch (resource) {
+            case CASE -> "Case";
+            case FEEDBACK -> "反馈";
+            case MCP -> "MCP";
+            case SKILL -> "Skill";
+        };
+    }
+
+    private String statusLabel(Resource resource, String status) {
+        String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (resource == Resource.FEEDBACK) {
+            return switch (normalized) {
+                case "OPEN" -> "新反馈";
+                case "AI_EVALUATING" -> "AI评测中";
+                case "NEED_MORE_INFO" -> "待补充信息";
+                case "VALID" -> "待升级判断";
+                case "CLUSTERED" -> "待升级Case";
+                case "PROMOTED" -> "已升级为Case";
+                case "INVALID" -> "无效反馈";
+                case "RESOLVED" -> "已关闭";
+                default -> normalized;
+            };
+        }
+        return normalized;
     }
 }

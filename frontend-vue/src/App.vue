@@ -112,26 +112,27 @@ const CASE_ACTIONS = {
 
 const FEEDBACK_ACTIONS = {
   OPEN: [
-    { status: 'AI_EVALUATING', label: '提交AI评测' },
+    { status: 'AI_EVALUATING', label: '提交 AI 评测' },
     { status: 'INVALID', label: '标记无效' },
   ],
   AI_EVALUATING: [
-    { status: 'VALID', label: '确认有效' },
-    { status: 'NEED_MORE_INFO', label: '要求补充' },
+    { status: 'VALID', label: '确认可进入升级判断' },
+    { status: 'NEED_MORE_INFO', label: '要求补充信息' },
     { status: 'INVALID', label: '标记无效' },
   ],
   NEED_MORE_INFO: [
-    { status: 'AI_EVALUATING', label: '重新评测' },
+    { status: 'AI_EVALUATING', label: '补充后重新评测' },
     { status: 'INVALID', label: '标记无效' },
   ],
   VALID: [
-    { status: 'PROMOTED', label: '升级为Case' },
-    { status: 'CLUSTERED', label: '标记待升级' },
-    { status: 'INVALID', label: '驳回反馈' },
+    { status: 'PROMOTED', label: '升级为 Case' },
+    { status: 'CLUSTERED', label: '进入候选问题簇' },
+    { status: 'INVALID', label: '判定无效' },
   ],
   CLUSTERED: [
-    { status: 'PROMOTED', label: '升级为Case' },
-    { status: 'VALID', label: '退回待审核' },
+    { status: 'PROMOTED', label: '升级为 Case' },
+    { status: 'VALID', label: '退回升级判断' },
+    { status: 'INVALID', label: '判定无效' },
   ],
   INVALID: [
     { status: 'OPEN', label: '重新打开' },
@@ -274,10 +275,10 @@ function labelStatus(value) {
     OBSERVED: '已观察',
     AI_EVALUATING: 'AI评测中',
     NEED_MORE_INFO: '需要补充信息',
-    VALID: '待人工审核',
+    VALID: '待升级判断',
     VALIDATED: '已验证',
-    CLUSTERED: '待升级Case',
-    PROMOTED: '已升级为Case',
+    CLUSTERED: '待升级 Case',
+    PROMOTED: '已升级为 Case',
     INVALID: '无效反馈',
     DRAFT: '草稿',
     CONNECTIVITY_CHECKED: '连通性已验证',

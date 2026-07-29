@@ -3,9 +3,9 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
-import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
-import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSignalDao;
+import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
+import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
@@ -19,8 +19,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AgentOperationsControllerTest {
 
@@ -61,11 +67,31 @@ class AgentOperationsControllerTest {
                 .message("我感觉有问题")
                 .build());
 
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> controller.transitionFeedback("cs", 100L,
                         new AgentOperationsController.FeedbackTransitionRequest("PROMOTED", "tester", "", "", "")));
 
-        assertTrue(exception.getMessage().contains("尚未通过评测"));
+        assertTrue(exception.getMessage().contains("反馈"));
+        verify(caseDao, never()).insert(any());
+    }
+
+    @Test
+    void rejectsPromotionBeforeFeedbackFinishesEvaluationFlow() {
+        when(feedbackDao.queryById(110L)).thenReturn(AiFeedback.builder()
+                .id(110L)
+                .agentId("cs")
+                .status("OPEN")
+                .sourceType("EXPLICIT")
+                .feedbackType("ISSUE_REPORT")
+                .rating(1)
+                .message("用户反馈商品库存显示异常，希望尽快处理")
+                .build());
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> controller.transitionFeedback("cs", 110L,
+                        new AgentOperationsController.FeedbackTransitionRequest("PROMOTED", "tester", "想直接升级", "", "")));
+
+        assertTrue(exception.getMessage().contains("反馈"));
         verify(caseDao, never()).insert(any());
     }
 
@@ -79,7 +105,7 @@ class AgentOperationsControllerTest {
                 .sourceType("AI_INFERRED")
                 .feedbackType("ISSUE_REPORT")
                 .rating(1)
-                .message("你们的db缓存不一致，商品显卡5060下单后列表还是没货")
+                .message("你们的 db 缓存不一致，商品显卡5060下单后列表还是没货")
                 .category("业务问题反馈")
                 .build();
         when(feedbackDao.queryById(101L)).thenReturn(feedback).thenReturn(AiFeedback.builder()
@@ -90,7 +116,7 @@ class AgentOperationsControllerTest {
                 .sourceType("AI_INFERRED")
                 .feedbackType("ISSUE_REPORT")
                 .rating(1)
-                .message("你们的db缓存不一致，商品显卡5060下单后列表还是没货")
+                .message("你们的 db 缓存不一致，商品显卡5060下单后列表还是没货")
                 .category("业务问题反馈")
                 .matchedCaseId("case-feedback-101")
                 .resolved(1)
