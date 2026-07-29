@@ -124,6 +124,29 @@ class AgentControllerTest {
         assertEquals("UNAVAILABLE", mcps.getFirst().get("runtimeStatus"));
     }
 
+    @Test
+    void readsSkillFromAgentRuntimeWorkspaceWhenAgentIdProvided() {
+        when(aiAgentDao.queryByAgentId("cs")).thenReturn(AiAgent.builder()
+                .agentId("cs")
+                .workDir("D:/repo")
+                .build());
+        when(agentWorkspaceService.resolveWorkDir("cs", "D:/repo", "D:/repo"))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/cs"));
+        when(skillScannerService.readSkillFromWorkDir("D:\\repo\\.ma\\workspaces\\cs", "enterprise-demo-skill-1.0.0"))
+                .thenReturn(SkillScannerService.SkillInfo.builder()
+                        .skillId("enterprise-demo-skill-1.0.0")
+                        .skillName("Enterprise Runtime Skill")
+                        .description("运行时技能")
+                        .content("# runtime")
+                        .build());
+
+        Map<String, Object> result = controller.getSkill("enterprise-demo-skill-1.0.0", "cs");
+
+        assertEquals(true, result.get("success"));
+        SkillScannerService.SkillInfo skill = (SkillScannerService.SkillInfo) result.get("skill");
+        assertEquals("Enterprise Runtime Skill", skill.getSkillName());
+    }
+
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> cast(Object value) {
         return (List<Map<String, Object>>) value;

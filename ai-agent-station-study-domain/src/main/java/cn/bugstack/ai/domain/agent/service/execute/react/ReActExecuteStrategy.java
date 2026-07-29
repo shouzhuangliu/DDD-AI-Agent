@@ -480,6 +480,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 - 只能使用系统提示词中明确列出的工具，不能编造 Bash、ReadFile、WriteFile、Python、MySQL、Redis、SearchFile 等未授权工具。
                 - Skills 是当前 Agent 绑定的业务技能包；MCP 是当前 Agent 绑定的外部服务能力；二者不能混同。
                 - 用户只是反馈问题时，先记录/确认反馈，不要主动排查项目、读取文件或运行命令。
+                - 当用户询问“你有什么 skills / MCP / 工具”时，只能回答本提示词中明确列出的绑定清单；不要猜测、不要引用全局 demo skill、不要把未绑定能力说成已可用。
 
                 可用工具：
                 """);
@@ -509,7 +510,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 }
                 sb.append("  虚拟路径：.ma/skills/").append(sid).append("/SKILL.md\n");
             }
-            sb.append("\n当用户请求匹配某个 Skill 时，先使用 read_file 读取对应的 .ma/skills/{skillId}/SKILL.md；按手册需要再读取同目录下的脚本和参考文件。不要扫描或读取未绑定的 Skill。\n");
+            sb.append("\n当用户请求匹配某个 Skill 时，先使用 read_file 读取对应的 .ma/skills/{skillId}/SKILL.md；按手册需要再读取同目录下的脚本和参考文件。不要扫描或读取未绑定的 Skill。若用户只是询问“当前有哪些 Skills”，直接基于上面的绑定清单回答，不要再自行搜索项目目录。\n");
         } else {
             sb.append("\n该 Agent 当前没有绑定可执行 Skills。不要声称存在 demo skill、项目扫描 skill 或其他技能。\n");
         }
@@ -526,6 +527,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 sb.append("""
                     使用方式：call_mcp_tool(mcpId="工具ID", toolName="工具内具体方法名", args="{"参数名":"参数值"}")
                     调用前请确认参数格式正确。
+                    如果用户只是询问“当前有哪些 MCP”，直接依据上述绑定清单回答，不要自行假设还有数据库、Redis、搜索等外部能力。
                     """);
             }
         } else {

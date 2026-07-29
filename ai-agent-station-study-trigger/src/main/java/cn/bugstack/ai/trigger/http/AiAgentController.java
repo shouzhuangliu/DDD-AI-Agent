@@ -111,9 +111,15 @@ public class AiAgentController implements IAiAgentService {
             ChatAgentRoutePolicy.RouteDecision routeDecision = explicitReact
                     ? new ChatAgentRoutePolicy.RouteDecision("react", "显式选择 ReAct 模式")
                     : chatAgentRoutePolicy.route(request.getMessage(), reqMode);
+            Long feedbackId = null;
             if ("feedback".equals(routeDecision.route())) {
-                Long feedbackId = feedbackAutoCaptureService.captureUserIssue(request.getAiAgentId(), request.getSessionId(), request.getMessage());
-                log.info("业务反馈已自动记录: agentId={}, sessionId={}, feedbackId={}", request.getAiAgentId(), request.getSessionId(), feedbackId);
+                feedbackId = feedbackAutoCaptureService.captureUserIssue(request.getAiAgentId(), request.getSessionId(), request.getMessage());
+                if (feedbackId != null) {
+                    log.info("业务反馈已自动记录: agentId={}, sessionId={}, feedbackId={}", request.getAiAgentId(), request.getSessionId(), feedbackId);
+                } else {
+                    routeDecision = new ChatAgentRoutePolicy.RouteDecision("chat", "疑似反馈，但未达到业务反馈准入阈值，回退普通聊天。");
+                    log.info("反馈意图已识别，但未沉淀为真实反馈: agentId={}, sessionId={}", request.getAiAgentId(), request.getSessionId());
+                }
             }
             String routedMode = ("plan".equals(routeDecision.route()) || "feedback".equals(routeDecision.route()))
                     ? ("feedback".equals(routeDecision.route()) ? ChatExecuteStrategy.TYPE : AiAgentModeEnum.AUTO.getCode())

@@ -29,12 +29,19 @@ public class FeedbackAdmissionPolicy {
             "价格", "显卡", "业务", "内存", "型号", "sku", "页面"
     };
 
+    private static final String[] EVIDENCE_WORDS = {
+            "型号", "sku", "id", "订单号", "页面", "接口", "截图", "日志", "显卡", "内存", "ddr", "品牌"
+    };
+
     public boolean shouldCapture(String message) {
         String text = normalize(message);
         if (text.length() < 12) return false;
         if (TINY_OR_TEST.matcher(text).matches()) return false;
         if (!HAS_MEANINGFUL_TOKEN.matcher(text).find()) return false;
-        return containsAny(text, PROBLEM_WORDS) && (containsAny(text, BUSINESS_WORDS) || text.length() >= 24);
+        boolean hasProblem = containsAny(text, PROBLEM_WORDS);
+        boolean hasBusiness = containsAny(text, BUSINESS_WORDS);
+        boolean hasEvidence = containsAny(text, EVIDENCE_WORDS) || text.matches(".*\\d{2,}.*");
+        return hasProblem && (hasBusiness || hasEvidence);
     }
 
     private static boolean containsAny(String text, String[] words) {

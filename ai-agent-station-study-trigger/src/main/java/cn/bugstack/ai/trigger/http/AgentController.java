@@ -549,9 +549,21 @@ public class AgentController {
     public List<SkillScannerService.SkillInfo> listSkills() { return skillCatalogService.listSkills(); }
 
     @GetMapping("/skills/{skillId}")
-    public Map<String, Object> getSkill(@PathVariable("skillId") String skillId) {
-        var skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
+    public Map<String, Object> getSkill(@PathVariable("skillId") String skillId,
+                                        @RequestParam(value = "agentId", required = false) String agentId) {
+        var skill = readRuntimeSkill(agentId, skillId);
+        if (skill == null) {
+            skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
+        }
         return skill != null ? Map.of("success", true, "skill", skill) : Map.of("success", false, "message", "Skill not found");
+    }
+
+    private SkillScannerService.SkillInfo readRuntimeSkill(String agentId, String skillId) {
+        if (skillId == null || skillId.isBlank() || agentId == null || agentId.isBlank()) return null;
+        AiAgent agent = aiAgentDao.queryByAgentId(agentId);
+        if (agent == null) return null;
+        Path workspace = agentWorkspaceService.resolveWorkDir(agentId, agent.getWorkDir(), properties.getWorkDir());
+        return skillScannerService.readSkillFromWorkDir(workspace.toString(), skillId);
     }
 
     @PostMapping("/sessions")

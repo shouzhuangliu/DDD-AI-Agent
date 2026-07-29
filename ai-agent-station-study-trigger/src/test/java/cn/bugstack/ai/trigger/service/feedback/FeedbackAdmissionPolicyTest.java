@@ -26,4 +26,10 @@ class FeedbackAdmissionPolicyTest {
         assertFalse(policy.shouldCapture("你好呀，辛苦了"));
         assertFalse(policy.shouldCapture("收到，可以的"));
     }
+
+    @Test
+    void rejectsVagueRepairWishWithoutBusinessObjectOrEvidence() {
+        assertFalse(policy.shouldCapture("我这边遇到问题了，希望尽快修复一下"));
+        assertFalse(policy.shouldCapture("其余我忘记了，希望补货哈"));
+    }
 }
