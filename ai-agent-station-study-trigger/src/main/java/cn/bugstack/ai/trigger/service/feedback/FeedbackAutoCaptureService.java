@@ -39,7 +39,7 @@ public class FeedbackAutoCaptureService {
                 .rating(1)
                 .message(message.trim())
                 .correction("")
-                .sourceType("AI_INFERRED")
+                .sourceType("USER")
                 .category("业务问题反馈")
                 .matchedCaseId("")
                 .resolved(0)
