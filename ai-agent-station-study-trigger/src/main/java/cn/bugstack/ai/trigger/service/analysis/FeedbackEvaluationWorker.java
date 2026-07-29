@@ -1,5 +1,9 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
+import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
+import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
+import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
+import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IFeedbackEvaluationJobDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
@@ -11,17 +15,32 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
 public class FeedbackEvaluationWorker {
+
+    private static final Pattern DOMAIN_TOKEN = Pattern.compile("[\\p{IsHan}]{2,}|[a-zA-Z]{3,}|\\d{2,}");
 
     @Resource
     private IFeedbackEvaluationJobDao jobDao;
 
     @Resource
     private IAiFeedbackDao feedbackDao;
+
+    @Resource
+    private IAgentRepository agentRepository;
+
+    @Resource
+    private SkillScannerService skillScannerService;
+
+    @Resource
+    private AgentWorkspaceService agentWorkspaceService;
 
     @Value("${agent.feedback-evaluation.enabled:true}")
     private boolean enabled;
@@ -45,7 +64,7 @@ public class FeedbackEvaluationWorker {
                 jobDao.markComplete(job.getId());
                 return;
             }
-            Evaluation evaluation = evaluate(feedback);
+            Evaluation evaluation = evaluate(job.getAgentId(), feedback);
             feedbackDao.transitionStatus(
                     feedback.getId(),
                     feedback.getAgentId(),
@@ -65,7 +84,7 @@ public class FeedbackEvaluationWorker {
         }
     }
 
-    private Evaluation evaluate(AiFeedback feedback) {
+    private Evaluation evaluate(String agentId, AiFeedback feedback) {
         String text = feedback.getMessage() == null ? "" : feedback.getMessage().replaceAll("\\s+", " ").trim();
         if (text.isBlank() || text.length() < 6) {
             return new Evaluation("INVALID", "NON_ISSUE", 1);
@@ -85,19 +104,65 @@ public class FeedbackEvaluationWorker {
         boolean hasEvidence = containsAny(text,
                 "型号", "id", "ID", "sku", "订单号", "页面", "接口", "内存", "显卡", "品牌", "ddr", "截图", "日志")
                 || text.matches(".*\\d{2,}.*");
+        boolean matchesAgentDomain = matchesAgentBusinessContext(agentId, text);
 
-        if (!hasProblem && !hasBusinessObject) {
+        if (!hasProblem && !hasBusinessObject && !matchesAgentDomain) {
             return new Evaluation("INVALID", "NON_ISSUE", 1);
         }
 
         String category = categoryOf(text);
-        if (hasProblem && hasBusinessObject && hasEvidence) {
+        if (hasProblem && (hasBusinessObject || matchesAgentDomain) && hasEvidence) {
             return new Evaluation("VALID", category, 0);
         }
-        if (hasProblem || hasBusinessObject) {
+        if (hasProblem || hasBusinessObject || matchesAgentDomain) {
             return new Evaluation("NEED_MORE_INFO", category, 0);
         }
         return new Evaluation("INVALID", "NON_ISSUE", 1);
+    }
+
+    private boolean matchesAgentBusinessContext(String agentId, String text) {
+        if (agentId == null || agentId.isBlank() || text == null || text.isBlank()) return false;
+        try {
+            Set<String> keywords = collectAgentBusinessKeywords(agentId);
+            if (keywords.isEmpty()) return false;
+            String lower = text.toLowerCase(Locale.ROOT);
+            for (String keyword : keywords) {
+                if (keyword.length() >= 2 && lower.contains(keyword)) return true;
+            }
+            return false;
+        } catch (Exception exception) {
+            log.debug("匹配 Agent 业务上下文失败 agentId={}", agentId, exception);
+            return false;
+        }
+    }
+
+    private Set<String> collectAgentBusinessKeywords(String agentId) {
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+        AiAgentVO agent = agentRepository.queryAgentById(agentId);
+        if (agent != null) {
+            appendTokens(keywords, agent.getAgentName());
+            appendTokens(keywords, agent.getDescription());
+            String workspace = agentWorkspaceService.resolveWorkDir(agentId, agent.getWorkDir(), System.getProperty("user.dir")).toString();
+            for (String skillId : agentRepository.queryBoundSkillIds(agentId)) {
+                SkillScannerService.SkillInfo metadata = skillScannerService.readSkillMetadataFromWorkDir(workspace, skillId);
+                if (metadata == null) continue;
+                appendTokens(keywords, metadata.getSkillId());
+                appendTokens(keywords, metadata.getSkillName());
+                appendTokens(keywords, metadata.getDescription());
+            }
+        }
+        return keywords;
+    }
+
+    private void appendTokens(Set<String> keywords, String rawText) {
+        if (rawText == null || rawText.isBlank()) return;
+        Matcher matcher = DOMAIN_TOKEN.matcher(rawText.toLowerCase(Locale.ROOT));
+        while (matcher.find()) {
+            String token = matcher.group().trim();
+            if (token.length() < 2) continue;
+            if (containsAny(token, "skill", "agent", "demo", "issue", "report", "feedback")) continue;
+            keywords.add(token);
+        }
     }
 
     private String categoryOf(String text) {
