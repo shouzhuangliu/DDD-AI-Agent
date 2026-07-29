@@ -5,6 +5,7 @@ import cn.bugstack.ai.api.dto.AiModelOptionDTO;
 import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.armory.ModelCredentialResolver;
+import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
@@ -56,6 +57,7 @@ public class AgentController {
     @Resource private ConversationSessionService conversationSessionService;
     @Resource private AgentSoulService agentSoulService;
     @Resource private SkillCatalogService skillCatalogService;
+    @Resource private AgentWorkspaceService agentWorkspaceService;
 
     @Data
     public static class ModelBindingRequest {
@@ -356,6 +358,59 @@ public class AgentController {
         return Map.of("skillIds", agentRepository.queryBoundSkillIds(agentId),
                 "mcpIds", agentRepository.queryBoundMcpIds(agentId),
                 "toolIds", agentRepository.queryBoundToolIds(agentId));
+    }
+
+    @GetMapping("/agents/{agentId}/bindings/detail")
+    public Map<String, Object> getBindingDetails(@PathVariable("agentId") String agentId) {
+        AiAgent agent = aiAgentDao.queryByAgentId(agentId);
+        if (agent == null) return Map.of("success", false, "message", "Agent not found");
+        List<String> skillIds = agentRepository.queryBoundSkillIds(agentId);
+        List<String> mcpIds = agentRepository.queryBoundMcpIds(agentId);
+        List<String> toolIds = agentRepository.queryBoundToolIds(agentId);
+        Path workspace = agentWorkspaceService.resolveWorkDir(agentId, agent.getWorkDir(), properties.getWorkDir());
+        List<Map<String, Object>> skills = skillIds.stream()
+                .map(skillId -> {
+                    var metadata = skillScannerService.readSkillMetadataFromWorkDir(workspace.toString(), skillId);
+                    return Map.<String, Object>of(
+                            "skillId", skillId,
+                            "skillName", metadata == null ? skillId : firstNonBlank(metadata.getSkillName(), skillId),
+                            "description", metadata == null ? "" : firstNonBlank(metadata.getDescription(), ""),
+                            "runtimePath", ".ma/skills/" + skillId + "/SKILL.md",
+                            "bound", true
+                    );
+                }).toList();
+        Map<String, ReActToolAllowlistPolicy.ToolOption> toolOptionMap = ReActToolAllowlistPolicy.options().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        ReActToolAllowlistPolicy.ToolOption::toolId,
+                        option -> option,
+                        (first, ignored) -> first,
+                        java.util.LinkedHashMap::new));
+        List<Map<String, Object>> tools = toolIds.stream()
+                .map(toolOptionMap::get)
+                .filter(java.util.Objects::nonNull)
+                .map(option -> Map.<String, Object>of(
+                        "toolId", option.toolId(),
+                        "name", option.name(),
+                        "description", option.description(),
+                        "riskLevel", option.riskLevel(),
+                        "bound", true
+                )).toList();
+        List<Map<String, Object>> mcps = agentRepository.queryMcpToolsByIds(mcpIds).stream()
+                .map(mcp -> Map.<String, Object>of(
+                        "mcpId", firstNonBlank(mcp.getMcpId(), ""),
+                        "mcpName", firstNonBlank(mcp.getMcpName(), firstNonBlank(mcp.getMcpId(), "")),
+                        "description", "",
+                        "transportType", firstNonBlank(mcp.getTransportType(), ""),
+                        "bound", true
+                )).toList();
+        return Map.of(
+                "success", true,
+                "agentId", agentId,
+                "workspace", workspace.toString(),
+                "skills", skills,
+                "mcps", mcps,
+                "tools", tools
+        );
     }
 
     @PutMapping("/agents/{agentId}/bindings")

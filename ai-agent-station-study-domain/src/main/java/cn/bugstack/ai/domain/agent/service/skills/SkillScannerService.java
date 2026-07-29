@@ -154,10 +154,10 @@ public class SkillScannerService {
 
     private List<Path> candidateSkillsRoots(String workDir) {
         Set<Path> roots = new LinkedHashSet<>();
-        addConfiguredSkillsRoot(roots, configuredSkillsDir);
         addWorkspaceSkillsRoots(roots, workDir);
         addWorkspaceSkillsRoots(roots, System.getProperty("user.dir"));
         addWorkspaceSkillsRoots(roots, ".");
+        addConfiguredSkillsRoot(roots, configuredSkillsDir);
         return roots.stream().toList();
     }
 
