@@ -156,6 +156,8 @@ public class SkillScannerService {
         Set<Path> roots = new LinkedHashSet<>();
         addConfiguredSkillsRoot(roots, configuredSkillsDir);
         addWorkspaceSkillsRoots(roots, workDir);
+        addWorkspaceSkillsRoots(roots, System.getProperty("user.dir"));
+        addWorkspaceSkillsRoots(roots, ".");
         return roots.stream().toList();
     }
 
@@ -169,8 +171,11 @@ public class SkillScannerService {
     private void addWorkspaceSkillsRoots(Set<Path> roots, String baseDir) {
         if (baseDir == null || baseDir.isBlank()) return;
         Path current = Path.of(baseDir).toAbsolutePath().normalize();
-        roots.add(current.resolve(".ma").resolve("skills").normalize());
-        roots.add(current.resolve("skills").normalize());
+        while (current != null) {
+            roots.add(current.resolve(".ma").resolve("skills").normalize());
+            roots.add(current.resolve("skills").normalize());
+            current = current.getParent();
+        }
     }
 
     @Value

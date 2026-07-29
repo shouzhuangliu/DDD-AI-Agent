@@ -12,6 +12,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -22,7 +23,7 @@ public class AiClientAdvisorNode extends AbstractArmorySupport{
     @Resource
     private AiClientNode aiClientNode;
     @Resource
-    private VectorStore vectorStore;
+    private ObjectProvider<VectorStore> vectorStoreProvider;
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
         log.info("Ai Agent 构建节点，Advisor 顾问角色{}", JSON.toJSONString(requestParameter));
@@ -34,8 +35,9 @@ public class AiClientAdvisorNode extends AbstractArmorySupport{
         for( AiClientAdvisorVO aiClientAdvisorVO : aiClientAdvisorList) {
             // 构建顾问访问对象
             Advisor advisor = createAdvisor(aiClientAdvisorVO);
-            // bean
-            registerBean(beanName(aiClientAdvisorVO.getAdvisorId()), Advisor.class, advisor);
+            if (advisor != null) {
+                registerBean(beanName(aiClientAdvisorVO.getAdvisorId()), Advisor.class, advisor);
+            }
         }
         return router(requestParameter, dynamicContext);
     }
@@ -55,6 +57,11 @@ public class AiClientAdvisorNode extends AbstractArmorySupport{
     private Advisor createAdvisor(AiClientAdvisorVO aiClientAdvisorVO) {
         String advisorType = aiClientAdvisorVO.getAdvisorType();
         AiClientAdvisorTypeEnumVO advisorTypeEnum = AiClientAdvisorTypeEnumVO.getByCode(advisorType);
+        VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
+        if ("RagAnswer".equals(advisorType) && vectorStore == null) {
+            log.warn("跳过依赖向量库的 Advisor，当前未装配 VectorStore，advisorId={}", aiClientAdvisorVO.getAdvisorId());
+            return null;
+        }
         return advisorTypeEnum.createAdvisor(aiClientAdvisorVO, vectorStore);
     }
 }

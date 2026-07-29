@@ -61,6 +61,10 @@ public class AiClientNode extends AbstractArmorySupport{
             List<Advisor> advisors = new ArrayList<>();
             List<String> advisorBeanNameList = aiClientVO.getAdvisorBeanNameList();
             for (String advisorBeanName : advisorBeanNameList) {
+                if (!applicationContext.containsBean(advisorBeanName)) {
+                    log.warn("跳过未装配的 Advisor，clientId={}，advisorBeanName={}", aiClientVO.getClientId(), advisorBeanName);
+                    continue;
+                }
                 advisors.add(getBean(advisorBeanName));
             }
 

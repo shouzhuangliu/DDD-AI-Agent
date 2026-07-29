@@ -8,7 +8,7 @@ import java.util.List;
 
 /** Keeps chat available when the optional long-term memory service is offline. */
 @Service
-@ConditionalOnProperty(prefix = "agent.memory.long-term", name = "provider", havingValue = "noop")
+@ConditionalOnProperty(prefix = "agent.memory.long-term", name = "provider", havingValue = "noop", matchIfMissing = true)
 public class NoopLongTermMemoryPort implements LongTermMemoryPort {
     @Override public void store(MemoryFact fact) { }
     @Override public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) { return List.of(); }

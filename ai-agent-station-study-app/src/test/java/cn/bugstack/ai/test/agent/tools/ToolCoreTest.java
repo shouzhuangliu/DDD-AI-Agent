@@ -58,7 +58,7 @@ class ToolCoreTest {
     @Test void testContextBuilder() {
         ReActToolContext ctx = ReActToolContext.builder().sessionId("s1").workDir(Paths.get("D:/t")).build();
         assertEquals("s1", ctx.getSessionId());
-        assertEquals("D:/t", ctx.getWorkDir().toString());
+        assertEquals(Paths.get("D:/t").normalize(), ctx.getWorkDir().normalize());
     }
 
     @Test void testMcpArgsParsing() {

@@ -31,15 +31,19 @@
   <div class="card">
     <h1>AI Agent Vue Frontend</h1>
     <p>前端已独立出来。请先在 <code>frontend-vue</code> 目录执行 <code>npm install</code> 和 <code>npm run dev</code>。</p>
-    <p id="status">默认地址是 <code>http://localhost:5173</code>。</p>
+    <p id="status">开发模式默认会在当前机器的 <code>/5173</code> 端口启动 Vue 页面。</p>
     <div>
-      <a href="http://localhost:5173">打开 Vue 前端</a>
+      <a href="#" id="openFrontend">打开 Vue 前端</a>
       <button class="secondary" type="button" id="copyPath">复制地址</button>
     </div>
   </div>
   <script>
-    const target = 'http://localhost:5173';
+    const target = `${window.location.protocol}//${window.location.hostname || 'localhost'}:5173`;
     const status = document.getElementById('status');
+    const openFrontend = document.getElementById('openFrontend');
+    openFrontend.setAttribute('href', target);
+    openFrontend.setAttribute('target', '_blank');
+    openFrontend.setAttribute('rel', 'noreferrer');
     document.getElementById('copyPath').addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(target);
