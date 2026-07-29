@@ -43,6 +43,20 @@
         SELECT * FROM subagent_task WHERE task_id=#{taskId} LIMIT 1
     </select>
 
+    <select id="queryByExecutionId" resultMap="TaskMap">
+        SELECT * FROM subagent_task
+        WHERE execution_id=#{executionId}
+        ORDER BY COALESCE(updated_at, completed_at, started_at) DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="queryByAgentId" resultMap="TaskMap">
+        SELECT * FROM subagent_task
+        WHERE agent_id=#{agentId}
+        ORDER BY COALESCE(updated_at, completed_at, started_at) DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
     <update id="markInterruptedTasks">
         UPDATE subagent_task
         SET status='FAILED', error_message='Process restarted before task completed', completed_at=NOW(), updated_at=NOW()

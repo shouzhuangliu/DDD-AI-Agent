@@ -9,12 +9,14 @@ import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.ISubagentTaskDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentExecution;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
+import cn.bugstack.ai.infrastructure.dao.po.SubagentTask;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +38,7 @@ public class ConversationSessionService {
     @Resource private IMemorySummaryDao summaryDao;
     @Resource private IMemoryStateDao stateDao;
     @Resource private IMemoryToolResultDao toolResultDao;
+    @Resource private ISubagentTaskDao subagentTaskDao;
 
     public AiSession create(String agentId, String title, String modelId) {
         requireAgent(agentId);
@@ -84,6 +87,11 @@ public class ConversationSessionService {
         List<Map<String, Object>> cases = caseRecords.stream()
                 .map(this::caseView)
                 .toList();
+        List<Map<String, Object>> subagents = latestExecution == null
+                ? List.of()
+                : subagentTaskDao.queryByExecutionId(latestExecution.getExecutionId(), 20).stream()
+                .map(this::subagentView)
+                .toList();
 
         LinkedHashMap<String, Object> memory = new LinkedHashMap<>();
         memory.put("summary", nullable(summary));
@@ -96,8 +104,9 @@ public class ConversationSessionService {
         detail.put("memory", memory);
         detail.put("feedback", feedback);
         detail.put("cases", cases);
+        detail.put("subagents", subagents);
         detail.put("overview", overview(messages, feedbackRecords, caseRecords, summary, latestExecution));
-        detail.put("timeline", timeline(session, messages, feedbackRecords, caseRecords, summary, latestExecution));
+        detail.put("timeline", timeline(session, messages, feedbackRecords, caseRecords, subagents, summary, latestExecution));
         return detail;
     }
 
@@ -237,10 +246,28 @@ public class ConversationSessionService {
         return view;
     }
 
+    private Map<String, Object> subagentView(SubagentTask item) {
+        LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+        view.put("id", item.getId());
+        view.put("taskId", safe(item.getTaskId()));
+        view.put("executionId", safe(item.getExecutionId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("description", safe(item.getDescription()));
+        view.put("status", safe(item.getStatus()));
+        view.put("result", safe(item.getResult()));
+        view.put("errorMessage", safe(item.getErrorMessage()));
+        view.put("cancelRequested", item.getCancelRequested());
+        view.put("startedAt", item.getStartedAt());
+        view.put("completedAt", item.getCompletedAt());
+        view.put("updatedAt", item.getUpdatedAt());
+        return view;
+    }
+
     private List<Map<String, Object>> timeline(AiSession session,
                                                List<ChatMessage> messages,
                                                List<AiFeedback> feedback,
                                                List<AiCase> cases,
+                                               List<Map<String, Object>> subagents,
                                                MemorySummary summary,
                                                AgentExecution latestExecution) {
         java.util.ArrayList<Map<String, Object>> items = new java.util.ArrayList<>();
@@ -272,6 +299,13 @@ public class ConversationSessionService {
                     "CASE", "Case流转",
                     caseStatusLabel(item.getStatus()) + " · " + safe(item.getTitle()),
                     safe(item.getStatus()), safe(item.getCaseId())));
+        }
+        for (Map<String, Object> item : subagents) {
+            LocalDateTime time = (LocalDateTime) (item.get("updatedAt") != null ? item.get("updatedAt") : item.get("completedAt"));
+            items.add(timelineItem(time,
+                    "SUBAGENT", "子任务执行",
+                    safe((String) item.get("description")) + " · " + safe((String) item.get("status")),
+                    safe((String) item.get("status")), safe((String) item.get("taskId"))));
         }
         items.sort(Comparator.comparing(
                 value -> (LocalDateTime) value.get("time"),

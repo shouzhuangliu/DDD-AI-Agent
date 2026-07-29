@@ -2141,6 +2141,28 @@ onMounted(() => {
                         </div>
                       </section>
                       <section class="panel subtle">
+                        <div class="panel-title" style="margin-bottom:8px">最近一次 Subagent 执行</div>
+                        <div v-if="!(sessionDetail.subagents || []).length" class="empty">当前会话暂无已落库的子任务执行记录</div>
+                        <div
+                          v-for="item in (sessionDetail.subagents || [])"
+                          :key="item.taskId || item.id"
+                          class="item"
+                        >
+                          <div class="item-row">
+                            <div style="font-weight:600">{{ item.description || item.taskId || '未命名子任务' }}</div>
+                            <span class="pill">{{ executionStatusText(item.status) }}</span>
+                          </div>
+                          <div v-if="item.result" class="muted" style="font-size:12px;margin-top:6px">{{ item.result }}</div>
+                          <div v-else-if="item.errorMessage" class="muted danger-text" style="font-size:12px;margin-top:6px">{{ item.errorMessage }}</div>
+                          <div class="muted" style="font-size:12px;margin-top:4px">
+                            taskId：{{ item.taskId || '-' }} / 执行批次：{{ item.executionId || '-' }}
+                          </div>
+                          <div class="muted" style="font-size:12px;margin-top:4px">
+                            开始：{{ item.startedAt || '-' }} / 完成：{{ item.completedAt || item.updatedAt || '-' }}
+                          </div>
+                        </div>
+                      </section>
+                      <section class="panel subtle">
                         <div class="panel-title" style="margin-bottom:8px">关联 Case</div>
                         <div v-if="!(sessionDetail.cases || []).length" class="empty">当前会话暂无 Case</div>
                         <div v-for="item in (sessionDetail.cases || [])" :key="item.caseId" class="item clickable" @click="openCase(item)">

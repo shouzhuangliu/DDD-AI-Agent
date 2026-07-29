@@ -9,6 +9,7 @@ import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.ISubagentTaskDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentExecution;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiAgent;
@@ -16,6 +17,7 @@ import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
+import cn.bugstack.ai.infrastructure.dao.po.SubagentTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -55,6 +57,7 @@ class ConversationSessionServiceTest {
         ReflectionTestUtils.setField(service, "summaryDao", mock(IMemorySummaryDao.class));
         ReflectionTestUtils.setField(service, "stateDao", mock(IMemoryStateDao.class));
         ReflectionTestUtils.setField(service, "toolResultDao", mock(IMemoryToolResultDao.class));
+        ReflectionTestUtils.setField(service, "subagentTaskDao", mock(ISubagentTaskDao.class));
     }
 
     @Test
@@ -98,8 +101,10 @@ class ConversationSessionServiceTest {
     void detailIncludesLatestFeedbackSignalsInOverview() {
         IChatMessageDao messageDao = mock(IChatMessageDao.class);
         IMemorySummaryDao summaryDao = mock(IMemorySummaryDao.class);
+        ISubagentTaskDao subagentTaskDao = mock(ISubagentTaskDao.class);
         ReflectionTestUtils.setField(service, "messageDao", messageDao);
         ReflectionTestUtils.setField(service, "summaryDao", summaryDao);
+        ReflectionTestUtils.setField(service, "subagentTaskDao", subagentTaskDao);
         LocalDateTime now = LocalDateTime.now();
 
         when(sessionDao.queryByAgentAndSession("cs", "sess-001")).thenReturn(AiSession.builder()
@@ -128,11 +133,17 @@ class ConversationSessionServiceTest {
                 .routeType("feedback").status("COMPLETED").modelId("deepseek-v4-flash")
                 .currentStep(2).stateJson("{\"toolSteps\":2}")
                 .updatedAt(now).build());
+        when(subagentTaskDao.queryByExecutionId("exec-001", 20)).thenReturn(List.of(
+                SubagentTask.builder().taskId("sub-001").executionId("exec-001").agentId("cs")
+                        .description("查询库存子任务").status("COMPLETED").result("库存检查完成")
+                        .updatedAt(now.minusSeconds(5)).build()
+        ));
 
         Map<String, Object> detail = service.detail("cs", "sess-001");
         Map<String, Object> overview = cast(detail.get("overview"));
         List<?> feedback = (List<?>) detail.get("feedback");
         List<?> timeline = (List<?>) detail.get("timeline");
+        List<?> subagents = (List<?>) detail.get("subagents");
         Map<String, Object> firstFeedback = cast(feedback.getFirst());
 
         assertEquals(3, ((List<?>) detail.get("messages")).size());
@@ -149,7 +160,8 @@ class ConversationSessionServiceTest {
         assertEquals(2, overview.get("latestExecutionStep"));
         assertEquals("{\"toolSteps\":2}", overview.get("latestExecutionStateJson"));
         assertEquals(2, feedback.size());
-        assertEquals(6, timeline.size());
+        assertEquals(1, subagents.size());
+        assertEquals(7, timeline.size());
         assertTrue(String.valueOf(firstFeedback.get("evaluationReason")).contains("Case"));
         assertTrue(String.valueOf(firstFeedback.get("nextAction")).contains("Case"));
         assertTrue(Boolean.TRUE.equals(overview.get("hasMemorySummary")));
