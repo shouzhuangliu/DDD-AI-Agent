@@ -363,6 +363,22 @@ async function loadDashboard() {
   });
 }
 
+async function loadFeedbackWorkspace() {
+  return withLoading(async () => {
+    await loadAgents();
+    if (!selectedAgentId.value) return;
+    const id = encodeURIComponent(selectedAgentId.value);
+    const [feedbackData, signalData, memoryData] = await Promise.all([
+      request(`/agents/${id}/feedback?limit=20`, {}, []),
+      request(`/agents/${id}/signals?limit=20`, {}, []),
+      request(`/agents/${id}/memory?limit=20`, {}, []),
+    ]);
+    feedback.value = normalizeList(feedbackData);
+    signals.value = normalizeList(signalData);
+    memories.value = normalizeList(memoryData);
+  });
+}
+
 async function loadCaseWorkspace() {
   return withLoading(async () => {
     await loadAgents();
@@ -1209,6 +1225,7 @@ function switchTab(nextTab, force = false) {
   if (!force && tab.value === nextTab) return;
   tab.value = nextTab;
   if (nextTab === 'dashboard') loadDashboard();
+  if (nextTab === 'feedback') loadFeedbackWorkspace();
   if (nextTab === 'cases') loadCaseWorkspace();
   if (nextTab === 'agents') loadAgentConfigPage();
   if (nextTab === 'conversations') loadConversationPage();
@@ -1336,8 +1353,9 @@ onMounted(() => {
 
     <div class="layout">
       <aside class="sidebar">
-        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">Cases</button>
         <button class="nav-btn" :class="{ active: tab === 'dashboard' }" @click="switchTab('dashboard')">控制台</button>
+        <button class="nav-btn" :class="{ active: tab === 'feedback' }" @click="switchTab('feedback')">Feedback</button>
+        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">Cases</button>
         <button class="nav-btn" :class="{ active: tab === 'agents' }" @click="switchTab('agents')">智能体</button>
         <button class="nav-btn" :class="{ active: tab === 'conversations' }" @click="switchTab('conversations')">对话</button>
         <button class="nav-btn" :class="{ active: tab === 'models' }" @click="switchTab('models')">模型</button>
@@ -1455,6 +1473,77 @@ onMounted(() => {
                 </div>
               </section>
             </div>
+          </template>
+          <template v-else-if="tab === 'feedback'">
+            <section class="panel section-gap">
+              <div class="panel-title">
+                <span>反馈工作台</span>
+                <div class="toolbar">
+                  <select class="select" style="width:260px" v-model="selectedAgentId" @change="loadFeedbackWorkspace">
+                    <option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">
+                      {{ agent.agentName || agent.agentId }}
+                    </option>
+                  </select>
+                  <button class="btn primary" @click="loadFeedbackWorkspace">刷新反馈</button>
+                </div>
+              </div>
+              <div class="grid-2">
+                <section class="panel">
+                  <div class="panel-title">业务反馈</div>
+                  <div class="list">
+                    <div v-if="!feedback.length" class="empty">暂无业务反馈</div>
+                    <div v-for="item in feedback" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
+                      <div class="item-row">
+                        <div>
+                          <div style="font-weight:600">{{ item.feedbackType || 'ISSUE_REPORT' }}</div>
+                          <div class="muted" style="font-size:12px;margin-top:4px">{{ item.message || '-' }}</div>
+                        </div>
+                        <div class="actions">
+                          <span class="pill">{{ labelStatus(item.status) }}</span>
+                          <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-title">AI 观察信号</div>
+                  <div class="list">
+                    <div v-if="!signals.length" class="empty">暂无 AI 观察信号</div>
+                    <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
+                      <div class="item-row">
+                        <div>
+                          <div style="font-weight:600">{{ item.signalType || item.sourceType || '-' }}</div>
+                          <div class="muted" style="font-size:12px;margin-top:4px">{{ item.summary || item.rationale || '-' }}</div>
+                        </div>
+                        <div class="actions">
+                          <span class="pill">{{ item.severity || '-' }}</span>
+                          <span class="pill">{{ labelStatus(item.status) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+              <section class="panel section-gap">
+                <div class="panel-title">短期记忆摘要</div>
+                <div class="list">
+                  <div v-if="!memories.length" class="empty">暂无短期记忆摘要</div>
+                  <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('记忆详情', item)">
+                    <div class="item-row">
+                      <div>
+                        <div style="font-weight:600">{{ item.sessionId || '-' }}</div>
+                        <div class="muted" style="font-size:12px;margin-top:4px">{{ item.summary || '-' }}</div>
+                      </div>
+                      <div class="actions">
+                        <span class="pill">v{{ item.version ?? '-' }}</span>
+                        <span class="pill">{{ item.status || '-' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </section>
           </template>
           <template v-else-if="tab === 'cases'">
             <div class="case-workbench-title">{{ CASE_TEXT.caseWorkbench }}</div>

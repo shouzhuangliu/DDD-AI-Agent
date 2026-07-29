@@ -38,5 +38,6 @@ public class ChatAgentRoutePolicyTest {
 
         assertEquals("feedback", policy.route("我目前遇到了一个问题你们的 db 有缓存不一致，具体商品是显卡5060", "react").route());
         assertEquals("react", policy.route("帮我查看项目代码并排查 db 缓存不一致的问题", "react").route());
+        assertEquals("feedback", policy.route("你好我发现咱们业务存在一个空缺商品", "auto").route());
     }
 }
