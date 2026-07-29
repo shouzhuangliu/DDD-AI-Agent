@@ -1931,7 +1931,7 @@ onMounted(() => {
                 <span v-if="caseStatusFilter" class="muted">{{ caseStatusHint(caseStatusFilter) }}</span>
               </div>
               <div class="panel-title">
-                <span>案件工作台 / Case Workbench</span>
+                <span>案件工作台</span>
                 <div class="toolbar">
                   <select class="select" v-model="selectedAgentId" @change="loadCaseWorkspace">
                     <option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">{{ agent.agentName || agent.agentId }}</option>
@@ -1972,16 +1972,16 @@ onMounted(() => {
 
                 <aside class="panel profile-panel">
                   <div class="panel-title">
-                    <span>Agent 长期画像</span>
+                    <span>智能体长期画像</span>
                     <span v-if="agentProfile" class="pill brand">v{{ agentProfile.version }}</span>
                   </div>
-                  <div v-if="agentProfile" class="profile-source">Sources: {{ agentProfile.sourceCaseIds || '-' }}</div>
+                  <div v-if="agentProfile" class="profile-source">来源案例：{{ agentProfile.sourceCaseIds || '-' }}</div>
                   <div v-if="!agentProfile" class="empty">暂无已解决案件画像</div>
                   <div v-for="[section, values] in profileSections" :key="section" class="profile-section">
                     <div class="profile-section-title">{{ section }}</div>
                     <div v-for="entry in values" :key="`${section}-${entry.caseId}`" class="profile-entry">
                       <div>{{ entry.text || '-' }}</div>
-                      <small class="muted">Case {{ entry.caseId }} | {{ entry.status }}</small>
+                      <small class="muted">案例 {{ entry.caseId }} | {{ caseStatusText(entry.status) }}</small>
                     </div>
                   </div>
                   <div v-if="selectedCase" class="profile-selected">

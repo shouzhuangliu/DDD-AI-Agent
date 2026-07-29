@@ -4,7 +4,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Set;
 
-/** Central lifecycle guard shared by Case, MCP and Skill workflows. */
+/** Central lifecycle guard shared by 案例、反馈、MCP and 技能 workflows. */
 public class WorkflowTransitionPolicy {
 
     public enum Resource { CASE, FEEDBACK, MCP, SKILL }
@@ -76,15 +76,28 @@ public class WorkflowTransitionPolicy {
 
     private String resourceLabel(Resource resource) {
         return switch (resource) {
-            case CASE -> "Case";
+            case CASE -> "案例";
             case FEEDBACK -> "反馈";
             case MCP -> "MCP";
-            case SKILL -> "Skill";
+            case SKILL -> "技能";
         };
     }
 
     private String statusLabel(Resource resource, String status) {
         String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (resource == Resource.CASE) {
+            return switch (normalized) {
+                case "CANDIDATE" -> "候选案例";
+                case "PENDING_REVIEW" -> "待审核";
+                case "CONFIRMED" -> "已确认";
+                case "IN_PROGRESS" -> "处理中";
+                case "RESOLVED" -> "已解决";
+                case "ARCHIVED" -> "已归档";
+                case "IGNORED" -> "已驳回";
+                case "MERGED" -> "已合并";
+                default -> normalized;
+            };
+        }
         if (resource == Resource.FEEDBACK) {
             return switch (normalized) {
                 case "OPEN" -> "新反馈";
