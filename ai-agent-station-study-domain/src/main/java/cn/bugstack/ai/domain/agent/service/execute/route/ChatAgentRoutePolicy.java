@@ -9,13 +9,13 @@ import java.util.regex.Pattern;
 public class ChatAgentRoutePolicy {
 
     private static final Pattern GREETING = Pattern.compile(
-            "^(你好|您好|嗨|哈喽|hello|hi|hey|谢谢|感谢|好的|ok|收到|嗯|啊|是|否|再见|拜拜)[\\s!！。,.，?？]*$",
+            "^(你好|您好|哈哈哈|hello|hi|hey|谢谢|感谢|好的|ok|收到|嗯嗯|再见|拜拜)[\\s!！。?.？,，]*$",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern TINY_INPUT = Pattern.compile("^[\\p{IsHan}\\w\\d]{1,3}$");
 
     private static final String[] REACT_HINTS = {
-            "查询", "查一下", "搜索", "检索", "调用", "读取", "获取", "看看", "mcp", "api", "数据库", "订单", "库存", "日志"
+            "查询", "查一个", "搜索", "检索", "调用", "读取", "获取", "看看", "mcp", "api", "数据库", "订单", "库存", "日志"
     };
 
     private static final String[] INVESTIGATION_HINTS = {
@@ -23,7 +23,8 @@ public class ChatAgentRoutePolicy {
     };
 
     private static final String[] FEEDBACK_HINTS = {
-            "遇到了一个问题", "遇到一个问题", "出了问题", "有个问题", "反馈", "不一致", "异常", "报错", "不好用", "有 bug", "有bug", "不对", "失败", "超时"
+            "遇到问题", "出了问题", "有个问题", "反馈", "不一致", "异常", "报错", "不好用", "bug", "不对", "失败", "超时",
+            "我发现", "存在", "缺货", "补货", "空缺商品", "没货", "漏洞", "显示没货", "业务存在", "希望补货", "希望修复", "空缺"
     };
 
     private static final String[] PLAN_HINTS = {
@@ -45,18 +46,15 @@ public class ChatAgentRoutePolicy {
         if (containsAny(text, FEEDBACK_HINTS) && !containsAny(text, INVESTIGATION_HINTS)) {
             return new RouteDecision("feedback", "用户在描述业务问题或使用反馈，先沉淀 Feedback 并进入评测队列。");
         }
-        if (containsAny(text, PLAN_HINTS) && (!containsAny(text, AUTO_HINTS) || text.contains("不要直接执行") || text.contains("先制定"))) {
+        if (containsAny(text, PLAN_HINTS)
+                && (!containsAny(text, AUTO_HINTS) || text.contains("不要直接执行") || text.contains("先制定"))) {
             return new RouteDecision("plan", "用户强调先规划，进入 Plan 协调。");
         }
         if (containsAny(text, AUTO_HINTS) && hasMultiStepSignal(text)) {
             return new RouteDecision("auto", "存在多步骤执行与验证诉求，进入 Auto 执行链。");
         }
-        if (containsAny(text, REACT_HINTS)) {
-            return new RouteDecision("react", "需要工具、外部数据或检索，进入 ReAct。");
-        }
-        String mode = normalizeMode(preferredMode);
-        if ("react".equals(mode)) {
-            return new RouteDecision("react", "沿用 Agent 默认 ReAct 模式。");
+        if (containsAny(text, REACT_HINTS) || containsAny(text, INVESTIGATION_HINTS)) {
+            return new RouteDecision("react", "需要工具、外部数据或排查动作，进入 ReAct。");
         }
         return new RouteDecision("chat", "没有明确工具或执行意图，优先由 Chat 回复。");
     }
@@ -85,12 +83,6 @@ public class ChatAgentRoutePolicy {
 
     private static String normalize(String value) {
         return value == null ? "" : value.trim();
-    }
-
-    private static String normalizeMode(String mode) {
-        if (mode == null || mode.isBlank()) return "auto";
-        String m = mode.trim().toLowerCase(Locale.ROOT);
-        return ("react".equals(m) || "auto".equals(m) || "plan".equals(m)) ? m : "auto";
     }
 
     public record RouteDecision(String route, String reason) {
