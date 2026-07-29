@@ -106,6 +106,40 @@ const CASE_ACTIONS = {
   IGNORED: [{ status: 'CANDIDATE', label: '\u91cd\u65b0\u63d0\u4ea4' }],
 };
 
+const FEEDBACK_ACTIONS = {
+  OPEN: [
+    { status: 'AI_EVALUATING', label: '提交AI评测' },
+    { status: 'INVALID', label: '标记无效' },
+  ],
+  AI_EVALUATING: [
+    { status: 'VALID', label: '确认有效' },
+    { status: 'NEED_MORE_INFO', label: '要求补充' },
+    { status: 'INVALID', label: '标记无效' },
+  ],
+  NEED_MORE_INFO: [
+    { status: 'AI_EVALUATING', label: '重新评测' },
+    { status: 'INVALID', label: '标记无效' },
+  ],
+  VALID: [
+    { status: 'PROMOTED', label: '升级为Case' },
+    { status: 'CLUSTERED', label: '标记待升级' },
+    { status: 'INVALID', label: '驳回反馈' },
+  ],
+  CLUSTERED: [
+    { status: 'PROMOTED', label: '升级为Case' },
+    { status: 'VALID', label: '退回待审核' },
+  ],
+  INVALID: [
+    { status: 'OPEN', label: '重新打开' },
+  ],
+  PROMOTED: [
+    { status: 'RESOLVED', label: '关闭反馈' },
+  ],
+  RESOLVED: [
+    { status: 'OPEN', label: '重新打开' },
+  ],
+};
+
 const CASE_STATUS_TEXT = {
   CANDIDATE: '\u5f85\u63d0\u4ea4\u5ba1\u6838',
   PENDING_REVIEW: '\u5f85\u7ba1\u7406\u5458\u5ba1\u6838',
@@ -439,6 +473,10 @@ function caseActions(status) {
   return CASE_ACTIONS[String(status || '').toUpperCase()] || [];
 }
 
+function feedbackActions(status) {
+  return FEEDBACK_ACTIONS[String(status || '').toUpperCase()] || [];
+}
+
 function caseStatusText(status) {
   return CASE_STATUS_TEXT[String(status || '').toUpperCase()] || status || '-';
 }
@@ -489,6 +527,44 @@ async function saveCaseTransition() {
       },
     });
     closeModal();
+    await loadCaseWorkspace();
+  });
+  modal.saving = false;
+}
+
+function openFeedbackTransition(item, action) {
+  setModal('feedbackTransition', `${action.label}: ${item.sourceLabel || item.feedbackType || item.id}`, 'edit', {
+    toStatus: action.status,
+    actionLabel: action.label,
+    reason: '',
+    category: item.category || '',
+    matchedCaseId: item.matchedCaseId || '',
+  }, { feedbackId: item.id, fromStatus: item.status });
+}
+
+async function saveFeedbackTransition() {
+  const form = modal.form;
+  const toStatus = String(form.toStatus || '').toUpperCase();
+  if (['INVALID', 'PROMOTED'].includes(toStatus) && !String(form.reason || '').trim()) {
+    error.value = '标记无效或升级为Case时必须填写处理说明';
+    return;
+  }
+  modal.saving = true;
+  await withLoading(async () => {
+    await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/feedback/${encodeURIComponent(modal.extra.feedbackId)}/transition`, {
+      method: 'POST',
+      headers: capHeaders('local-reviewer', 'OPERATOR'),
+      body: {
+        toStatus,
+        actor: 'local-reviewer',
+        reason: String(form.reason || '').trim(),
+        category: String(form.category || '').trim(),
+        matchedCaseId: String(form.matchedCaseId || '').trim(),
+      },
+    });
+    closeModal();
+    await loadFeedbackWorkspace();
+    await loadDashboardData(selectedAgentId.value);
     await loadCaseWorkspace();
   });
   modal.saving = false;
@@ -1545,6 +1621,17 @@ onMounted(() => {
                           <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看</button>
                         </div>
                       </div>
+                      <div class="actions case-actions" @click.stop>
+                        <button
+                          v-for="action in feedbackActions(item.status)"
+                          :key="`${item.id}-${action.status}`"
+                          class="btn"
+                          :class="{ primary: action.status === 'PROMOTED' }"
+                          @click="openFeedbackTransition(item, action)"
+                        >
+                          {{ action.label }}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -2384,6 +2471,31 @@ onMounted(() => {
           <div class="field-actions">
             <button class="btn" @click="closeModal">取消</button>
             <button class="btn primary" :disabled="modal.saving" @click="saveCaseTransition">提交状态变更</button>
+          </div>
+        </template>
+
+        <template v-else-if="modal.kind === 'feedbackTransition'">
+          <div class="transition-context">
+            <div class="transition-target">{{ modal.form.actionLabel }}</div>
+            <div class="muted">当前状态：{{ labelStatus(modal.extra.fromStatus || '') }} -> {{ labelStatus(modal.form.toStatus) }}</div>
+          </div>
+          <div class="field-grid">
+            <div class="field field-full">
+              <label>反馈分类</label>
+              <input v-model="modal.form.category" placeholder="例如：库存异常 / 商品空缺 / 支付问题" />
+            </div>
+            <div v-if="modal.form.toStatus === 'PROMOTED'" class="field field-full">
+              <label>Case ID（可选）</label>
+              <input v-model="modal.form.matchedCaseId" placeholder="留空则自动创建 Case" />
+            </div>
+            <div class="field field-full">
+              <label>处理说明</label>
+              <textarea v-model="modal.form.reason" rows="3" placeholder="说明为什么执行这次反馈流转"></textarea>
+            </div>
+          </div>
+          <div class="field-actions">
+            <button class="btn" @click="closeModal">取消</button>
+            <button class="btn primary" :disabled="modal.saving" @click="saveFeedbackTransition">提交反馈动作</button>
           </div>
         </template>
 
