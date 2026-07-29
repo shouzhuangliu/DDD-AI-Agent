@@ -468,18 +468,20 @@ async function loadAgents(withBindings = false) {
 async function loadDashboardData(agentId = selectedAgentId.value) {
   if (!agentId) return;
   const id = encodeURIComponent(agentId);
-  const [statData, topData, feedbackData, signalData, memoryData] = await Promise.all([
+  const [statData, topData, feedbackData, signalData, memoryData, profileData] = await Promise.all([
     request(`/agents/${id}/workspace/stats`, {}, {}),
     request(`/agents/${id}/cases/top?limit=5`, {}, []),
     request(`/agents/${id}/feedback?limit=10`, {}, []),
     request(`/agents/${id}/signals?limit=10`, {}, []),
     request(`/agents/${id}/memory?limit=10`, {}, []),
+    request(`/agents/${id}/memory/profile`, {}, null),
   ]);
   stats.value = statData || {};
   topCases.value = normalizeList(topData);
   feedback.value = normalizeList(feedbackData);
   signals.value = normalizeList(signalData);
   memories.value = normalizeList(memoryData);
+  agentProfile.value = profileData?.profile || null;
 }
 
 async function loadDashboard() {
@@ -494,14 +496,16 @@ async function loadFeedbackWorkspace() {
     await loadAgents();
     if (!selectedAgentId.value) return;
     const id = encodeURIComponent(selectedAgentId.value);
-    const [feedbackData, signalData, memoryData] = await Promise.all([
+    const [feedbackData, signalData, memoryData, profileData] = await Promise.all([
       request(`/agents/${id}/feedback?limit=20`, {}, []),
       request(`/agents/${id}/signals?limit=20`, {}, []),
       request(`/agents/${id}/memory?limit=20`, {}, []),
+      request(`/agents/${id}/memory/profile`, {}, null),
     ]);
     feedback.value = normalizeList(feedbackData);
     signals.value = normalizeList(signalData);
     memories.value = normalizeList(memoryData);
+    agentProfile.value = profileData?.profile || null;
     if (!selectedFeedback.value || !businessFeedbackItems.value.some(item => item.id === selectedFeedback.value.id)) {
       selectedFeedback.value = businessFeedbackItems.value[0] || null;
     } else {
@@ -1447,7 +1451,8 @@ async function selectLocalSkill(skillId) {
   selectedLocalSkillId.value = String(skillId || '');
   selectedSkillPackageId.value = '';
   skillVersions.value = [];
-  localSkillDetail.value = await request(`/skills/${encodeURIComponent(selectedLocalSkillId.value)}`, {}, null);
+  const query = selectedAgentId.value ? `?agentId=${encodeURIComponent(selectedAgentId.value)}` : '';
+  localSkillDetail.value = await request(`/skills/${encodeURIComponent(selectedLocalSkillId.value)}${query}`, {}, null);
 }
 
 async function loadSkillVersions(packageId) {
@@ -1764,6 +1769,19 @@ onMounted(() => {
                 </div>
               </section>
             </div>
+            <section class="panel section-gap">
+              <div class="panel-title">长期记忆画像</div>
+              <div v-if="!profileSections.length" class="empty">当前 Agent 暂无长期画像，可通过已解决 Case 与沉淀记忆逐步形成</div>
+              <div v-else class="grid-2">
+                <div v-for="[section, values] in profileSections" :key="`dashboard-${section}`" class="profile-section">
+                  <div class="profile-section-title">{{ section }}</div>
+                  <div v-for="entry in values.slice(0, 3)" :key="`dashboard-${section}-${entry.caseId || entry.id || entry.summary}`" class="profile-entry">
+                    <div>{{ entry.summary || entry.title || entry.memory || '-' }}</div>
+                    <small class="muted">来源 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
+                  </div>
+                </div>
+              </div>
+            </section>
           </template>
           <template v-else-if="tab === 'feedback'">
             <section class="panel section-gap">
@@ -1878,6 +1896,19 @@ onMounted(() => {
                         <span class="pill">v{{ item.version ?? '-' }}</span>
                         <span class="pill">{{ item.status || '-' }}</span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="panel section-gap">
+                <div class="panel-title">长期记忆画像</div>
+                <div v-if="!profileSections.length" class="empty">当前 Agent 暂无长期画像，真实业务反馈升级为 Case 后会逐步沉淀</div>
+                <div v-else class="grid-2">
+                  <div v-for="[section, values] in profileSections" :key="`feedback-${section}`" class="profile-section">
+                    <div class="profile-section-title">{{ section }}</div>
+                    <div v-for="entry in values.slice(0, 3)" :key="`feedback-${section}-${entry.caseId || entry.id || entry.summary}`" class="profile-entry">
+                      <div>{{ entry.summary || entry.title || entry.memory || '-' }}</div>
+                      <small class="muted">来源 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
                     </div>
                   </div>
                 </div>
@@ -2364,6 +2395,9 @@ onMounted(() => {
                     <span class="pill brand">本地 Skill</span>
                   </div>
                   <div class="muted" style="font-size:12px;margin-bottom:10px">{{ selectedLocalSkill.skillId }}</div>
+                  <div class="muted" style="font-size:12px;margin-bottom:10px">
+                    {{ selectedAgentId ? `当前按 Agent「${currentAgentName}」的运行时技能视角读取（.ma/skills）` : '当前未选择 Agent，正在读取全局本地 Skill 视图' }}
+                  </div>
                   <div v-if="localSkillDetail?.skill" class="json-box" style="white-space:pre-wrap;max-height:520px;overflow:auto">{{ localSkillDetail.skill.content }}</div>
                   <div v-else class="empty">无法读取本地 SKILL.md</div>
                 </template>
@@ -2434,6 +2468,31 @@ onMounted(() => {
                     <div class="log-conversation-head">
                       <div><div class="log-session-title">{{ selectedLogSession.sessionId }}</div><div class="muted">{{ logAgentName(selectedLogSession.agentId) }} · {{ selectedLogSession.lastSeenAt || '-' }}</div></div>
                       <div class="actions"><span class="pill">{{ selectedLogSession.callCount ?? 0 }} 次调用</span><span class="pill">{{ selectedLogSession.totalTokens ?? 0 }} tokens</span></div>
+                    </div>
+                    <div class="profile-section" style="margin-bottom:12px">
+                      <div class="profile-section-title">LLM 调用摘要</div>
+                      <div v-if="!selectedLogSession.logs?.length" class="empty">当前会话暂无模型调用记录</div>
+                      <div v-else class="list">
+                        <div v-for="(entry, index) in selectedLogSession.logs" :key="`llm-${selectedLogSession.sessionId}-${entry.id || index}`" class="item">
+                          <div class="item-row">
+                            <div>
+                              <div style="font-weight:600">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
+                              <div class="muted" style="font-size:12px;margin-top:4px">
+                                {{ entry.mode || '-' }} / 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠后 {{ entry.foldedMsgCount ?? 0 }}
+                              </div>
+                            </div>
+                            <div class="actions">
+                              <span class="pill">{{ entry.status || '-' }}</span>
+                              <span class="pill">{{ entry.durationMs ?? 0 }} ms</span>
+                              <span class="pill">{{ entry.totalTokens ?? 0 }} tokens</span>
+                            </div>
+                          </div>
+                          <div class="muted" style="font-size:12px;margin-top:8px">
+                            系统提示 {{ entry.systemPromptLen ?? 0 }} 字 / 用户 {{ entry.userMessageLen ?? 0 }} 字 / 回复 {{ entry.assistantResponseLen ?? 0 }} 字
+                          </div>
+                          <div v-if="entry.errorMessage" class="error section-gap" style="margin-top:8px">{{ entry.errorMessage }}</div>
+                        </div>
+                      </div>
                     </div>
                     <div class="log-messages">
                       <div v-if="!selectedLogSession.messages?.length" class="empty">该会话暂无消息</div>
