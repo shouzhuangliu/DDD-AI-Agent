@@ -220,7 +220,45 @@ function joinUrl(base, path) {
 }
 
 function labelStatus(value) {
-  return STATUS_LABELS[value] || value || '';
+  const normalized = String(value || '').trim().toUpperCase();
+  const overrides = {
+    CANDIDATE: '候选案例',
+    PENDING_REVIEW: '待人工审核',
+    CONFIRMED: '已确认',
+    IN_PROGRESS: '处理中',
+    RESOLVED: '已解决',
+    ARCHIVED: '已归档',
+    IGNORED: '已忽略',
+    MERGED: '已合并',
+    OPEN: '新反馈',
+    OBSERVED: '已观察',
+    AI_EVALUATING: 'AI评测中',
+    NEED_MORE_INFO: '需要补充信息',
+    VALID: '待人工审核',
+    VALIDATED: '已验证',
+    CLUSTERED: '待升级Case',
+    PROMOTED: '已升级为Case',
+    INVALID: '无效反馈',
+    DRAFT: '草稿',
+    CONNECTIVITY_CHECKED: '连通性已验证',
+    DISCOVERED: '已发现',
+    SCANNED: '已扫描',
+    TESTED: '已测试',
+    IN_REVIEW: '审核中',
+    APPROVED: '已批准',
+    SIGNED: '已签名',
+    RELEASED: '已发布',
+    ACTIVE: '已启用',
+    NEW: '新反馈',
+    AI_INVALID: '无效反馈',
+    PENDING_AI: '等待AI评测',
+    WAITING_USER: '等待用户补充',
+    READY_FOR_CASE: '可升级Case',
+    NOT_PROMOTED: '未升级',
+    NOT_ELIGIBLE: '不可升级',
+    CLOSED: '已关闭',
+  };
+  return overrides[normalized] || STATUS_LABELS[normalized] || value || '';
 }
 
 function setModal(kind, title, mode = 'create', form = {}, extra = {}) {
@@ -1495,11 +1533,15 @@ onMounted(() => {
                     <div v-for="item in feedback" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
                       <div class="item-row">
                         <div>
-                          <div style="font-weight:600">{{ item.feedbackType || 'ISSUE_REPORT' }}</div>
+                          <div style="font-weight:600">{{ item.sourceLabel || item.feedbackType || 'ISSUE_REPORT' }}</div>
                           <div class="muted" style="font-size:12px;margin-top:4px">{{ item.message || '-' }}</div>
+                          <div class="actions" style="margin-top:8px">
+                            <span class="pill">{{ item.statusLabel || labelStatus(item.status) }}</span>
+                            <span class="pill">{{ labelStatus(item.aiStatus) }}</span>
+                            <span class="pill">{{ labelStatus(item.promotionStatus) }}</span>
+                          </div>
                         </div>
                         <div class="actions">
-                          <span class="pill">{{ labelStatus(item.status) }}</span>
                           <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看</button>
                         </div>
                       </div>

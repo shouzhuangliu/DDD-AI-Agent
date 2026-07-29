@@ -76,7 +76,8 @@ public class AgentOperationsController {
                 .submittedBy(request.normalizedSubmittedBy()).createdAt(now).updatedAt(now)
                 .build();
         feedbackDao.insert(feedback);
-        return Map.of("success", true, "id", feedback.getId(), "sourceType", "EXPLICIT");
+        return Map.of("success", true, "id", feedback.getId(), "sourceType", "EXPLICIT",
+                "feedback", feedbackView(feedback));
     }
 
     @PostMapping("/feedback/manual")
@@ -100,13 +101,16 @@ public class AgentOperationsController {
         } catch (Exception exception) {
             log.warn("Failed to enqueue feedback evaluation for feedback {}", feedback.getId(), exception);
         }
-        return Map.of("success", true, "id", feedback.getId(), "sourceType", feedback.getSourceType());
+        return Map.of("success", true, "id", feedback.getId(), "sourceType", feedback.getSourceType(),
+                "feedback", feedbackView(feedback));
     }
 
     @GetMapping("/feedback")
-    public List<AiFeedback> feedback(@PathVariable("agentId") String agentId,
-                                     @RequestParam(value = "limit", defaultValue = "50") int limit) {
-        return feedbackDao.queryWorkspaceByAgentId(agentId, bounded(limit));
+    public List<Map<String, Object>> feedback(@PathVariable("agentId") String agentId,
+                                              @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return feedbackDao.queryWorkspaceByAgentId(agentId, bounded(limit)).stream()
+                .map(this::feedbackView)
+                .toList();
     }
 
     @PostMapping("/feedback/{feedbackId}/transition")
@@ -131,8 +135,9 @@ public class AgentOperationsController {
         int changed = feedbackDao.transitionStatus(feedbackId, agentId, item.getStatus(), toStatus,
                 safe(request.category()), matchedCaseId, resolved);
         if (changed != 1) throw new IllegalStateException("Feedback changed concurrently; refresh and retry");
+        AiFeedback updated = feedbackDao.queryById(feedbackId);
         return Map.of("success", true, "feedbackId", feedbackId, "fromStatus", item.getStatus(), "toStatus", toStatus,
-                "caseId", matchedCaseId);
+                "caseId", matchedCaseId, "feedback", feedbackView(updated == null ? item : updated));
     }
 
     @GetMapping("/sources/{messageId}")
@@ -359,6 +364,73 @@ public class AgentOperationsController {
         if (message == null || !agentId.equals(message.getAgentId())) throw new IllegalArgumentException("Message source does not belong to this Agent");
         String content = message.getContent() == null ? "" : message.getContent().replaceAll("\\s+", " ").trim();
         return Map.of("agentId", agentId, "sessionId", message.getSessionId(), "messageId", message.getId(), "role", message.getRole(), "preview", content.substring(0, Math.min(content.length(), 240)));
+    }
+
+    private Map<String, Object> feedbackView(AiFeedback item) {
+        if (item == null) return Map.of();
+        String status = safe(item.getStatus()).toUpperCase();
+        String aiStatus = switch (status) {
+            case "OPEN" -> "NEW";
+            case "AI_EVALUATING" -> "AI_EVALUATING";
+            case "NEED_MORE_INFO" -> "NEED_MORE_INFO";
+            case "INVALID" -> "AI_INVALID";
+            default -> "AI_VALID";
+        };
+        String reviewStatus = switch (status) {
+            case "OPEN", "AI_EVALUATING" -> "PENDING_AI";
+            case "NEED_MORE_INFO" -> "WAITING_USER";
+            case "INVALID" -> "REJECTED";
+            case "PROMOTED" -> "PROMOTED";
+            case "RESOLVED" -> "CLOSED";
+            default -> "PENDING_REVIEW";
+        };
+        String promotionStatus = switch (status) {
+            case "PROMOTED", "RESOLVED" -> "PROMOTED";
+            case "VALID", "CLUSTERED" -> "READY_FOR_CASE";
+            case "INVALID" -> "NOT_ELIGIBLE";
+            default -> "NOT_PROMOTED";
+        };
+        String sourceLabel = switch (safe(item.getSourceType()).toUpperCase()) {
+            case "EXPLICIT", "USER" -> "用户反馈";
+            case "OPERATIONS" -> "运维反馈";
+            case "TEST" -> "测试反馈";
+            case "AI_INFERRED" -> "AI观察";
+            default -> blank(item.getSourceType()) ? "未知来源" : item.getSourceType();
+        };
+        String statusLabel = switch (status) {
+            case "OPEN" -> "新反馈";
+            case "AI_EVALUATING" -> "AI评测中";
+            case "NEED_MORE_INFO" -> "需要补充信息";
+            case "INVALID" -> "无效反馈";
+            case "VALID" -> "待人工审核";
+            case "CLUSTERED" -> "待升级Case";
+            case "PROMOTED" -> "已升级为Case";
+            case "RESOLVED" -> "已关闭";
+            default -> status;
+        };
+        Map<String, Object> view = new java.util.LinkedHashMap<>();
+        view.put("id", item.getId());
+        view.put("sessionId", safe(item.getSessionId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("assistantMessageId", item.getAssistantMessageId());
+        view.put("feedbackType", safe(item.getFeedbackType()));
+        view.put("rating", item.getRating() == null ? 0 : item.getRating());
+        view.put("message", safe(item.getMessage()));
+        view.put("correction", safe(item.getCorrection()));
+        view.put("sourceType", safe(item.getSourceType()));
+        view.put("sourceLabel", sourceLabel);
+        view.put("category", safe(item.getCategory()));
+        view.put("matchedCaseId", safe(item.getMatchedCaseId()));
+        view.put("resolved", item.getResolved() == null ? 0 : item.getResolved());
+        view.put("status", status);
+        view.put("statusLabel", statusLabel);
+        view.put("aiStatus", aiStatus);
+        view.put("reviewStatus", reviewStatus);
+        view.put("promotionStatus", promotionStatus);
+        view.put("submittedBy", safe(item.getSubmittedBy()));
+        view.put("createdAt", item.getCreatedAt());
+        view.put("updatedAt", item.getUpdatedAt());
+        return view;
     }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
     private static String safe(String value) { return value == null ? "" : value.trim(); }
