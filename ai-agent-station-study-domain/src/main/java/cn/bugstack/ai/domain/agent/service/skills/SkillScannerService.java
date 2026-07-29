@@ -136,7 +136,7 @@ public class SkillScannerService {
      */
     public SkillInfo readSkillFromWorkDir(String workDir, String skillId) {
         if (skillId == null || skillId.isBlank()) return null;
-        for (Path skillsRoot : candidateSkillsRoots(workDir)) {
+        for (Path skillsRoot : candidateRuntimeSkillsRoots(workDir)) {
             SkillInfo skill = readSkill(skillsRoot.resolve(skillId.trim()));
             if (skill != null) return skill;
         }
@@ -145,7 +145,7 @@ public class SkillScannerService {
 
     public SkillInfo readSkillMetadataFromWorkDir(String workDir, String skillId) {
         if (skillId == null || skillId.isBlank()) return null;
-        for (Path skillsRoot : candidateSkillsRoots(workDir)) {
+        for (Path skillsRoot : candidateRuntimeSkillsRoots(workDir)) {
             SkillInfo skill = readSkillMetadata(skillsRoot.resolve(skillId.trim()));
             if (skill != null) return skill;
         }
@@ -158,6 +158,12 @@ public class SkillScannerService {
         addWorkspaceSkillsRoots(roots, System.getProperty("user.dir"));
         addWorkspaceSkillsRoots(roots, ".");
         addConfiguredSkillsRoot(roots, configuredSkillsDir);
+        return roots.stream().toList();
+    }
+
+    private List<Path> candidateRuntimeSkillsRoots(String workDir) {
+        Set<Path> roots = new LinkedHashSet<>();
+        addRuntimeWorkspaceSkillsRoots(roots, workDir);
         return roots.stream().toList();
     }
 
@@ -174,6 +180,15 @@ public class SkillScannerService {
         while (current != null) {
             roots.add(current.resolve(".ma").resolve("skills").normalize());
             roots.add(current.resolve("skills").normalize());
+            current = current.getParent();
+        }
+    }
+
+    private void addRuntimeWorkspaceSkillsRoots(Set<Path> roots, String baseDir) {
+        if (baseDir == null || baseDir.isBlank()) return;
+        Path current = Path.of(baseDir).toAbsolutePath().normalize();
+        while (current != null) {
+            roots.add(current.resolve(".ma").resolve("skills").normalize());
             current = current.getParent();
         }
     }

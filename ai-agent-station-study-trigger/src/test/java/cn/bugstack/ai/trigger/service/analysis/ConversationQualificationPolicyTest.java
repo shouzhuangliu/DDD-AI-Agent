@@ -42,7 +42,7 @@ class ConversationQualificationPolicyTest {
     void promotesCaseOnlyAfterCrossSessionEvidenceOrExplicitNegativeFeedback() {
         assertFalse(policy.shouldPromoteCase(1, 0, 90, false));
         assertTrue(policy.shouldPromoteCase(2, 0, 80, false));
-        assertTrue(policy.shouldPromoteCase(1, 1, 80, false));
+        assertFalse(policy.shouldPromoteCase(1, 1, 80, false));
     }
 
     @Test
@@ -51,10 +51,24 @@ class ConversationQualificationPolicyTest {
                 3, 2, 90, false, 69, 90, false)));
         assertFalse(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
                 3, 2, 90, false, 90, 59, false)));
+        assertFalse(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1, 1, 79, false, 90, 80, false)));
+        assertFalse(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1, 1, 80, false, 84, 80, false)));
         assertTrue(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
                 1, 1, 80, false, 90, 80, false)));
         assertTrue(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
                 2, 0, 80, false, 90, 80, false)));
+    }
+
+    @Test
+    void criticalRiskStillNeedsStrongEvidenceBeforePromotingCase() {
+        assertFalse(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1, 0, 89, true, 95, 90, false)));
+        assertFalse(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1, 0, 95, true, 95, 79, false)));
+        assertTrue(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
+                1, 0, 95, true, 95, 85, false)));
     }
 
     private ConversationQualificationPolicy.ConversationMessage message(String role, String content) {
