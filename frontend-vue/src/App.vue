@@ -50,7 +50,7 @@ const skillVersions = ref([]);
 const logs = ref([]);
 const selectedLogAgent = ref('');
 const logSessionQuery = ref('');
-const selectedLogSessionId = ref('');
+const selectedLogSessionKey = ref('');
 const agentToolOptions = ref([]);
 const agentSkillOptions = ref([]);
 const agentMcpOptions = ref([]);
@@ -87,7 +87,8 @@ const logSessions = computed(() => logs.value
   })))
   .filter(session => !logSessionQuery.value.trim()
     || String(session.sessionId || '').toLowerCase().includes(logSessionQuery.value.trim().toLowerCase())));
-const selectedLogSession = computed(() => logSessions.value.find(session => session.sessionId === selectedLogSessionId.value) || null);
+const businessFeedbackItems = computed(() => feedback.value.filter(item => isBusinessFeedbackItem(item)));
+const selectedLogSession = computed(() => logSessions.value.find(session => logSessionKey(session) === selectedLogSessionKey.value) || null);
 const profileSections = computed(() => {
   const raw = agentProfile.value?.profileJson;
   if (!raw) return [];
@@ -333,6 +334,15 @@ function feedbackSourceLabel(value) {
   }[normalized] || (value || '反馈');
 }
 
+function isBusinessFeedbackItem(item) {
+  const sourceType = String(item?.sourceType || '').trim().toUpperCase();
+  return sourceType !== 'AI_INFERRED';
+}
+
+function logSessionKey(session) {
+  return `${String(session?.agentId || '')}::${String(session?.sessionId || '')}`;
+}
+
 function setModal(kind, title, mode = 'create', form = {}, extra = {}) {
   modal.kind = kind;
   modal.title = title;
@@ -489,10 +499,10 @@ async function loadFeedbackWorkspace() {
     feedback.value = normalizeList(feedbackData);
     signals.value = normalizeList(signalData);
     memories.value = normalizeList(memoryData);
-    if (!selectedFeedback.value || !feedback.value.some(item => item.id === selectedFeedback.value.id)) {
-      selectedFeedback.value = feedback.value[0] || null;
+    if (!selectedFeedback.value || !businessFeedbackItems.value.some(item => item.id === selectedFeedback.value.id)) {
+      selectedFeedback.value = businessFeedbackItems.value[0] || null;
     } else {
-      selectedFeedback.value = feedback.value.find(item => item.id === selectedFeedback.value.id) || null;
+      selectedFeedback.value = businessFeedbackItems.value.find(item => item.id === selectedFeedback.value.id) || null;
     }
   });
 }
@@ -1512,14 +1522,14 @@ async function loadLogsPage() {
   return withLoading(async () => {
     if (!agents.value.length) await loadAgents();
     logs.value = normalizeList(await request('/llm-logs/grouped?limit=200', {}, []));
-    if (!selectedLogSessionId.value || !logSessions.value.some(session => session.sessionId === selectedLogSessionId.value)) {
-      selectedLogSessionId.value = logSessions.value[0]?.sessionId || '';
+    if (!selectedLogSessionKey.value || !logSessions.value.some(session => logSessionKey(session) === selectedLogSessionKey.value)) {
+      selectedLogSessionKey.value = logSessions.value[0] ? logSessionKey(logSessions.value[0]) : '';
     }
   });
 }
 
-function selectLogSession(sessionId) {
-  selectedLogSessionId.value = sessionId;
+function selectLogSession(session) {
+  selectedLogSessionKey.value = logSessionKey(session);
 }
 
 function logAgentName(agentId) {
@@ -1633,8 +1643,8 @@ onMounted(() => {
               <section class="panel">
                 <div class="panel-title">反馈概览</div>
                 <div class="list">
-                  <div v-if="!feedback.length" class="empty">暂无数据</div>
-                  <div v-for="item in feedback" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
+                  <div v-if="!businessFeedbackItems.length" class="empty">暂无业务反馈</div>
+                  <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.feedbackType || 'COMMENT' }}</div>
@@ -1707,8 +1717,8 @@ onMounted(() => {
                 <section class="panel">
                   <div class="panel-title">业务反馈</div>
                   <div class="list">
-                    <div v-if="!feedback.length" class="empty">暂无业务反馈</div>
-                    <div v-for="item in feedback" :key="item.id" class="item clickable" :class="{ active: selectedFeedback?.id === item.id }" @click="openFeedback(item)">
+                    <div v-if="!businessFeedbackItems.length" class="empty">暂无业务反馈</div>
+                    <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" :class="{ active: selectedFeedback?.id === item.id }" @click="openFeedback(item)">
                       <div class="item-row">
                         <div>
                           <div style="font-weight:600">{{ item.sourceLabel || item.feedbackType || 'ISSUE_REPORT' }}</div>
@@ -2319,7 +2329,7 @@ onMounted(() => {
                 <aside class="log-sessions">
                   <div class="log-section-head"><span>会话</span><span class="pill">{{ logSessions.length }}</span></div>
                   <div v-if="!logSessions.length" class="empty">暂无匹配的会话</div>
-                  <button v-for="session in logSessions" :key="session.sessionId" class="log-session-row" :class="{ active: session.sessionId === selectedLogSessionId }" @click="selectLogSession(session.sessionId)">
+                  <button v-for="session in logSessions" :key="logSessionKey(session)" class="log-session-row" :class="{ active: logSessionKey(session) === selectedLogSessionKey }" @click="selectLogSession(session)">
                     <span class="log-session-icon">◌</span>
                     <span class="log-session-main"><strong>{{ session.sessionId }}</strong><small>{{ logAgentName(session.agentId) }}</small></span>
                     <span class="log-session-count">{{ session.messages?.length ?? 0 }}</span>
@@ -2335,7 +2345,7 @@ onMounted(() => {
                       <div v-if="!selectedLogSession.messages?.length" class="empty">该会话暂无消息</div>
                       <div v-for="msg in selectedLogSession.messages" :key="msg.id" class="log-message" :class="`log-message-${String(msg.role || '').toLowerCase()}`">
                         <div class="log-avatar">{{ String(msg.role || '').toLowerCase() === 'user' ? 'U' : String(msg.role || '').toLowerCase() === 'tool' ? 'T' : 'AI' }}</div>
-                        <div class="log-message-body"><div class="log-message-meta">{{ logRoleLabel(msg.role) }} <span>{{ msg.createdAt || '' }}</span></div><div class="log-message-content">{{ msg.content || msg.toolArguments || '(无内容)' }}</div></div>
+                        <div class="log-message-body"><div class="log-message-meta">{{ logRoleLabel(msg.role) }} <span v-if="msg.turn != null">轮次 {{ msg.turn }}</span><span v-if="msg.step != null">步骤 {{ msg.step }}</span><span v-if="msg.toolName">工具 {{ msg.toolName }}</span><span>{{ msg.createdAt || '' }}</span></div><div class="log-message-content">{{ msg.content || msg.toolArguments || msg.toolCallsJson || '(无内容)' }}</div></div>
                       </div>
                     </div>
                   </template>
