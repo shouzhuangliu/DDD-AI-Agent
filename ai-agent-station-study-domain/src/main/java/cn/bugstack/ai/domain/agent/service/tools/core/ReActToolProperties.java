@@ -2,6 +2,7 @@ package cn.bugstack.ai.domain.agent.service.tools.core;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
@@ -27,6 +28,7 @@ import java.util.Set;
  */
 @Data
 @Component
+@Primary
 @ConfigurationProperties(prefix = "spring.ai.agent.react")
 public class ReActToolProperties {
 

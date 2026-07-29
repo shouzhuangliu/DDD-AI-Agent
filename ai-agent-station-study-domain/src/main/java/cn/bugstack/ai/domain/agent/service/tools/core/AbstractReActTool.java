@@ -8,6 +8,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -31,8 +33,27 @@ public abstract class AbstractReActTool {
         if (ctx == null) {
             return;
         }
-        int step = stepCounter.incrementAndGet();
+        if (ctx.isCancellationRequested()) {
+            throw new SubagentCancellationException();
+        }
+        int step = ctx.consumeStep();
+        if (step < 0) {
+            String message = "ReAct 工具步数已达到上限（" + ctx.getMaxSteps() + "），本次工具调用已停止。";
+            send(ctx, ReActExecuteResultEntity.createError(message, ctx.getSessionId()));
+            throw new IllegalStateException(message);
+        }
+        if (ctx.repeatedCallExceeded(toolName, description)) {
+            String message = "检测到相同工具调用重复执行，已强制停止以避免循环。";
+            send(ctx, ReActExecuteResultEntity.createError(message, ctx.getSessionId()));
+            throw new IllegalStateException(message);
+        }
         send(ctx, ReActExecuteResultEntity.createAction(step, toolName, description, ctx.getSessionId()));
+    }
+
+    public static class SubagentCancellationException extends RuntimeException {
+        public SubagentCancellationException() {
+            super("Subagent cancellation requested");
+        }
     }
 
     /** 推送 observation：工具执行结果 */
@@ -41,7 +62,7 @@ public abstract class AbstractReActTool {
         if (ctx == null) {
             return;
         }
-        int step = stepCounter.get();
+        int step = ctx.getCurrentStep().get();
         send(ctx, ReActExecuteResultEntity.createObservation(step, toolName, observation, ctx.getSessionId()));
     }
 
@@ -60,7 +81,16 @@ public abstract class AbstractReActTool {
             return;
         }
         try {
-            emitter.send("data: " + JSON.toJSONString(result) + "\n\n");
+            String payload = JSON.toJSONString(result);
+            String sessionId = ctx.getSessionId();
+            if (sessionId != null && sessionId.contains("#")) {
+                Map<String, Object> childEvent = new LinkedHashMap<>(JSON.parseObject(payload, Map.class));
+                childEvent.put("type", "subagent_trace");
+                childEvent.put("taskId", sessionId.substring(sessionId.lastIndexOf('#') + 1));
+                emitter.send("data: " + JSON.toJSONString(childEvent) + "\n\n");
+            } else {
+                emitter.send("data: " + payload + "\n\n");
+            }
         } catch (IOException e) {
             log.error("推送 ReAct SSE 失败: {}", e.getMessage());
         }
