@@ -11,6 +11,9 @@ public interface IAgentExecutionDao {
 
     AgentExecution queryByExecutionId(@Param("executionId") String executionId);
 
+    AgentExecution queryLatestBySession(@Param("agentId") String agentId,
+                                        @Param("sessionId") String sessionId);
+
     int updateProgress(@Param("executionId") String executionId,
                        @Param("currentCycle") int currentCycle,
                        @Param("currentStep") int currentStep,

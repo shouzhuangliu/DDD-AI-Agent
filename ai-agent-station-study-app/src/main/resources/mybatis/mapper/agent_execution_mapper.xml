@@ -36,6 +36,14 @@
         SELECT * FROM agent_execution WHERE execution_id=#{executionId} LIMIT 1
     </select>
 
+    <select id="queryLatestBySession" resultMap="ExecutionMap">
+        SELECT *
+        FROM agent_execution
+        WHERE agent_id=#{agentId} AND session_id=#{sessionId}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+    </select>
+
     <update id="updateProgress">
         UPDATE agent_execution
         SET current_cycle=#{currentCycle}, current_step=#{currentStep}, state_json=#{stateJson}, updated_at=NOW()

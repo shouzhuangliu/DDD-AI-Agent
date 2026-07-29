@@ -19,6 +19,9 @@ public interface IAiCaseDao {
     List<AiCase> queryTopByAgent(@Param("agentId") String agentId, @Param("limit") int limit);
     List<AiCase> queryByAgentAndStatus(@Param("agentId") String agentId, @Param("status") String status, @Param("limit") int limit);
     AiCase queryByAgentAndCaseId(@Param("agentId") String agentId, @Param("caseId") String caseId);
+    List<AiCase> queryBySession(@Param("agentId") String agentId,
+                                @Param("sessionId") String sessionId,
+                                @Param("limit") int limit);
     long countByAgent(@Param("agentId") String agentId);
     long countByAgentAndStatus(@Param("agentId") String agentId, @Param("status") String status);
     int updateAnalysis(AiCase record);

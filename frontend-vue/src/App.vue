@@ -296,6 +296,41 @@ function labelStatus(value) {
   return overrides[normalized] || STATUS_LABELS[normalized] || value || '';
 }
 
+function routeTypeText(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return {
+    chat: '普通对话',
+    feedback: '反馈收集',
+    react: '工具执行',
+    auto: '自动编排',
+    plan: '规划分析',
+  }[normalized] || (value || '未识别');
+}
+
+function executionStatusLabel(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return {
+    RUNNING: '执行中',
+    COMPLETED: '已完成',
+    FAILED: '执行失败',
+    CANCELLED: '已取消',
+    CANCEL_REQUESTED: '取消中',
+    TIMED_OUT: '已超时',
+    PENDING: '排队中',
+  }[normalized] || (value || '未知');
+}
+
+function feedbackSourceLabel(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return {
+    AI_INFERRED: '自动识别',
+    EXPLICIT: '用户显式反馈',
+    USER: '用户反馈',
+    OPERATIONS: '运维反馈',
+    TEST: '测试反馈',
+  }[normalized] || (value || '反馈');
+}
+
 function setModal(kind, title, mode = 'create', form = {}, extra = {}) {
   modal.kind = kind;
   modal.title = title;
@@ -652,7 +687,7 @@ async function newChat() {
   if (!selectedAgentId.value) return;
   const created = await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/sessions`, {
     method: 'POST',
-    body: { title: 'New chat', modelId: chatModelId.value || '' },
+    body: { title: '新对话', modelId: chatModelId.value || '' },
   });
   currentSessionId.value = created?.sessionId || created?.session?.sessionId || '';
   await loadConversationPage(selectedAgentId.value);
@@ -663,7 +698,7 @@ function sessionName(session) {
   const defaultTitles = ['新对话', 'New chat', 'New Chat'];
   if (title && !defaultTitles.includes(title)) return title;
   const preview = String(session?.preview || '').replace(/\s+/g, ' ').trim();
-  return preview.slice(0, 5) || 'New chat';
+  return preview.slice(0, 5) || '新对话';
 }
 
 function appendTrace(type, subType, step, content) {
@@ -1375,7 +1410,7 @@ async function selectConversationAgent(agentId) {
 }
 
 function openSessionRename(session) {
-  setModal('sessionTitle', 'Rename conversation', 'edit', {
+  setModal('sessionTitle', '重命名对话', 'edit', {
     sessionTitle: session.title || session.sessionId,
   }, {
     sessionId: session.sessionId,
@@ -1398,7 +1433,7 @@ async function saveSessionRename() {
 }
 
 async function deleteSession(sessionId) {
-  if (!confirm('Delete conversation ' + sessionId + '?')) return;
+  if (!confirm('确认删除对话 ' + sessionId + ' 吗？')) return;
   await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   });
@@ -1833,7 +1868,7 @@ onMounted(() => {
                 <div class="conversation-list">
                   <div class="panel-title" style="margin-bottom:8px">对话列表</div>
                   <div class="list">
-                    <div v-if="!sessions.length" class="empty">暂无数据</div>
+                    <div v-if="!sessions.length" class="empty">暂无对话</div>
                     <div
                       v-for="session in sessions"
                       :key="session.sessionId"
@@ -1857,6 +1892,41 @@ onMounted(() => {
 
                 <div class="conversation-detail">
                   <div class="panel-title" style="margin-bottom:8px">当前对话</div>
+                  <div v-if="currentSessionId && sessionDetail?.overview" class="conversation-overview">
+                    <div class="kvs conversation-summary-grid">
+                      <div class="kv"><div class="k">路由类型</div><div class="v">{{ routeTypeText(sessionDetail.overview.latestRouteType) }}</div></div>
+                      <div class="kv"><div class="k">执行状态</div><div class="v">{{ executionStatusLabel(sessionDetail.overview.latestExecutionStatus) }}</div></div>
+                      <div class="kv"><div class="k">反馈数量</div><div class="v">{{ sessionDetail.overview.feedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">关联 Case</div><div class="v">{{ sessionDetail.overview.caseCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">工具消息</div><div class="v">{{ sessionDetail.overview.toolMessageCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">短期记忆</div><div class="v">{{ sessionDetail.overview.hasMemorySummary ? '已生成' : '未生成' }}</div></div>
+                    </div>
+                    <div class="conversation-side-grid">
+                      <section class="panel subtle">
+                        <div class="panel-title" style="margin-bottom:8px">关联业务反馈</div>
+                        <div v-if="!(sessionDetail.feedback || []).length" class="empty">当前会话暂无反馈</div>
+                        <div v-for="item in (sessionDetail.feedback || [])" :key="`fb-${item.id}`" class="item">
+                          <div class="item-row">
+                            <div style="font-weight:600">{{ item.message || item.category || `反馈 #${item.id}` }}</div>
+                            <span class="pill">{{ labelStatus(item.status) }}</span>
+                          </div>
+                          <div class="muted" style="font-size:12px;margin-top:6px">{{ feedbackSourceLabel(item.sourceType) }} / {{ item.category || '未分类' }}</div>
+                          <div v-if="item.matchedCaseId" class="muted" style="font-size:12px;margin-top:4px">已关联 Case：{{ item.matchedCaseId }}</div>
+                        </div>
+                      </section>
+                      <section class="panel subtle">
+                        <div class="panel-title" style="margin-bottom:8px">关联 Case</div>
+                        <div v-if="!(sessionDetail.cases || []).length" class="empty">当前会话暂无 Case</div>
+                        <div v-for="item in (sessionDetail.cases || [])" :key="item.caseId" class="item clickable" @click="openCase(item)">
+                          <div class="item-row">
+                            <div style="font-weight:600">{{ item.title || item.caseId }}</div>
+                            <span class="pill">{{ caseStatusText(item.status) }}</span>
+                          </div>
+                          <div class="muted" style="font-size:12px;margin-top:6px">{{ item.caseId }}</div>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
                   <div v-if="Object.keys(subagentTasks).length || todoItems.length" class="execution-progress">
                     <div v-if="todoItems.length" class="todo-strip">
                       <span class="progress-label">执行计划</span>
@@ -1881,7 +1951,7 @@ onMounted(() => {
                     </div>
                   </div>
                   <div ref="chatMessagesRef" class="chat-list conversation-messages" style="padding-right:2px">
-                    <div v-if="!currentSessionId" class="empty">暂无数据</div>
+                    <div v-if="!currentSessionId" class="empty">暂无对话</div>
                     <template v-else>
                       <div v-if="sessionDetail?.messages?.length">
                         <div
@@ -1895,7 +1965,7 @@ onMounted(() => {
                           <div>{{ msg.content }}</div>
                         </div>
                       </div>
-                      <div v-else-if="!chatStream.length" class="empty">暂无数据</div>
+                      <div v-else-if="!chatStream.length" class="empty">暂无消息</div>
                       <div
                         v-for="entry in chatStream"
                         :key="entry.id"
@@ -1915,7 +1985,7 @@ onMounted(() => {
                     <textarea
                       class="textarea"
                       v-model="chatInput"
-                      placeholder="输入消息"
+                      placeholder="输入消息，Enter 发送"
                       @keydown.enter.exact.prevent="sendMessage"
                     ></textarea>
                     <button class="btn primary" :disabled="isStreaming" @click="sendMessage">发送</button>

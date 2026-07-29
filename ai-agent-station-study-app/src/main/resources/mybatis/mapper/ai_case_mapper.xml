@@ -38,6 +38,14 @@
     <select id="queryTopByAgent" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND status IN ('CANDIDATE','PENDING_REVIEW','CONFIRMED','IN_PROGRESS','RESOLVED') ORDER BY total_score DESC, last_seen_at DESC, id DESC LIMIT #{limit}</select>
     <select id="queryByAgentAndStatus" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND (#{status}='' OR status=#{status}) ORDER BY total_score DESC, updated_at DESC LIMIT #{limit}</select>
     <select id="queryByAgentAndCaseId" resultMap="CaseMap">SELECT * FROM ai_case WHERE agent_id=#{agentId} AND case_id=#{caseId} LIMIT 1</select>
+    <select id="queryBySession" resultMap="CaseMap">
+        SELECT DISTINCT c.*
+        FROM ai_case c
+        INNER JOIN case_evidence e ON e.case_id = c.case_id AND e.agent_id = c.agent_id
+        WHERE c.agent_id=#{agentId} AND e.session_id=#{sessionId}
+        ORDER BY c.total_score DESC, c.updated_at DESC
+        LIMIT #{limit}
+    </select>
     <select id="countByAgent" resultType="long">SELECT COUNT(*) FROM ai_case WHERE agent_id=#{agentId}</select>
     <select id="countByAgentAndStatus" resultType="long">SELECT COUNT(*) FROM ai_case WHERE agent_id=#{agentId} AND status=#{status}</select>
     <update id="updateAnalysis" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiCase">UPDATE ai_case SET summary=#{summary}, severity=#{severity}, frequency=#{frequency}, affected_sessions=#{affectedSessions}, importance_score=#{importanceScore}, confidence=#{confidence}, total_score=#{totalScore}, status=#{status}, source_model=#{sourceModel}, extraction_reason=#{extractionReason}, last_seen_at=#{lastSeenAt}, updated_at=NOW() WHERE agent_id=#{agentId} AND case_id=#{caseId}</update>
