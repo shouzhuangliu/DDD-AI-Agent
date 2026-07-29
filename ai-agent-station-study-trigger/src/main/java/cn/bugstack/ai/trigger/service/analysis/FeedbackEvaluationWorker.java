@@ -46,8 +46,15 @@ public class FeedbackEvaluationWorker {
                 return;
             }
             Evaluation evaluation = evaluate(feedback);
-            feedbackDao.transitionStatus(feedback.getId(), feedback.getAgentId(), feedback.getStatus(),
-                    evaluation.status(), evaluation.category(), "", evaluation.resolved());
+            feedbackDao.transitionStatus(
+                    feedback.getId(),
+                    feedback.getAgentId(),
+                    feedback.getStatus(),
+                    evaluation.status(),
+                    evaluation.category(),
+                    "",
+                    evaluation.resolved()
+            );
             jobDao.markComplete(job.getId());
         } catch (Exception exception) {
             int nextAttempt = job.getAttempts() == null ? 1 : job.getAttempts() + 1;
@@ -60,18 +67,45 @@ public class FeedbackEvaluationWorker {
 
     private Evaluation evaluate(AiFeedback feedback) {
         String text = feedback.getMessage() == null ? "" : feedback.getMessage().replaceAll("\\s+", " ").trim();
-        if (text.length() < 12) {
-            return new Evaluation("NEED_MORE_INFO", "NEED_INFO", 0);
+        if (text.isBlank() || text.length() < 6) {
+            return new Evaluation("INVALID", "NON_ISSUE", 1);
         }
-        boolean hasProblem = containsAny(text, "问题", "异常", "错误", "失败", "报错", "不一致", "不对", "漏洞", "超时", "bug");
-        boolean hasBusinessObject = containsAny(text, "订单", "商品", "库存", "缓存", "支付", "退款", "数据库", "db", "接口", "用户", "账号", "物流", "价格", "显卡", "业务", "cs");
-        if (!hasProblem) {
-            return new Evaluation("NEED_MORE_INFO", "NEED_INFO", 0);
+
+        if (containsAny(text, "谢谢", "收到", "好的", "明白", "辛苦", "hello", "hi")
+                && !containsAny(text, "问题", "异常", "报错", "不一致", "缺货", "补货", "漏洞", "超时")) {
+            return new Evaluation("INVALID", "NON_ISSUE", 1);
         }
-        if (!hasBusinessObject) {
-            return new Evaluation("NEED_MORE_INFO", "NEED_INFO", 0);
+
+        boolean hasProblem = containsAny(text,
+                "问题", "异常", "错误", "失败", "报错", "不一致", "不对", "漏洞", "超时", "bug",
+                "缺货", "空缺", "补货", "缺失", "找不到", "没货");
+        boolean hasBusinessObject = containsAny(text,
+                "订单", "库存", "商品", "缓存", "支付", "退款", "数据库", "db", "接口", "用户", "账号",
+                "物流", "价格", "显卡", "业务", "内存", "型号", "sku", "页面");
+        boolean hasEvidence = containsAny(text,
+                "型号", "id", "ID", "sku", "订单号", "页面", "接口", "内存", "显卡", "品牌", "ddr", "截图", "日志")
+                || text.matches(".*\\d{2,}.*");
+
+        if (!hasProblem && !hasBusinessObject) {
+            return new Evaluation("INVALID", "NON_ISSUE", 1);
         }
-        return new Evaluation("AI_EVALUATING", "AI_EVAL", 0);
+
+        String category = categoryOf(text);
+        if (hasProblem && hasBusinessObject && hasEvidence) {
+            return new Evaluation("VALID", category, 0);
+        }
+        if (hasProblem || hasBusinessObject) {
+            return new Evaluation("NEED_MORE_INFO", category, 0);
+        }
+        return new Evaluation("INVALID", "NON_ISSUE", 1);
+    }
+
+    private String categoryOf(String text) {
+        if (containsAny(text, "缺货", "补货", "空缺商品", "没货", "上架")) return "SUPPLY_GAP";
+        if (containsAny(text, "缓存", "不一致", "对不上", "显示")) return "DATA_INCONSISTENCY";
+        if (containsAny(text, "支付", "退款")) return "PAYMENT";
+        if (containsAny(text, "超时", "卡", "很慢")) return "PERFORMANCE";
+        return "ISSUE_REPORT";
     }
 
     private boolean containsAny(String text, String... words) {
