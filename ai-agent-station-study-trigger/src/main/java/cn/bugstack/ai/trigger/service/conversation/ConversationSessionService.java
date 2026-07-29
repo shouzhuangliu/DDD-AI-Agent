@@ -214,6 +214,8 @@ public class ConversationSessionService {
         view.put("updatedAt", item.getUpdatedAt());
         view.put("qualificationHint", feedbackQualificationHint(item));
         view.put("sourcePreview", feedbackSourcePreview(item, messages));
+        view.put("evaluationReason", feedbackEvaluationReason(item));
+        view.put("nextAction", feedbackNextAction(item));
         return view;
     }
 
@@ -327,6 +329,50 @@ public class ConversationSessionService {
             case "INVALID" -> "已判定为无效或暂不纳入处理。";
             default -> "当前反馈正在流转中。";
         };
+    }
+
+    private String feedbackEvaluationReason(AiFeedback item) {
+        String status = safe(item.getStatus()).toUpperCase();
+        String category = safe(item.getCategory());
+        String prefix = category.isBlank() ? "" : "分类：" + category + "。";
+        String evidence = feedbackEvidenceSummary(item);
+        return switch (status) {
+            case "NEED_MORE_INFO" -> prefix + evidence + " 已识别到业务问题方向，但缺少足够上下文，暂时不能稳定升级为 Case。";
+            case "VALID" -> prefix + evidence + " 已同时具备问题描述、业务对象和基础证据，可以进入待升级或直接转 Case。";
+            case "PROMOTED" -> prefix + evidence + " 当前反馈已满足升级条件，已进入 Case 工作流。";
+            case "INVALID" -> prefix + evidence + " 当前描述更像测试语句、问候，或尚未形成明确业务问题，因此暂不纳入有效反馈。";
+            case "AI_EVALUATING" -> prefix + evidence + " 系统正在确认它是否属于当前 Agent 的业务范围，以及是否达到升级阈值。";
+            default -> prefix + evidence;
+        };
+    }
+
+    private String feedbackNextAction(AiFeedback item) {
+        String status = safe(item.getStatus()).toUpperCase();
+        return switch (status) {
+            case "NEED_MORE_INFO" -> "建议补充商品型号、页面位置、订单号、截图或稳定复现场景。";
+            case "VALID" -> "建议确认是否与历史同类反馈合并，再决定是否升级为 Case。";
+            case "PROMOTED" -> "建议进入 Case 审核、指派负责人并补充处理进展。";
+            case "INVALID" -> "如果这是真实业务问题，请补充具体业务对象和异常表现后重新提交。";
+            default -> "建议按照当前反馈状态继续流转处理。";
+        };
+    }
+
+    private String feedbackEvidenceSummary(AiFeedback item) {
+        String text = safe(item.getMessage()).toLowerCase();
+        java.util.ArrayList<String> evidence = new java.util.ArrayList<>();
+        if (text.matches(".*\\d{2,}.*")) evidence.add("包含数字线索");
+        if (containsAny(text, "sku", "型号", "model", "ddr", "显卡", "内存", "品牌", "id")) evidence.add("包含商品或型号线索");
+        if (containsAny(text, "页面", "列表", "详情", "接口", "api", "下单", "库存", "支付", "订单")) evidence.add("包含业务位置线索");
+        if (containsAny(text, "截图", "日志", "报错", "异常", "不一致", "失败", "超时", "缺货", "补货", "缺失")) evidence.add("包含问题证据线索");
+        if (evidence.isEmpty()) return "暂未识别到足够证据线索。";
+        return "已识别" + String.join("、", evidence) + "。";
+    }
+
+    private boolean containsAny(String text, String... values) {
+        for (String value : values) {
+            if (text.contains(value.toLowerCase())) return true;
+        }
+        return false;
     }
 
     private String feedbackSourceLabel(String sourceType) {

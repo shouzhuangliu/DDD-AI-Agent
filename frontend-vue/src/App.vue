@@ -556,6 +556,42 @@ function feedbackNextStep(item) {
   return `建议下一步：${actions.map(action => action.label).join(' / ')}`;
 }
 
+function feedbackEvidenceChips(item) {
+  const text = String(item?.message || '').toLowerCase();
+  const chips = [];
+  if (/\d{2,}/.test(text)) chips.push('包含数字线索');
+  if (/(sku|型号|model|ddr|显卡|内存|品牌|id)/i.test(text)) chips.push('包含商品或型号线索');
+  if (/(页面|列表|详情|接口|api|下单|库存|支付|订单)/i.test(text)) chips.push('包含业务位置线索');
+  if (/(截图|日志|报错|异常|不一致|失败|超时|缺货|补货|缺失)/i.test(text)) chips.push('包含问题证据线索');
+  return chips;
+}
+
+function feedbackReasonText(item) {
+  if (!item) return '暂无评测说明。';
+  if (item.evaluationReason) return item.evaluationReason;
+  const status = String(item.status || '').toUpperCase();
+  const category = item.category ? `分类：${item.category}。` : '';
+  const chips = feedbackEvidenceChips(item);
+  const evidence = chips.length ? `已识别${chips.join('、')}。` : '暂未识别到足够证据线索。';
+  if (status === 'NEED_MORE_INFO') return `${category}${evidence} 当前能判断这是业务相关反馈，但缺少足够上下文，暂时不能稳定升级为 Case。`;
+  if (status === 'VALID') return `${category}${evidence} 已具备“问题描述 + 业务对象 + 基础证据”，可以进入待升级或直接转 Case。`;
+  if (status === 'PROMOTED') return `${category}${evidence} 这条反馈已满足升级条件，已进入 Case 工作流。`;
+  if (status === 'INVALID') return `${category}${evidence} 当前描述更像测试语句、问候或缺少明确业务问题，暂不纳入有效反馈。`;
+  if (status === 'AI_EVALUATING') return `${category}${evidence} 系统正在确认它是否属于当前 Agent 的业务范围，以及是否达到升级阈值。`;
+  return `${category}${evidence}`;
+}
+
+function feedbackActionAdvice(item) {
+  if (!item) return '暂无处理建议。';
+  if (item.nextAction) return item.nextAction;
+  const status = String(item.status || '').toUpperCase();
+  if (status === 'NEED_MORE_INFO') return '建议补充商品型号、页面位置、订单号、截图或稳定复现场景。';
+  if (status === 'VALID') return '建议由运营或开发确认是否与历史同类反馈合并，再决定是否升级为 Case。';
+  if (status === 'PROMOTED') return '建议进入 Case 审核、指派负责人并补充处理进展。';
+  if (status === 'INVALID') return '如果这是真实业务问题，请补充具体业务对象和异常表现后重新提交。';
+  return feedbackNextStep(item);
+}
+
 function caseStatusText(status) {
   return CASE_STATUS_TEXT[String(status || '').toUpperCase()] || status || '-';
 }
@@ -1534,6 +1570,23 @@ function selectLogSession(session) {
   selectedLogSessionKey.value = logSessionKey(session);
 }
 
+async function jumpToLogSession(agentId, sessionId) {
+  if (!agentId || !sessionId) return;
+  selectedLogAgent.value = agentId;
+  tab.value = 'logs';
+  await loadLogsPage();
+  const matched = logSessions.value.find(session => session.agentId === agentId && session.sessionId === sessionId);
+  selectedLogSessionKey.value = matched ? logSessionKey(matched) : `${agentId}::${sessionId}`;
+}
+
+async function jumpToConversationSession(agentId, sessionId) {
+  if (!agentId || !sessionId) return;
+  selectedAgentId.value = agentId;
+  tab.value = 'conversations';
+  await loadConversationPage(agentId);
+  await openSession(sessionId);
+}
+
 function logAgentName(agentId) {
   return logAgentOptions.value.find(agent => agent.id === agentId)?.name || agentId || '未知 Agent';
 }
@@ -1767,7 +1820,8 @@ onMounted(() => {
                       <div class="profile-section-title">当前判断</div>
                       <div class="profile-entry">
                         <div>{{ feedbackStatusHint(selectedFeedback.status) }}</div>
-                        <small>{{ feedbackNextStep(selectedFeedback) }}</small>
+                        <small>{{ feedbackReasonText(selectedFeedback) }}</small>
+                        <small>{{ feedbackActionAdvice(selectedFeedback) }}</small>
                       </div>
                     </div>
                     <div class="profile-section">
@@ -2020,6 +2074,9 @@ onMounted(() => {
                           <span class="pill">{{ entry.status || '-' }}</span>
                         </div>
                         <div class="muted" style="font-size:12px;margin-top:6px">{{ entry.summary || '-' }}</div>
+                        <div class="actions" style="margin-top:8px">
+                          <button class="btn" @click="jumpToLogSession(selectedAgentId, currentSessionId)">查看日志链路</button>
+                        </div>
                         <small class="muted">{{ entry.time || '-' }}</small>
                       </div>
                     </section>
@@ -2035,6 +2092,10 @@ onMounted(() => {
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ feedbackSourceLabel(item.sourceType) }} / {{ item.category || '未分类' }}</div>
                           <div v-if="item.sourcePreview" class="muted" style="font-size:12px;margin-top:4px">来源摘录：{{ item.sourcePreview }}</div>
                           <div v-if="item.qualificationHint" class="muted" style="font-size:12px;margin-top:4px">{{ item.qualificationHint }}</div>
+                          <div class="muted" style="font-size:12px;margin-top:4px">{{ feedbackReasonText(item) }}</div>
+                          <div class="actions" style="margin-top:8px">
+                            <button class="btn" @click="jumpToLogSession(item.agentId || selectedAgentId, item.sessionId || currentSessionId)">查看日志</button>
+                          </div>
                           <div v-if="item.matchedCaseId" class="muted" style="font-size:12px;margin-top:4px">已关联 Case：{{ item.matchedCaseId }}</div>
                         </div>
                       </section>
@@ -2048,6 +2109,9 @@ onMounted(() => {
                           </div>
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ item.caseId }}</div>
                           <div v-if="item.summary" class="muted" style="font-size:12px;margin-top:4px">{{ item.summary }}</div>
+                          <div class="actions" style="margin-top:8px">
+                            <button class="btn" @click.stop="jumpToLogSession(item.agentId || selectedAgentId, currentSessionId)">查看日志</button>
+                          </div>
                         </div>
                       </section>
                     </div>

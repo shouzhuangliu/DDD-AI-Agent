@@ -133,6 +133,7 @@ class ConversationSessionServiceTest {
         Map<String, Object> overview = cast(detail.get("overview"));
         List<?> feedback = (List<?>) detail.get("feedback");
         List<?> timeline = (List<?>) detail.get("timeline");
+        Map<String, Object> firstFeedback = cast(feedback.getFirst());
 
         assertEquals(3, ((List<?>) detail.get("messages")).size());
         assertEquals(2, overview.get("feedbackCount"));
@@ -149,6 +150,8 @@ class ConversationSessionServiceTest {
         assertEquals("{\"toolSteps\":2}", overview.get("latestExecutionStateJson"));
         assertEquals(2, feedback.size());
         assertEquals(6, timeline.size());
+        assertTrue(String.valueOf(firstFeedback.get("evaluationReason")).contains("Case"));
+        assertTrue(String.valueOf(firstFeedback.get("nextAction")).contains("Case"));
         assertTrue(Boolean.TRUE.equals(overview.get("hasMemorySummary")));
     }
 

@@ -736,7 +736,10 @@ button, input, select, textarea {
 
 .log-panel {
   min-height: calc(100vh - 124px);
+  height: calc(100vh - 124px);
   padding: 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .log-toolbar,
@@ -765,7 +768,8 @@ button, input, select, textarea {
 .log-layout {
   display: grid;
   grid-template-columns: minmax(270px, 350px) minmax(0, 1fr);
-  min-height: 610px;
+  min-height: 0;
+  flex: 1;
   margin-top: 18px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -931,4 +935,5 @@ button, input, select, textarea {
   .log-filters { flex-wrap: wrap; }
   .log-layout { grid-template-columns: 1fr; }
   .log-sessions { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .log-panel { height: auto; min-height: calc(100vh - 124px); }
 }
