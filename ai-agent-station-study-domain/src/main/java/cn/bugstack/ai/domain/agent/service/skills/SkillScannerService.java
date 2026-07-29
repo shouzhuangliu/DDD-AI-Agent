@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -28,6 +30,9 @@ import java.util.Set;
 @Service
 public class SkillScannerService {
 
+    @org.springframework.beans.factory.annotation.Value("${spring.ai.agent.react.skills-dir:${user.dir}/skills}")
+    private String configuredSkillsDir;
+
     /**
      * 扫描指定目录下的所有 skills。
      *
@@ -41,15 +46,27 @@ public class SkillScannerService {
             return result;
         }
 
-        try (var dirs = Files.list(skillsDir)) {
-            dirs.filter(Files::isDirectory)
-                    .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+        try {
+            List<Path> skillDirs = new ArrayList<>();
+            try (var dirs = Files.list(skillsDir)) {
+                dirs.filter(Files::isDirectory).forEach(skillDirs::add);
+            }
+            for (String category : List.of("public", "custom")) {
+                Path categoryDir = skillsDir.resolve(category);
+                if (!Files.isDirectory(categoryDir)) continue;
+                try (var paths = Files.walk(categoryDir)) {
+                    paths.filter(Files::isDirectory)
+                            .filter(path -> Files.isRegularFile(path.resolve("SKILL.md")))
+                            .forEach(skillDirs::add);
+                }
+            }
+            skillDirs.stream()
+                    .distinct()
+                    .sorted(Comparator.comparing(Path::toString))
                     .forEach(skillDir -> {
                         try {
-                            SkillInfo info = readSkill(skillDir);
-                            if (info != null) {
-                                result.add(info);
-                            }
+                            SkillInfo info = readSkillMetadata(skillDir);
+                            if (info != null) result.add(info);
                         } catch (Exception e) {
                             log.warn("读取 skill 失败 [{}]: {}", skillDir.getFileName(), e.getMessage());
                         }
@@ -59,6 +76,17 @@ public class SkillScannerService {
         }
 
         return result;
+    }
+
+    public List<SkillInfo> scanFromWorkDir(String workDir) {
+        Map<String, SkillInfo> result = new LinkedHashMap<>();
+        for (Path root : candidateSkillsRoots(workDir)) {
+            if (!Files.isDirectory(root)) continue;
+            for (SkillInfo skill : scan(root)) {
+                result.putIfAbsent(skill.getSkillId(), skill);
+            }
+        }
+        return new ArrayList<>(result.values());
     }
 
     /**
@@ -91,6 +119,17 @@ public class SkillScannerService {
         }
     }
 
+    /** Read registry metadata; the model loads the full file on demand. */
+    public SkillInfo readSkillMetadata(Path skillDir) {
+        SkillInfo skill = readSkill(skillDir);
+        return skill == null ? null : SkillInfo.builder()
+                .skillId(skill.getSkillId())
+                .skillName(skill.getSkillName())
+                .description(skill.getDescription())
+                .content("")
+                .build();
+    }
+
     /**
      * 从运行工作目录解析 Skill。IDEA 常把 user.dir 设置到 app 子模块，
      * 因此这里会从 workDir / user.dir / 当前目录逐级向上查找 skills/{skillId}/SKILL.md。
@@ -104,22 +143,34 @@ public class SkillScannerService {
         return null;
     }
 
+    public SkillInfo readSkillMetadataFromWorkDir(String workDir, String skillId) {
+        if (skillId == null || skillId.isBlank()) return null;
+        for (Path skillsRoot : candidateSkillsRoots(workDir)) {
+            SkillInfo skill = readSkillMetadata(skillsRoot.resolve(skillId.trim()));
+            if (skill != null) return skill;
+        }
+        return null;
+    }
+
     private List<Path> candidateSkillsRoots(String workDir) {
         Set<Path> roots = new LinkedHashSet<>();
-        addSkillsRootCandidates(roots, workDir);
-        addSkillsRootCandidates(roots, System.getProperty("user.dir"));
-        addSkillsRootCandidates(roots, ".");
+        addConfiguredSkillsRoot(roots, configuredSkillsDir);
+        addWorkspaceSkillsRoots(roots, workDir);
         return roots.stream().toList();
     }
 
-    private void addSkillsRootCandidates(Set<Path> roots, String baseDir) {
+    private void addConfiguredSkillsRoot(Set<Path> roots, String configuredRoot) {
+        if (configuredRoot == null || configuredRoot.isBlank()) return;
+        Path root = Path.of(configuredRoot);
+        if (!root.isAbsolute()) root = Path.of(System.getProperty("user.dir")).resolve(root);
+        roots.add(root.toAbsolutePath().normalize());
+    }
+
+    private void addWorkspaceSkillsRoots(Set<Path> roots, String baseDir) {
         if (baseDir == null || baseDir.isBlank()) return;
         Path current = Path.of(baseDir).toAbsolutePath().normalize();
-        while (current != null) {
-            roots.add(current.resolve(".ma").resolve("skills").normalize());
-            roots.add(current.resolve("skills").normalize());
-            current = current.getParent();
-        }
+        roots.add(current.resolve(".ma").resolve("skills").normalize());
+        roots.add(current.resolve("skills").normalize());
     }
 
     @Value

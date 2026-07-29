@@ -12,11 +12,14 @@ thread:
         policy: CallerRunsPolicy
 
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
   datasource:
     mysql:
       username: ${MYSQL_USERNAME:root}
       password: ${MYSQL_PASSWORD:123456}
-      url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:13306}/${MYSQL_DATABASE:ai-agent-station-study}?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai-agent-station-study}?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       driver-class-name: com.mysql.cj.jdbc.Driver
       type: com.zaxxer.hikari.HikariDataSource
       hikari:
@@ -49,10 +52,10 @@ spring:
           model: ${SILICONFLOW_EMBEDDING_MODEL:BAAI/bge-m3}
     agent:
       auto-config:
-        enabled: true
-        client-ids: 3101,3102,3103,3104,3105
+        enabled: false
       react:
         work-dir: "${AI_AGENT_WORK_DIR:${user.dir}}"
+        skills-dir: "${AI_AGENT_SKILLS_DIR:${user.dir}/skills}"
         bash:
           enabled: true
           whitelist: ls,cat,echo,grep,find,wc,head,tail,dir,type,more,less

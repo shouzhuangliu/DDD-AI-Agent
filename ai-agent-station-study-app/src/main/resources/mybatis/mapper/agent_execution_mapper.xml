@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAgentExecutionDao">
+    <resultMap id="ExecutionMap" type="cn.bugstack.ai.infrastructure.dao.po.AgentExecution">
+        <id column="id" property="id"/>
+        <result column="execution_id" property="executionId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="agent_id" property="agentId"/>
+        <result column="model_id" property="modelId"/>
+        <result column="route_type" property="routeType"/>
+        <result column="status" property="status"/>
+        <result column="current_cycle" property="currentCycle"/>
+        <result column="current_step" property="currentStep"/>
+        <result column="max_cycles" property="maxCycles"/>
+        <result column="max_steps" property="maxSteps"/>
+        <result column="state_json" property="stateJson"/>
+        <result column="last_assistant_content" property="lastAssistantContent"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="completed_at" property="completedAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentExecution">
+        INSERT INTO agent_execution
+        (execution_id, session_id, agent_id, model_id, route_type, status,
+         current_cycle, current_step, max_cycles, max_steps, state_json,
+         last_assistant_content, error_message, started_at, completed_at, updated_at)
+        VALUES
+        (#{executionId}, #{sessionId}, #{agentId}, #{modelId}, #{routeType}, #{status},
+         #{currentCycle}, #{currentStep}, #{maxCycles}, #{maxSteps}, #{stateJson},
+         #{lastAssistantContent}, #{errorMessage}, #{startedAt}, #{completedAt}, NOW())
+    </insert>
+
+    <select id="queryByExecutionId" resultMap="ExecutionMap">
+        SELECT * FROM agent_execution WHERE execution_id=#{executionId} LIMIT 1
+    </select>
+
+    <update id="updateProgress">
+        UPDATE agent_execution
+        SET current_cycle=#{currentCycle}, current_step=#{currentStep}, state_json=#{stateJson}, updated_at=NOW()
+        WHERE execution_id=#{executionId} AND status='RUNNING'
+    </update>
+
+    <update id="finish">
+        UPDATE agent_execution
+        SET status=#{status}, last_assistant_content=#{lastAssistantContent}, error_message=#{errorMessage},
+            completed_at=NOW(), updated_at=NOW()
+        WHERE execution_id=#{executionId} AND status='RUNNING'
+    </update>
+</mapper>

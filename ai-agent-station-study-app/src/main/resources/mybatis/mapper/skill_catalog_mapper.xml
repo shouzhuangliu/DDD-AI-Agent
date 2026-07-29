@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.ISkillCatalogDao">
+    <select id="queryActiveReleasedSkills" resultType="map">
+        SELECT CONCAT(p.skill_key, '-', v.version) AS skill_id,
+               p.name AS skill_name,
+               p.description AS description
+        FROM skill_release r
+        JOIN skill_version v ON v.id = r.version_id
+        JOIN skill_package p ON p.id = v.package_id
+        JOIN (
+            SELECT p2.skill_key, MAX(r2.id) AS release_id
+            FROM skill_release r2
+            JOIN skill_version v2 ON v2.id = r2.version_id
+            JOIN skill_package p2 ON p2.id = v2.package_id
+            WHERE r2.status = 'ACTIVE'
+              AND (r2.ended_at IS NULL OR r2.ended_at > CURRENT_TIMESTAMP)
+            GROUP BY p2.skill_key
+        ) latest ON latest.release_id = r.id
+        WHERE r.status = 'ACTIVE'
+          AND (r.ended_at IS NULL OR r.ended_at > CURRENT_TIMESTAMP)
+        ORDER BY r.released_at DESC, r.id DESC
+    </select>
+</mapper>

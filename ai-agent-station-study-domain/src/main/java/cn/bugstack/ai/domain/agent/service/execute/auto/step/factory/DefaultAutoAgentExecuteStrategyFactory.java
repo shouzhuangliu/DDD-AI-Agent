@@ -1,6 +1,7 @@
 package cn.bugstack.ai.domain.agent.service.execute.auto.step.factory;
 
 import cn.bugstack.ai.domain.agent.model.entity.ExecuteCommandEntity;
+import cn.bugstack.ai.domain.agent.model.entity.AgentTodoItem;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentClientFlowConfigVO;
 import cn.bugstack.ai.domain.agent.service.execute.auto.state.AutoAgentStateEnum;
 import cn.bugstack.ai.domain.agent.service.execute.auto.step.RootNode;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 工厂类
@@ -57,6 +60,9 @@ public class DefaultAutoAgentExecuteStrategyFactory {
         private Map<String, AiAgentClientFlowConfigVO> aiAgentClientFlowConfigVOMap;
 
         private Map<String, Object> dataObjects = new HashMap<>();
+
+        @Builder.Default
+        private List<AgentTodoItem> todos = new ArrayList<>();
 
         public <T> void setValue(String key, T value) {
             dataObjects.put(key, value);

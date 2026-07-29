@@ -10,25 +10,25 @@ import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
 import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
+import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.CaseEvidence;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
+import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/v1/agents/{agentId}")
@@ -43,9 +43,10 @@ public class AgentOperationsController {
     @Resource private IMemoryStateDao memoryStateDao;
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private ICaseEvidenceDao caseEvidenceDao;
+    @Resource private IAiCaseAuditDao caseAuditDao;
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
+    @Resource private AgentMemoryProfileService agentMemoryProfileService;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
-    @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
 
     @PostMapping("/feedback")
@@ -151,6 +152,12 @@ public class AgentOperationsController {
         return memorySummaryDao.queryByAgent(agentId, bounded(limit));
     }
 
+    @GetMapping("/memory/profile")
+    public Map<String, Object> memoryProfile(@PathVariable("agentId") String agentId) {
+        var profile = agentMemoryProfileService.latest(agentId);
+        return Map.of("agentId", agentId, "profile", profile == null ? Map.of() : profile);
+    }
+
     @GetMapping("/sessions/{sessionId}/memory")
     public Map<String, Object> sessionMemory(@PathVariable("agentId") String agentId, @PathVariable("sessionId") String sessionId) {
         var summary = memorySummaryDao.queryLatest(sessionId);
@@ -178,9 +185,9 @@ public class AgentOperationsController {
     public Map<String, Object> caseDetail(@PathVariable("agentId") String agentId, @PathVariable("caseId") String caseId) {
         AiCase item = caseDao.queryByAgentAndCaseId(agentId, caseId);
         if (item == null) throw new IllegalArgumentException("Case does not belong to this Agent");
-        List<Map<String, Object>> evidence = jdbcTemplate.queryForList("SELECT * FROM case_evidence WHERE agent_id=? AND case_id=? ORDER BY id DESC LIMIT 100", agentId, caseId)
+        List<Map<String, Object>> evidence = caseAuditDao.queryEvidence(agentId, caseId)
                 .stream().map(row -> {
-                    Map<String, Object> evidenceRow = new HashMap<>(row);
+                    Map<String, Object> evidenceRow = new java.util.HashMap<>(row);
                     Object messageId = evidenceRow.get("message_id");
                     if (messageId instanceof Number number) evidenceRow.put("source", sourceOf(agentId, number.longValue()));
                     return evidenceRow;
@@ -188,8 +195,8 @@ public class AgentOperationsController {
         return Map.of(
                 "case", item,
                 "evidence", evidence,
-                "scoreSnapshots", jdbcTemplate.queryForList("SELECT * FROM case_score_snapshot WHERE agent_id=? AND case_id=? ORDER BY id DESC LIMIT 50", agentId, caseId),
-                "reviews", jdbcTemplate.queryForList("SELECT * FROM case_review_record WHERE agent_id=? AND case_id=? ORDER BY id DESC LIMIT 50", agentId, caseId));
+                "scoreSnapshots", caseAuditDao.queryScoreSnapshots(agentId, caseId),
+                "reviews", caseAuditDao.queryReviews(agentId, caseId));
     }
 
     @PostMapping("/cases/{caseId}/transition")
@@ -204,11 +211,28 @@ public class AgentOperationsController {
         if (item == null) throw new IllegalArgumentException("Case does not belong to this Agent");
         String toStatus = request.toStatus().trim().toUpperCase();
         transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.CASE, item.getStatus(), toStatus);
+        if ("IN_PROGRESS".equals(toStatus) && blank(request.owner())) {
+            throw new IllegalArgumentException("owner is required when a Case enters IN_PROGRESS");
+        }
+        if ("RESOLVED".equals(toStatus) && blank(request.resolution())) {
+            throw new IllegalArgumentException("resolution is required when a Case enters RESOLVED");
+        }
+        if (("IGNORED".equals(toStatus) || "ARCHIVED".equals(toStatus)) && blank(request.reason())) {
+            throw new IllegalArgumentException("reason is required when a Case is ignored or archived");
+        }
+        boolean rollback = ("PENDING_REVIEW".equals(toStatus) && "CONFIRMED".equals(item.getStatus()))
+                || ("CONFIRMED".equals(toStatus) && "IN_PROGRESS".equals(item.getStatus()))
+                || ("IN_PROGRESS".equals(toStatus) && "RESOLVED".equals(item.getStatus()))
+                || ("CONFIRMED".equals(toStatus) && "ARCHIVED".equals(item.getStatus()))
+                || ("CANDIDATE".equals(toStatus) && !"CANDIDATE".equals(item.getStatus()));
+        if (rollback && blank(request.reason())) {
+            throw new IllegalArgumentException("reason is required when a Case is rolled back");
+        }
         int changed = caseDao.transitionStatus(agentId, caseId, item.getStatus(), toStatus,
                 safe(request.owner()), safe(request.resolution()));
         if (changed != 1) throw new IllegalStateException("Case changed concurrently; refresh and retry");
-        jdbcTemplate.update("INSERT INTO case_review_record(case_id,agent_id,from_status,to_status,actor,reason) VALUES (?,?,?,?,?,?)",
-                caseId, agentId, item.getStatus(), toStatus, request.actor().trim(), safe(request.reason()));
+        caseAuditDao.insertReview(caseId, agentId, item.getStatus(), toStatus,
+                request.actor().trim(), safe(request.reason()));
         AiCase updated = caseDao.queryByAgentAndCaseId(agentId, caseId);
         caseMemoryPublisher.publish(updated == null ? item : updated, toStatus, safe(request.reason()));
         return Map.of("success", true, "caseId", caseId, "fromStatus", item.getStatus(), "toStatus", toStatus);
@@ -235,8 +259,8 @@ public class AgentOperationsController {
         String resolution = "合并到 Case: " + targetCaseId + (reason.isEmpty() ? "" : "；原因：" + reason);
         int changed = caseDao.mergeTo(agentId, caseId, source.getStatus(), targetCaseId, resolution);
         if (changed != 1) throw new IllegalStateException("Case changed concurrently; refresh and retry");
-        jdbcTemplate.update("INSERT INTO case_review_record(case_id,agent_id,from_status,to_status,actor,reason) VALUES (?,?,?,?,?,?)",
-                caseId, agentId, source.getStatus(), "MERGED", request.actor().trim(), resolution);
+        caseAuditDao.insertReview(caseId, agentId, source.getStatus(), "MERGED",
+                request.actor().trim(), resolution);
         return Map.of("success", true, "caseId", caseId, "mergedToCaseId", targetCaseId);
     }
 

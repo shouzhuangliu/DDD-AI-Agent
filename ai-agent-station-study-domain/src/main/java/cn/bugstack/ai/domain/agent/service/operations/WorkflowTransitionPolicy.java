@@ -15,7 +15,7 @@ public class WorkflowTransitionPolicy {
         transitions.put(Resource.CASE, Map.of(
                 "CANDIDATE", Set.of("PENDING_REVIEW", "IGNORED", "MERGED"),
                 "PENDING_REVIEW", Set.of("CONFIRMED", "IGNORED", "CANDIDATE", "MERGED"),
-                "CONFIRMED", Set.of("IN_PROGRESS", "ARCHIVED", "MERGED"),
+                "CONFIRMED", Set.of("PENDING_REVIEW", "IN_PROGRESS", "MERGED"),
                 "IN_PROGRESS", Set.of("RESOLVED", "CONFIRMED"),
                 "RESOLVED", Set.of("IN_PROGRESS", "ARCHIVED"),
                 "ARCHIVED", Set.of("CONFIRMED"),

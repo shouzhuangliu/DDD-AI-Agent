@@ -37,7 +37,11 @@ public class MemoryFoldingPipeline {
     /** 完整管线入口 */
     public static List<Map<String, Object>> fold(List<Map<String, Object>> messages) {
         if (messages == null || messages.isEmpty()) return messages;
-        List<Map<String, Object>> msgs = new ArrayList<>(messages);
+        // 调用方可能使用 Map.of 构造消息；折叠阶段会修改 content/tool_calls，必须复制为可变 Map。
+        List<Map<String, Object>> msgs = new ArrayList<>();
+        for (Map<String, Object> message : messages) {
+            msgs.add(message == null ? new LinkedHashMap<>() : new LinkedHashMap<>(message));
+        }
 
         msgs = sanitize(msgs);
         msgs = intraRoundFold(msgs);

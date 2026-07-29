@@ -30,7 +30,7 @@ public class CapabilityRegistryService {
     private final CapabilityApprovalPolicy approvals = new CapabilityApprovalPolicy();
 
     @Value("${agent.capability.storage-dir:data/capabilities}") private String storageDir;
-    @Value("${agent.capability.runtime-skills-dir:skills}") private String runtimeSkillsDir;
+    @Value("${spring.ai.agent.react.skills-dir:${user.dir}/skills}") private String runtimeSkillsDir;
 
     public CapabilityRegistryService(@Qualifier("mysqlDataSource") DataSource dataSource,
                                      SafeSkillArchiveValidator archiveValidator,
@@ -47,6 +47,31 @@ public class CapabilityRegistryService {
         long id = jdbc.queryForObject("SELECT id FROM mcp_server WHERE mcp_key=?", Long.class, key);
         audit("MCP_SERVER", String.valueOf(id), "REGISTER", actor, "DEVELOPER", null, null, JSON.toJSONString(body));
         return id;
+    }
+
+    public long seedLocalTestMcp() {
+        jdbc.update("""
+                INSERT INTO mcp_server (mcp_key, name, description, owner, status)
+                VALUES ('local-test-mcp', '本地测试 MCP', '用于测试 echo、add、current_time 工具的本地 STDIO MCP', 'local-system', 'DRAFT')
+                ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description)
+                """);
+        long serverId = jdbc.queryForObject("SELECT id FROM mcp_server WHERE mcp_key='local-test-mcp'", Long.class);
+        jdbc.update("""
+                INSERT INTO mcp_version (server_id, version, transport_type, endpoint_config, credential_ref, submitted_by)
+                VALUES (?, '1.0.0', 'stdio', ?, '', 'local-system')
+                ON DUPLICATE KEY UPDATE endpoint_config=VALUES(endpoint_config), transport_type='stdio'
+                """, serverId, "{\"command\":\"python\",\"args\":[\"D:/javacode/ai-agent/ai-agent-station-study/mcp-test-server/test_mcp_server.py\"]}");
+        long versionId = jdbc.queryForObject("SELECT id FROM mcp_version WHERE server_id=? AND version='1.0.0'", Long.class, serverId);
+        jdbc.update("""
+                INSERT INTO mcp_discovered_tool (version_id, tool_name, description, input_schema, risk_level, enabled)
+                VALUES (?, 'echo', 'Return the supplied text.', ?, 'LOW', 1),
+                       (?, 'add', 'Add two numbers.', ?, 'LOW', 1),
+                       (?, 'current_time', 'Return the current UTC time.', ?, 'LOW', 1)
+                ON DUPLICATE KEY UPDATE description=VALUES(description), input_schema=VALUES(input_schema), enabled=1
+                """, versionId, "{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]}",
+                versionId, "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"number\"},\"b\":{\"type\":\"number\"}},\"required\":[\"a\",\"b\"]}",
+                versionId, "{\"type\":\"object\",\"properties\":{}}") ;
+        return versionId;
     }
 
     public long createMcpVersion(long serverId, Map<String, Object> body, String actor) {
@@ -142,7 +167,8 @@ public class CapabilityRegistryService {
         Map<String,Object> runtime=one("SELECT s.mcp_key,s.name,v.transport_type,v.endpoint_config,v.timeout_seconds FROM mcp_version v JOIN mcp_server s ON s.id=v.server_id WHERE v.id=?",versionId);
         String mcpKey=String.valueOf(runtime.get("mcp_key"));
         jdbc.update("INSERT INTO ai_client_tool_mcp (mcp_id,mcp_name,transport_type,transport_config,request_timeout,status,create_time,update_time) VALUES (?,?,?,?,?,1,NOW(),NOW()) ON DUPLICATE KEY UPDATE mcp_name=VALUES(mcp_name),transport_type=VALUES(transport_type),transport_config=VALUES(transport_config),request_timeout=VALUES(request_timeout),status=1,update_time=NOW()",mcpKey,runtime.get("name"),runtime.get("transport_type"),runtime.get("endpoint_config"),runtime.get("timeout_seconds"));
-        if(!"streamable-http".equals(runtime.get("transport_type")))mcpNode.registerMcpSyncClient(mcpKey,String.valueOf(runtime.get("name")),String.valueOf(runtime.get("transport_type")),String.valueOf(runtime.get("endpoint_config")),((Number)runtime.get("timeout_seconds")).intValue());
+        // Publishing only makes the version selectable. The MCP client is created
+        // after an Agent explicitly binds this released MCP during armory loading.
         audit("MCP_RELEASE", String.valueOf(id), "RELEASE", actor, "RELEASE_MANAGER", null, null, environment);
         return id;
     }
@@ -232,7 +258,54 @@ public class CapabilityRegistryService {
     public void bindSkill(String agentId,long releaseId,String actor,Map<String,Object> override){assertActiveRelease("skill_release",releaseId);jdbc.update("INSERT INTO agent_skill_release_binding (agent_id,release_id,enabled,config_override_json,bound_by) VALUES (?,?,1,?,?) ON DUPLICATE KEY UPDATE enabled=1,config_override_json=VALUES(config_override_json),bound_by=VALUES(bound_by)",agentId,releaseId,JSON.toJSONString(override==null?Map.of():override),actor);String skillId=jdbc.queryForObject("SELECT CONCAT(p.skill_key,'-',v.version) FROM skill_release r JOIN skill_version v ON v.id=r.version_id JOIN skill_package p ON p.id=v.package_id WHERE r.id=?",String.class,releaseId);Integer exists=jdbc.queryForObject("SELECT COUNT(*) FROM ai_agent_skill WHERE agent_id=? AND skill_id=?",Integer.class,agentId,skillId);if(exists==null||exists==0)jdbc.update("INSERT INTO ai_agent_skill (agent_id,skill_id,status,create_time) VALUES (?,?,1,NOW())",agentId,skillId);audit("AGENT_SKILL_BINDING",agentId+":"+releaseId,"BIND",actor,"AGENT_ADMIN",null,null,null);}
 
     public List<Map<String,Object>> listSkills(){return jdbc.queryForList("SELECT p.id,p.skill_key,p.name,p.description,p.owner,MAX(v.version) latest_version,MAX(v.status) lifecycle_status,MAX(v.created_at) updated_at FROM skill_package p LEFT JOIN skill_version v ON v.package_id=p.id GROUP BY p.id,p.skill_key,p.name,p.description,p.owner ORDER BY updated_at DESC");}
-    public void requireReleasedRuntimeBindings(List<String> skillIds,List<String> mcpIds){for(String skillId:skillIds){Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM skill_release r JOIN skill_version v ON v.id=r.version_id JOIN skill_package p ON p.id=v.package_id WHERE r.status='ACTIVE' AND CONCAT(p.skill_key,'-',v.version)=?",Integer.class,skillId);if(count==null||count==0)throw new IllegalStateException("Skill must be released before binding: "+skillId);}for(String mcpId:mcpIds){Integer count=jdbc.queryForObject("SELECT COUNT(*) FROM mcp_release r JOIN mcp_version v ON v.id=r.version_id JOIN mcp_server s ON s.id=v.server_id WHERE r.status='ACTIVE' AND s.mcp_key=?",Integer.class,mcpId);if(count==null||count==0)throw new IllegalStateException("MCP must be released before binding: "+mcpId);}}
+    public void requireReleasedRuntimeBindings(List<String> skillIds, List<String> mcpIds) {
+        for (String skillId : skillIds) {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM skill_release r JOIN skill_version v ON v.id=r.version_id "
+                            + "JOIN skill_package p ON p.id=v.package_id WHERE r.status='ACTIVE' "
+                            + "AND CONCAT(p.skill_key,'-',v.version)=?",
+                    Integer.class, skillId);
+            if ((count == null || count == 0) && !localSkillExists(skillId)) {
+                throw new IllegalStateException("Skill must be released before binding: " + skillId);
+            }
+        }
+        for (String mcpId : mcpIds) {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM mcp_release r JOIN mcp_version v ON v.id=r.version_id "
+                            + "JOIN mcp_server s ON s.id=v.server_id WHERE r.status='ACTIVE' AND s.mcp_key=?",
+                    Integer.class, mcpId);
+            if (count == null || count == 0) {
+                throw new IllegalStateException("MCP must be released before binding: " + mcpId);
+            }
+        }
+    }
+
+    public List<Map<String,Object>> listReleasedMcpBindings() {
+        return jdbc.queryForList("""
+                SELECT s.mcp_key AS mcp_id, s.name AS mcp_name, s.description,
+                       v.id AS version_id, v.version, v.transport_type,
+                       v.endpoint_config, v.timeout_seconds, r.id AS release_id,
+                       r.environment, r.released_at
+                FROM mcp_release r
+                JOIN mcp_version v ON v.id = r.version_id
+                JOIN mcp_server s ON s.id = v.server_id
+                WHERE r.status = 'ACTIVE' AND v.status = 'RELEASED'
+                ORDER BY r.released_at DESC, r.id DESC
+                """);
+    }
+
+    private boolean localSkillExists(String skillId) {
+        if (skillId == null || skillId.isBlank()) return false;
+        Path configuredRoot = Path.of(runtimeSkillsDir).toAbsolutePath().normalize();
+        for (Path base : List.of(configuredRoot, Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize())) {
+            for (Path current = base; current != null; current = current.getParent()) {
+                if (Files.isRegularFile(current.resolve("skills").resolve(skillId.trim()).resolve("SKILL.md"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     public List<Map<String,Object>> listSkillVersions(long packageId){return jdbc.queryForList("SELECT id,package_id,version,status,artifact_sha256,submitted_by,created_at FROM skill_version WHERE package_id=? ORDER BY created_at DESC",packageId);}
     public Map<String,Object> skillVersionDetail(long versionId){return Map.of("version",one("SELECT id,package_id,version,status,artifact_sha256,submitted_by,created_at FROM skill_version WHERE id=?",versionId),"validations",jdbc.queryForList("SELECT validation_type,status,report_json,validator_version,created_at FROM skill_validation WHERE version_id=? ORDER BY id DESC",versionId),"tests",jdbc.queryForList("SELECT status,report_json,executed_by,created_at FROM skill_test_run WHERE version_id=? ORDER BY id DESC",versionId),"reviews",jdbc.queryForList("SELECT review_type,decision,reviewer,comment,created_at FROM skill_review WHERE version_id=?",versionId),"releases",jdbc.queryForList("SELECT id,environment,status,rollout_percent,signature_value,released_by,released_at,ended_at FROM skill_release WHERE version_id=? ORDER BY id DESC",versionId));}
 

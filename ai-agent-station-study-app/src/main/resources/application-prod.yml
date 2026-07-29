@@ -1,6 +1,13 @@
 server:
   port: 8091
 
+spring:
+  ai:
+    agent:
+      react:
+        work-dir: "${AI_AGENT_WORK_DIR:${user.dir}}"
+        skills-dir: "${AI_AGENT_SKILLS_DIR:${user.dir}/skills}"
+
 # 线程池配置
 thread:
   pool:

@@ -8,5 +8,11 @@ public interface LongTermMemoryPort {
     List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit);
 
     record MemoryFact(String agentId, String subjectId, String kind, String content,
-                      String sourceSessionId, String consentReference) {}
+                      String sourceSessionId, String consentReference,
+                      String sourceCaseId, int profileVersion) {
+        public MemoryFact(String agentId, String subjectId, String kind, String content,
+                          String sourceSessionId, String consentReference) {
+            this(agentId, subjectId, kind, content, sourceSessionId, consentReference, "", 0);
+        }
+    }
 }

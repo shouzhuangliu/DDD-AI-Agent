@@ -38,7 +38,8 @@ public class Mem0LongTermMemoryPort implements LongTermMemoryPort {
             payload.put("agent_id", fact.agentId());
             payload.put("user_id", fact.subjectId());
             payload.put("metadata", Map.of("kind", fact.kind(), "source_session_id", fact.sourceSessionId(),
-                    "consent_reference", fact.consentReference()));
+                    "consent_reference", fact.consentReference(), "source_case_id", fact.sourceCaseId(),
+                    "profile_version", fact.profileVersion()));
             client.post().uri("/memories").contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().toBodilessEntity();
         } catch (Exception exception) {
             log.warn("Mem0 store failed; continuing without long-term memory: {}", exception.getMessage());
@@ -60,11 +61,19 @@ public class Mem0LongTermMemoryPort implements LongTermMemoryPort {
                             item.getJSONObject("metadata") == null ? "MEM0" : item.getJSONObject("metadata").getString("kind"),
                             item.getString("memory"),
                             item.getJSONObject("metadata") == null ? "" : item.getJSONObject("metadata").getString("source_session_id"),
-                            "mem0"))
+                            "mem0",
+                            item.getJSONObject("metadata") == null ? "" : item.getJSONObject("metadata").getString("source_case_id"),
+                            profileVersion(item)))
                     .filter(item -> item.content() != null && !item.content().isBlank()).toList();
         } catch (Exception exception) {
             log.warn("Mem0 retrieval failed; continuing without long-term memory: {}", exception.getMessage());
             return List.of();
         }
+    }
+
+    private int profileVersion(JSONObject item) {
+        if (item.getJSONObject("metadata") == null) return 0;
+        Integer value = item.getJSONObject("metadata").getInteger("profile_version");
+        return value == null ? 0 : value;
     }
 }

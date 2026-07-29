@@ -12,8 +12,10 @@ import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import cn.bugstack.ai.trigger.service.feedback.FeedbackAutoCaptureService;
 import com.alibaba.fastjson.JSON;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActExecuteResultEntity;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -35,6 +37,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 @CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.OPTIONS})
 public class AiAgentController implements IAiAgentService {
 
+    private static final int PLAN_MAX_STEPS = 5;
+    private static final int REACT_MAX_STEPS = 30;
+
     @Resource
     private List<IExecuteStrategy> executeStrategies;
 
@@ -55,6 +60,15 @@ public class AiAgentController implements IAiAgentService {
 
     @Resource
     private FeedbackAutoCaptureService feedbackAutoCaptureService;
+
+    @Resource
+    private cn.bugstack.ai.domain.agent.service.tools.subagent.SubagentExecutionService subagentExecutionService;
+
+    @Resource
+    private cn.bugstack.ai.domain.agent.service.execute.react.AgentExecutionCancellationRegistry executionCancellationRegistry;
+
+    @Value("${spring.ai.agent.auto-config.enabled:false}")
+    private boolean legacyAutoConfigEnabled;
 
     /** 模式 -> 策略，启动时按 getType() 建立 */
     private final Map<String, IExecuteStrategy> strategyMap = new HashMap<>();
@@ -93,7 +107,10 @@ public class AiAgentController implements IAiAgentService {
                     reqMode = "react";
                 }
             }
-            ChatAgentRoutePolicy.RouteDecision routeDecision = chatAgentRoutePolicy.route(request.getMessage(), reqMode);
+            boolean explicitReact = "react".equalsIgnoreCase(reqMode);
+            ChatAgentRoutePolicy.RouteDecision routeDecision = explicitReact
+                    ? new ChatAgentRoutePolicy.RouteDecision("react", "显式选择 ReAct 模式")
+                    : chatAgentRoutePolicy.route(request.getMessage(), reqMode);
             if ("feedback".equals(routeDecision.route())) {
                 Long feedbackId = feedbackAutoCaptureService.captureUserIssue(request.getAiAgentId(), request.getSessionId(), request.getMessage());
                 log.info("业务反馈已自动记录: agentId={}, sessionId={}, feedbackId={}", request.getAiAgentId(), request.getSessionId(), feedbackId);
@@ -101,6 +118,11 @@ public class AiAgentController implements IAiAgentService {
             String routedMode = ("plan".equals(routeDecision.route()) || "feedback".equals(routeDecision.route()))
                     ? ("feedback".equals(routeDecision.route()) ? ChatExecuteStrategy.TYPE : AiAgentModeEnum.AUTO.getCode())
                     : routeDecision.route();
+            if (AiAgentModeEnum.AUTO.getCode().equals(routedMode)
+                    && (!legacyAutoConfigEnabled || !hasCompleteAutoFlow(request.getAiAgentId()))) {
+                log.warn("Agent {} 的旧 Auto Client 未完整启用，自动降级为 ReAct", request.getAiAgentId());
+                routedMode = AiAgentModeEnum.REACT.getCode();
+            }
             IExecuteStrategy strategy = strategyMap.get(routedMode);
             if (strategy == null) {
                 AiAgentModeEnum mode = AiAgentModeEnum.getByCode(routedMode);
@@ -115,15 +137,16 @@ public class AiAgentController implements IAiAgentService {
             log.info("Chat/Agent 协同路由: agentId={}, sessionId={}, preferredMode={}, route={}, strategy={}, reason={}",
                     request.getAiAgentId(), request.getSessionId(), reqMode, routeDecision.route(), strategy.getType(), routeDecision.reason());
             final IExecuteStrategy finalStrategy = strategy;
+            int maxStep = "react".equals(routedMode) ? REACT_MAX_STEPS : PLAN_MAX_STEPS;
 
             // 3. 构建执行命令实体
             ExecuteCommandEntity executeCommandEntity = ExecuteCommandEntity.builder()
                     .aiAgentId(request.getAiAgentId())
                     .message(request.getMessage())
                     .sessionId(request.getSessionId())
-                    .maxStep(request.getMaxStep())
+                    .maxStep(maxStep)
                     .modelId(request.getModelId())
-                    .routeType(routeDecision.route())
+                    .routeType(routedMode)
                     .routeReason(routeDecision.reason())
                     .build();
 
@@ -134,7 +157,8 @@ public class AiAgentController implements IAiAgentService {
                 } catch (Exception e) {
                     log.error("执行异常[{}]：{}", finalStrategy.getType(), e.getMessage(), e);
                     try {
-                        emitter.send("执行异常：" + e.getMessage());
+                        emitter.send("data: " + JSON.toJSONString(
+                                ReActExecuteResultEntity.createError(e.getMessage(), request.getSessionId())) + "\n\n");
                     } catch (Exception ex) {
                         log.error("发送异常信息失败：{}", ex.getMessage(), ex);
                     }
@@ -153,13 +177,48 @@ public class AiAgentController implements IAiAgentService {
             log.error("请求处理异常：{}", e.getMessage(), e);
             ResponseBodyEmitter errorEmitter = new ResponseBodyEmitter();
             try {
-                errorEmitter.send("请求处理异常：" + e.getMessage());
+                errorEmitter.send("data: " + JSON.toJSONString(
+                        ReActExecuteResultEntity.createError(e.getMessage(), request == null ? null : request.getSessionId())) + "\n\n");
                 errorEmitter.complete();
             } catch (Exception ex) {
                 log.error("发送错误信息失败：{}", ex.getMessage(), ex);
             }
             return errorEmitter;
         }
+    }
+
+    private boolean hasCompleteAutoFlow(String agentId) {
+        var flow = agentRepository.queryAiAgentClientFlowConfig(agentId);
+        if (flow == null || flow.isEmpty()) return false;
+        return flow.containsKey("TASK_ANALYZER_CLIENT")
+                && flow.containsKey("PRECISION_EXECUTOR_CLIENT")
+                && flow.containsKey("QUALITY_SUPERVISOR_CLIENT")
+                && flow.containsKey("RESPONSE_ASSISTANT");
+    }
+
+    /**
+     * 请求取消主 Agent 执行。设置 executionId 的取消标志，主 ReAct 自持循环在下一次工具调用间隙
+     * 或模型调用返回后检测并抛 CancellationException 退出。正在进行的单次 LLM HTTP 调用需等其返回。
+     * 前端从 execution_started / state_updated SSE 事件拿到 executionId 后调用本端点。
+     */
+    @PostMapping("/executions/{executionId}/cancel")
+    public Map<String, Object> cancelExecution(@PathVariable("executionId") String executionId) {
+        boolean accepted = executionCancellationRegistry.cancel(executionId);
+        return Map.of("success", accepted, "executionId", executionId,
+                "status", accepted ? "CANCEL_REQUESTED" : "NOT_FOUND_OR_TERMINAL");
+    }
+
+    /**
+     * 请求取消一个 Subagent 任务。设置 cancelRequested 标志：
+     * 未启动则直接置 CANCELLED；运行中在工具调用间隙退出；已终态则忽略。
+     * 前端从 subagent_started SSE 事件拿到 taskId 后调用本端点。
+     */
+    @PostMapping("/subagents/{taskId}/cancel")
+    public Map<String, Object> cancelSubagent(@PathVariable("taskId") String taskId) {
+        boolean accepted = subagentExecutionService.cancel(taskId);
+        var state = subagentExecutionService.find(taskId);
+        String status = state == null ? "NOT_FOUND" : state.getStatus();
+        return Map.of("success", accepted, "taskId", taskId, "status", status);
     }
 
 }

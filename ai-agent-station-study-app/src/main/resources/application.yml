@@ -3,3 +3,6 @@ spring:
     name: ai-agent-station-study-app
   profiles:
     active: dev
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration

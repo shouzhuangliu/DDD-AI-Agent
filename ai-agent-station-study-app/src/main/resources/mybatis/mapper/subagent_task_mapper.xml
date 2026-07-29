@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.ISubagentTaskDao">
+    <resultMap id="TaskMap" type="cn.bugstack.ai.infrastructure.dao.po.SubagentTask">
+        <id column="id" property="id"/>
+        <result column="task_id" property="taskId"/>
+        <result column="execution_id" property="executionId"/>
+        <result column="agent_id" property="agentId"/>
+        <result column="description" property="description"/>
+        <result column="status" property="status"/>
+        <result column="result_text" property="result"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="cancel_requested" property="cancelRequested"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="completed_at" property="completedAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.SubagentTask">
+        INSERT INTO subagent_task
+        (task_id, execution_id, agent_id, description, status, result_text, error_message, cancel_requested, started_at, completed_at, updated_at)
+        VALUES (#{taskId}, #{executionId}, #{agentId}, #{description}, #{status}, #{result}, #{errorMessage}, #{cancelRequested}, #{startedAt}, #{completedAt}, NOW())
+    </insert>
+
+    <update id="markRunning">
+        UPDATE subagent_task SET status='RUNNING', started_at=NOW(), updated_at=NOW()
+        WHERE task_id=#{taskId} AND status='PENDING'
+    </update>
+
+    <update id="markCancelRequested">
+        UPDATE subagent_task SET cancel_requested=1, updated_at=NOW()
+        WHERE task_id=#{taskId} AND status IN ('PENDING','RUNNING')
+    </update>
+
+    <update id="finish" parameterType="cn.bugstack.ai.infrastructure.dao.po.SubagentTask">
+        UPDATE subagent_task
+        SET status=#{status}, result_text=#{result}, error_message=#{errorMessage},
+            cancel_requested=#{cancelRequested}, started_at=#{startedAt}, completed_at=#{completedAt}, updated_at=NOW()
+        WHERE task_id=#{taskId} AND status NOT IN ('COMPLETED','FAILED','TIMED_OUT','CANCELLED')
+    </update>
+
+    <select id="queryByTaskId" resultMap="TaskMap">
+        SELECT * FROM subagent_task WHERE task_id=#{taskId} LIMIT 1
+    </select>
+
+    <update id="markInterruptedTasks">
+        UPDATE subagent_task
+        SET status='FAILED', error_message='Process restarted before task completed', completed_at=NOW(), updated_at=NOW()
+        WHERE status IN ('PENDING','RUNNING')
+    </update>
+</mapper>

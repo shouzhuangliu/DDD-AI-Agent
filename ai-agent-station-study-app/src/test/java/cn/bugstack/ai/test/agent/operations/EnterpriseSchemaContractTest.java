@@ -3,8 +3,8 @@ package cn.bugstack.ai.test.agent.operations;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -13,9 +13,7 @@ public class EnterpriseSchemaContractTest {
 
     @Test
     public void migrationDefinesOperationalAndCapabilitySupplyChains() throws IOException {
-        Path migration = Path.of("scripts/migrations/V20260717__enterprise_agent_operations.sql");
-        if (!Files.exists(migration)) migration = Path.of("../scripts/migrations/V20260717__enterprise_agent_operations.sql");
-        String sql = Files.readString(migration).toLowerCase();
+        String sql = readResource("sql/mysql/migrations/V20260717__enterprise_agent_operations.sql");
 
         for (String table : new String[]{
                 "analysis_job", "feedback_evaluation_job", "ai_signal", "case_evidence", "case_score_snapshot", "case_review_record",
@@ -36,9 +34,7 @@ public class EnterpriseSchemaContractTest {
 
     @Test
     public void createTablesKeepsCaseMergeColumnOnCaseTableOnly() throws IOException {
-        Path script = Path.of("create_tables.sql");
-        if (!Files.exists(script)) script = Path.of("../create_tables.sql");
-        String sql = Files.readString(script).toLowerCase();
+        String sql = readResource("sql/mysql/create_tables.sql");
 
         String feedbackTable = tableDefinition(sql, "ai_feedback");
         String caseTable = tableDefinition(sql, "ai_case");
@@ -54,5 +50,13 @@ public class EnterpriseSchemaContractTest {
         int end = sql.indexOf("engine=innodb", start);
         assertTrue("missing table end " + tableName, end > start);
         return sql.substring(start, end);
+    }
+
+    private static String readResource(String resourcePath) throws IOException {
+        ClassLoader classLoader = EnterpriseSchemaContractTest.class.getClassLoader();
+        try (InputStream inputStream = classLoader.getResourceAsStream(resourcePath)) {
+            assertTrue("missing resource " + resourcePath, inputStream != null);
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8).toLowerCase();
+        }
     }
 }

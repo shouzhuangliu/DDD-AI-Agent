@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -19,7 +20,7 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
 
     private final VectorStore vectorStore;
 
-    public PgVectorLongTermMemoryPort(VectorStore vectorStore) {
+    public PgVectorLongTermMemoryPort(@Qualifier("pgVectorStore") VectorStore vectorStore) {
         this.vectorStore = vectorStore;
     }
 
@@ -34,12 +35,15 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
             metadata.put("kind", safe(fact.kind()));
             metadata.put("source_session_id", safe(fact.sourceSessionId()));
             metadata.put("consent_reference", safe(fact.consentReference()));
+            metadata.put("source_case_id", safe(fact.sourceCaseId()));
+            metadata.put("profile_version", fact.profileVersion());
             vectorStore.accept(List.of(Document.builder()
                     .text(fact.content())
                     .metadata(metadata)
                     .build()));
         } catch (Exception exception) {
-            log.warn("PgVector long-term memory store failed; continuing without memory write: {}", exception.getMessage());
+            log.warn("PgVector long-term memory store failed; continuing without memory write: {}",
+                    exception.getMessage(), exception);
         }
     }
 
@@ -62,11 +66,14 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
                             metadata(document, "kind", "MEMORY"),
                             document.getText(),
                             metadata(document, "source_session_id", ""),
-                            "pgvector-bge-m3"))
+                            "pgvector-bge-m3",
+                            metadata(document, "source_case_id", ""),
+                            parseVersion(document)))
                     .filter(memory -> memory.content() != null && !memory.content().isBlank())
                     .toList();
         } catch (Exception exception) {
-            log.warn("PgVector long-term memory retrieval failed; continuing without memory recall: {}", exception.getMessage());
+            log.warn("PgVector long-term memory retrieval failed; continuing without memory recall: {}",
+                    exception.getMessage(), exception);
             return List.of();
         }
     }
@@ -83,6 +90,14 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
 
     private static String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private static int parseVersion(Document document) {
+        try {
+            return Integer.parseInt(metadata(document, "profile_version", "0"));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     private static String escape(String value) {

@@ -11,8 +11,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class AiModelOptionDTO {
     private String modelId;
+    private String apiId;
     private String modelName;
     private String modelType;
     private String providerName;
+    private Integer status;
     private boolean configured;
 }

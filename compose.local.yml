@@ -16,12 +16,15 @@ services:
       - "13306:3306"
     volumes:
       - local_mysql_data:/var/lib/mysql
-      - ./create_tables.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./init_data.sql:/docker-entrypoint-initdb.d/02-core-data.sql:ro
-      - ./init_intent_data.sql:/docker-entrypoint-initdb.d/03-intent-data.sql:ro
-      - ./init_react_data.sql:/docker-entrypoint-initdb.d/04-react-data.sql:ro
-      - ./scripts/migrations/V20260717__enterprise_agent_operations.sql:/docker-entrypoint-initdb.d/05-enterprise-agent-operations.sql:ro
-      - ./scripts/migrations/V20260718__agent_internal_tool_bindings.sql:/docker-entrypoint-initdb.d/06-agent-internal-tool-bindings.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/create_tables.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/init_agent_system.sql:/docker-entrypoint-initdb.d/02-agent-system.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/init_data.sql:/docker-entrypoint-initdb.d/03-core-data.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/init_intent_data.sql:/docker-entrypoint-initdb.d/04-intent-data.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/init_react_data.sql:/docker-entrypoint-initdb.d/05-react-data.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260717__enterprise_agent_operations.sql:/docker-entrypoint-initdb.d/06-enterprise-agent-operations.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260718__agent_internal_tool_bindings.sql:/docker-entrypoint-initdb.d/07-agent-internal-tool-bindings.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260728__agent_memory_profile.sql:/docker-entrypoint-initdb.d/08-agent-memory-profile.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260730__subagent_task_state.sql:/docker-entrypoint-initdb.d/09-subagent-task-state.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s
@@ -42,7 +45,7 @@ services:
       - "15432:5432"
     volumes:
       - local_pgvector_data:/var/lib/postgresql/data
-      - ./docs/dev-ops/pgvector/sql/init.sql:/docker-entrypoint-initdb.d/01-vector-store.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/pgvector/init.sql:/docker-entrypoint-initdb.d/01-vector-store.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ai-rag-knowledge"]
       interval: 5s

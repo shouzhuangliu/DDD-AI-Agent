@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAgentMemoryProfileDao">
+    <resultMap id="ProfileMap" type="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile">
+        <id column="id" property="id"/>
+        <result column="agent_id" property="agentId"/>
+        <result column="version" property="version"/>
+        <result column="profile_json" property="profileJson"/>
+        <result column="source_case_ids" property="sourceCaseIds"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_memory_profile
+          (agent_id, version, profile_json, source_case_ids, created_at, updated_at)
+        VALUES
+          (#{agentId}, #{version}, #{profileJson}, #{sourceCaseIds}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="queryLatest" resultMap="ProfileMap">
+        SELECT * FROM agent_memory_profile
+        WHERE agent_id=#{agentId}
+        ORDER BY version DESC
+        LIMIT 1
+    </select>
+</mapper>

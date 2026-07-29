@@ -16,11 +16,17 @@ public class CapabilityRegistryController {
 
     @GetMapping("/mcps") public List<Map<String,Object>> mcps(){return registry.listMcps();}
     @GetMapping("/mcps/{serverId}/versions") public List<Map<String,Object>> mcpVersions(@PathVariable("serverId") long serverId){return registry.listMcpVersions(serverId);}
+    @GetMapping("/mcp-bindings") public List<Map<String,Object>> releasedMcpBindings(){return registry.listReleasedMcpBindings();}
     @GetMapping("/mcp-versions/{id}") public Map<String,Object> mcpVersion(@PathVariable("id") long id){return registry.mcpVersionDetail(id);}
 
     @PostMapping("/mcps") public Map<String,Object> registerMcp(@RequestBody Map<String,Object> body,
             @RequestHeader(value="X-Actor",defaultValue="local-developer")String actor,
             @RequestHeader(value="X-Role",defaultValue="DEVELOPER")String role){requireRole(role,"DEVELOPER");return Map.of("success",true,"id",registry.registerMcp(body,actor));}
+
+    @PostMapping("/mcps/local-test")
+    public Map<String,Object> seedLocalTestMcp() {
+        return Map.of("success", true, "versionId", registry.seedLocalTestMcp(), "message", "本地测试 MCP 已创建");
+    }
 
     @PostMapping("/mcps/{serverId}/versions") public Map<String,Object> createMcpVersion(@PathVariable("serverId") long serverId,@RequestBody Map<String,Object> body,
             @RequestHeader(value="X-Actor",defaultValue="local-developer")String actor,@RequestHeader(value="X-Role",defaultValue="DEVELOPER")String role){requireRole(role,"DEVELOPER");return Map.of("success",true,"id",registry.createMcpVersion(serverId,body,actor));}

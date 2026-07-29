@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao">
+    <select id="queryEvidence" resultType="map">
+        SELECT *
+        FROM case_evidence
+        WHERE agent_id = #{agentId} AND case_id = #{caseId}
+        ORDER BY id DESC
+        LIMIT 100
+    </select>
+
+    <select id="queryScoreSnapshots" resultType="map">
+        SELECT *
+        FROM case_score_snapshot
+        WHERE agent_id = #{agentId} AND case_id = #{caseId}
+        ORDER BY id DESC
+        LIMIT 50
+    </select>
+
+    <select id="queryReviews" resultType="map">
+        SELECT *
+        FROM case_review_record
+        WHERE agent_id = #{agentId} AND case_id = #{caseId}
+        ORDER BY id DESC
+        LIMIT 50
+    </select>
+
+    <insert id="insertReview">
+        INSERT INTO case_review_record
+            (case_id, agent_id, from_status, to_status, actor, reason)
+        VALUES
+            (#{caseId}, #{agentId}, #{fromStatus}, #{toStatus}, #{actor}, #{reason})
+    </insert>
+</mapper>

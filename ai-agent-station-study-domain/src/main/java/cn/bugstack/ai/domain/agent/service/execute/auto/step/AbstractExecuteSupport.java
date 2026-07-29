@@ -13,6 +13,7 @@ import org.springframework.context.ApplicationContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.io.IOException;
@@ -44,6 +45,13 @@ public abstract class AbstractExecuteSupport extends AbstractMultiThreadStrategy
                 ? AiAgentEnumVO.AI_CLIENT.getBeanName(clientId)
                 : AiModelBeanName.clientVariant(clientId, modelId.trim());
         return getBean(beanName);
+    }
+
+    protected ChatClient getChatClientByModelId(String modelId) {
+        String selected = modelId == null || modelId.isBlank() ? "2001" : modelId.trim();
+        OpenAiChatModel model = applicationContext.getBean(
+                AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(selected), OpenAiChatModel.class);
+        return ChatClient.builder(model).build();
     }
 
     protected <T> T getBean(String beanName) {

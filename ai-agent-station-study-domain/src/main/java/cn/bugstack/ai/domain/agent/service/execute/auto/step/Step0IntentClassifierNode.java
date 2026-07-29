@@ -50,7 +50,13 @@ public class Step0IntentClassifierNode extends AbstractExecuteSupport {
 
         AiAgentClientFlowConfigVO assistantVO = dynamicContext.getAiAgentClientFlowConfigVOMap()
                 .get(AiClientTypeEnumVO.RESPONSE_ASSISTANT.getCode());
-        ChatClient judgeClient = getChatClientByClientId(assistantVO.getClientId(), requestParameter.getModelId());
+        ChatClient judgeClient;
+        if (assistantVO == null || assistantVO.getClientId() == null || assistantVO.getClientId().isBlank()) {
+            log.warn("Auto 流程缺少 RESPONSE_ASSISTANT，使用当前模型执行意图识别");
+            judgeClient = getChatClientByModelId(requestParameter.getModelId());
+        } else {
+            judgeClient = getChatClientByClientId(assistantVO.getClientId(), requestParameter.getModelId());
+        }
 
         @SuppressWarnings("unchecked")
         List<String> caseKeywords = dynamicContext.getValue("caseKeywords");

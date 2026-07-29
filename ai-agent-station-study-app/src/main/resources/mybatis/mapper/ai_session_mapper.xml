@@ -18,10 +18,40 @@
     <update id="updateTitle">UPDATE ai_session SET title=#{title}, updated_at=NOW() WHERE session_id=#{sessionId} AND status=1</update>
     <update id="softDelete">UPDATE ai_session SET status=0, updated_at=NOW() WHERE session_id=#{sessionId} AND status=1</update>
     <update id="incrementMessageCount">UPDATE ai_session SET message_count=message_count+1, updated_at=NOW() WHERE session_id=#{sessionId}</update>
-    <update id="touch">UPDATE ai_session SET message_count=message_count+1, updated_at=NOW(), last_message_at=NOW(), preview=#{preview}, model_id=CASE WHEN #{modelId}='' THEN model_id ELSE #{modelId} END WHERE session_id=#{sessionId}</update>
+    <update id="touch">
+        UPDATE ai_session
+        SET message_count=message_count+1,
+            updated_at=NOW(),
+            last_message_at=NOW(),
+            preview=#{preview},
+            title=CASE
+                WHEN title IS NULL OR title='' OR title IN ('新对话','New chat','New Chat')
+                THEN LEFT(TRIM(#{preview}), 5)
+                ELSE title
+            END,
+            model_id=CASE WHEN #{modelId}='' THEN model_id ELSE #{modelId} END
+        WHERE session_id=#{sessionId}
+    </update>
     <select id="queryBySessionId" resultMap="SessionMap">SELECT * FROM ai_session WHERE session_id=#{sessionId} AND status=1</select>
     <select id="queryByAgentAndSession" resultMap="SessionMap">SELECT * FROM ai_session WHERE agent_id=#{agentId} AND session_id=#{sessionId} AND status=1</select>
-    <select id="queryByAgentId" resultMap="SessionMap">SELECT * FROM ai_session WHERE agent_id=#{agentId} AND status=1 ORDER BY COALESCE(last_message_at,updated_at) DESC LIMIT #{limit}</select>
+    <select id="queryByAgentId" resultMap="SessionMap">
+        SELECT s.*,
+               CASE
+                   WHEN s.title IS NULL OR s.title='' OR s.title IN ('新对话','New chat','New Chat')
+                   THEN COALESCE((
+                       SELECT LEFT(TRIM(m.content), 5)
+                       FROM chat_message m
+                       WHERE m.session_id=s.session_id AND m.role='user'
+                       ORDER BY m.id ASC
+                       LIMIT 1
+                   ), s.title)
+                   ELSE s.title
+               END AS title
+        FROM ai_session s
+        WHERE s.agent_id=#{agentId} AND s.status=1
+        ORDER BY COALESCE(s.last_message_at,s.updated_at) DESC
+        LIMIT #{limit}
+    </select>
     <select id="queryRecent" resultMap="SessionMap">SELECT * FROM ai_session WHERE status=1 ORDER BY updated_at DESC LIMIT #{limit}</select>
     <select id="countByAgentId" resultType="long">SELECT COUNT(*) FROM ai_session WHERE agent_id=#{agentId} AND status=1</select>
 </mapper>
