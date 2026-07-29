@@ -20,6 +20,7 @@ const cases = ref([]);
 const agentProfile = ref(null);
 const caseStatusFilter = ref('');
 const selectedCase = ref(null);
+const selectedCaseDetail = ref(null);
 const feedback = ref([]);
 const signals = ref([]);
 const memories = ref([]);
@@ -465,6 +466,7 @@ async function loadCaseWorkspace() {
     agentProfile.value = profileData?.profile || null;
     if (selectedCase.value && !cases.value.some(item => item.caseId === selectedCase.value.caseId)) {
       selectedCase.value = null;
+      selectedCaseDetail.value = null;
     }
   });
 }
@@ -572,8 +574,10 @@ async function saveFeedbackTransition() {
 
 async function openCase(item) {
   selectedCase.value = item;
+  selectedCaseDetail.value = null;
   const detail = await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/cases/${encodeURIComponent(item.caseId)}`, {}, null);
   if (detail?.case) selectedCase.value = detail.case;
+  selectedCaseDetail.value = detail;
 }
 
 async function loadAgentConfigPage() {
@@ -1739,6 +1743,20 @@ onMounted(() => {
                     <div class="profile-section-title">当前选择案件</div>
                     <div>{{ selectedCase.title || selectedCase.caseId }}</div>
                     <div class="muted">{{ caseStatusText(selectedCase.status) }} | 负责人: {{ selectedCase.owner || '-' }}</div>
+                  </div>
+                  <div v-if="selectedCaseDetail?.evidence?.length" class="profile-section" style="margin-top:12px">
+                    <div class="profile-section-title">来源证据</div>
+                    <div v-for="entry in selectedCaseDetail.evidence" :key="`${selectedCase?.caseId || 'case'}-${entry.evidence_id || entry.id}`" class="profile-entry">
+                      <div>{{ entry.excerpt || entry.preview || '-' }}</div>
+                      <small class="muted">{{ entry.evidence_type || 'FEEDBACK' }} | {{ entry.session_id || entry.sessionId || '-' }}</small>
+                    </div>
+                  </div>
+                  <div v-if="selectedCaseDetail?.reviews?.length" class="profile-section" style="margin-top:12px">
+                    <div class="profile-section-title">审核记录</div>
+                    <div v-for="entry in selectedCaseDetail.reviews" :key="`${selectedCase?.caseId || 'case'}-${entry.id || entry.createdAt}`" class="profile-entry">
+                      <div>{{ entry.toStatus || entry.to_status || '-' }}</div>
+                      <small class="muted">{{ entry.actor || entry.createdBy || '-' }} | {{ entry.reason || entry.notes || '-' }}</small>
+                    </div>
                   </div>
                 </aside>
               </div>
