@@ -100,41 +100,55 @@ class ConversationSessionServiceTest {
         IMemorySummaryDao summaryDao = mock(IMemorySummaryDao.class);
         ReflectionTestUtils.setField(service, "messageDao", messageDao);
         ReflectionTestUtils.setField(service, "summaryDao", summaryDao);
+        LocalDateTime now = LocalDateTime.now();
 
         when(sessionDao.queryByAgentAndSession("cs", "sess-001")).thenReturn(AiSession.builder()
-                .agentId("cs").sessionId("sess-001").status(1).title("补货反馈").build());
+                .agentId("cs").sessionId("sess-001").status(1).title("????").createdAt(now.minusMinutes(5)).build());
         when(messageDao.queryBySessionId("sess-001")).thenReturn(List.of(
-                ChatMessage.builder().agentId("cs").sessionId("sess-001").role("user").content("DDR5 缺货").build(),
-                ChatMessage.builder().agentId("cs").sessionId("sess-001").role("assistant").content("我已记录反馈").build(),
-                ChatMessage.builder().agentId("cs").sessionId("sess-001").role("tool").content("无").build(),
+                ChatMessage.builder().id(11L).agentId("cs").sessionId("sess-001").role("user").content("DDR5 ??").createdAt(now.minusMinutes(4)).build(),
+                ChatMessage.builder().id(12L).agentId("cs").sessionId("sess-001").role("assistant").content("??????").createdAt(now.minusMinutes(3)).build(),
+                ChatMessage.builder().id(13L).agentId("cs").sessionId("sess-001").role("tool").content("?").createdAt(now.minusMinutes(2)).build(),
                 ChatMessage.builder().agentId("other").sessionId("sess-001").role("assistant").content("ignored").build()
         ));
         when(feedbackDao.queryBySession("cs", "sess-001", 20)).thenReturn(List.of(
                 AiFeedback.builder().id(100L).agentId("cs").sessionId("sess-001")
                         .status("PROMOTED").sourceType("AI_INFERRED").matchedCaseId("case-feedback-100")
-                        .message("DDR5 内存缺货，希望补货").createdAt(LocalDateTime.now()).build(),
+                        .message("DDR5 ?????????").createdAt(now).build(),
                 AiFeedback.builder().id(99L).agentId("cs").sessionId("sess-001")
-                        .status("OPEN").sourceType("USER").message("较早反馈").createdAt(LocalDateTime.now().minusMinutes(1)).build()
+                        .status("OPEN").sourceType("USER").message("????").createdAt(now.minusMinutes(1)).build()
         ));
         when(caseDao.queryBySession("cs", "sess-001", 10)).thenReturn(List.of(
-                AiCase.builder().caseId("case-feedback-100").agentId("cs").title("DDR5 内存缺货").status("CANDIDATE").build()
+                AiCase.builder().caseId("case-feedback-100").agentId("cs").title("DDR5 ????").status("CANDIDATE").updatedAt(now.minusSeconds(30)).build()
         ));
         when(summaryDao.queryLatest("sess-001")).thenReturn(MemorySummary.builder()
-                .agentId("cs").sessionId("sess-001").summary("用户反馈 DDR5 内存缺货，已经升级候选 Case").build());
+                .agentId("cs").sessionId("sess-001").status("ACTIVE").createdAt(now.minusSeconds(10))
+                .summary("???? DDR5 ??????????? Case").build());
         when(executionDao.queryLatestBySession("cs", "sess-001")).thenReturn(AgentExecution.builder()
                 .executionId("exec-001").agentId("cs").sessionId("sess-001")
                 .routeType("feedback").status("COMPLETED").modelId("deepseek-v4-flash")
-                .updatedAt(LocalDateTime.now()).build());
+                .currentStep(2).stateJson("{\"toolSteps\":2}")
+                .updatedAt(now).build());
 
         Map<String, Object> detail = service.detail("cs", "sess-001");
         Map<String, Object> overview = cast(detail.get("overview"));
+        List<?> feedback = (List<?>) detail.get("feedback");
+        List<?> timeline = (List<?>) detail.get("timeline");
 
         assertEquals(3, ((List<?>) detail.get("messages")).size());
         assertEquals(2, overview.get("feedbackCount"));
+        assertEquals(1, ((Number) overview.get("businessFeedbackCount")).intValue());
+        assertEquals(1, ((Number) overview.get("aiObservationCount")).intValue());
+        assertEquals(1, ((Number) overview.get("caseCount")).intValue());
         assertEquals(1L, overview.get("promotedFeedbackCount"));
         assertEquals("PROMOTED", overview.get("latestFeedbackStatus"));
         assertEquals("AI_INFERRED", overview.get("latestFeedbackSourceType"));
         assertEquals("case-feedback-100", overview.get("latestMatchedCaseId"));
+        assertEquals("case-feedback-100", overview.get("latestCaseId"));
+        assertEquals("CANDIDATE", overview.get("latestCaseStatus"));
+        assertEquals(2, overview.get("latestExecutionStep"));
+        assertEquals("{\"toolSteps\":2}", overview.get("latestExecutionStateJson"));
+        assertEquals(2, feedback.size());
+        assertEquals(6, timeline.size());
         assertTrue(Boolean.TRUE.equals(overview.get("hasMemorySummary")));
     }
 

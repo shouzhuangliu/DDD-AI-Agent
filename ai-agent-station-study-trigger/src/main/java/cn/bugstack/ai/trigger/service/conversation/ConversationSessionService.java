@@ -19,6 +19,7 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,10 +74,16 @@ public class ConversationSessionService {
         List<ChatMessage> messages = messageDao.queryBySessionId(sessionId).stream()
                 .filter(message -> agentId.equals(message.getAgentId()))
                 .toList();
-        List<AiFeedback> feedback = feedbackDao.queryBySession(agentId, sessionId, 20);
-        List<AiCase> cases = caseDao.queryBySession(agentId, sessionId, 10);
+        List<AiFeedback> feedbackRecords = feedbackDao.queryBySession(agentId, sessionId, 20);
+        List<AiCase> caseRecords = caseDao.queryBySession(agentId, sessionId, 10);
         MemorySummary summary = summaryDao.queryLatest(sessionId);
         AgentExecution latestExecution = executionDao.queryLatestBySession(agentId, sessionId);
+        List<Map<String, Object>> feedback = feedbackRecords.stream()
+                .map(item -> feedbackView(item, messages))
+                .toList();
+        List<Map<String, Object>> cases = caseRecords.stream()
+                .map(this::caseView)
+                .toList();
 
         LinkedHashMap<String, Object> memory = new LinkedHashMap<>();
         memory.put("summary", nullable(summary));
@@ -89,7 +96,8 @@ public class ConversationSessionService {
         detail.put("memory", memory);
         detail.put("feedback", feedback);
         detail.put("cases", cases);
-        detail.put("overview", overview(messages, feedback, cases, summary, latestExecution));
+        detail.put("overview", overview(messages, feedbackRecords, caseRecords, summary, latestExecution));
+        detail.put("timeline", timeline(session, messages, feedbackRecords, caseRecords, summary, latestExecution));
         return detail;
     }
 
@@ -143,6 +151,16 @@ public class ConversationSessionService {
         long promotedFeedbackCount = feedback.stream()
                 .filter(item -> "PROMOTED".equals(item.getStatus()))
                 .count();
+        long businessFeedbackCount = feedback.stream()
+                .filter(item -> !"AI_INFERRED".equalsIgnoreCase(safe(item.getSourceType())))
+                .count();
+        long aiObservationCount = feedback.stream()
+                .filter(item -> "AI_INFERRED".equalsIgnoreCase(safe(item.getSourceType())))
+                .count();
+        long readyForCaseFeedbackCount = feedback.stream()
+                .filter(item -> "VALID".equalsIgnoreCase(safe(item.getStatus()))
+                        || "CLUSTERED".equalsIgnoreCase(safe(item.getStatus())))
+                .count();
 
         LinkedHashMap<String, Object> result = new LinkedHashMap<>();
         result.put("messageCount", messages.size());
@@ -150,19 +168,202 @@ public class ConversationSessionService {
         result.put("assistantMessageCount", assistantMessageCount);
         result.put("toolMessageCount", toolMessageCount);
         result.put("feedbackCount", feedback.size());
+        result.put("businessFeedbackCount", businessFeedbackCount);
+        result.put("aiObservationCount", aiObservationCount);
         result.put("openFeedbackCount", openFeedbackCount);
+        result.put("readyForCaseFeedbackCount", readyForCaseFeedbackCount);
         result.put("promotedFeedbackCount", promotedFeedbackCount);
         AiFeedback latestFeedback = feedback.isEmpty() ? null : feedback.getFirst();
         result.put("latestFeedbackStatus", latestFeedback == null ? "" : safe(latestFeedback.getStatus()));
         result.put("latestFeedbackSourceType", latestFeedback == null ? "" : safe(latestFeedback.getSourceType()));
         result.put("latestMatchedCaseId", latestFeedback == null ? "" : safe(latestFeedback.getMatchedCaseId()));
         result.put("caseCount", cases.size());
+        AiCase latestCase = cases.isEmpty() ? null : cases.getFirst();
+        result.put("latestCaseId", latestCase == null ? "" : safe(latestCase.getCaseId()));
+        result.put("latestCaseStatus", latestCase == null ? "" : safe(latestCase.getStatus()));
         result.put("hasMemorySummary", summary != null && safe(summary.getSummary()).length() >= 20);
         result.put("latestRouteType", latestExecution == null ? "" : safe(latestExecution.getRouteType()));
         result.put("latestExecutionStatus", latestExecution == null ? "" : safe(latestExecution.getStatus()));
         result.put("latestModelId", latestExecution == null ? "" : safe(latestExecution.getModelId()));
         result.put("latestExecutionId", latestExecution == null ? "" : safe(latestExecution.getExecutionId()));
         result.put("latestExecutionAt", latestExecution == null ? null : latestExecution.getUpdatedAt());
+        result.put("latestExecutionStep", latestExecution == null ? 0 : latestExecution.getCurrentStep());
+        result.put("latestExecutionStateJson", latestExecution == null ? "" : safe(latestExecution.getStateJson()));
         return result;
+    }
+
+    private Map<String, Object> feedbackView(AiFeedback item, List<ChatMessage> messages) {
+        LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+        view.put("id", item.getId());
+        view.put("sessionId", safe(item.getSessionId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("assistantMessageId", item.getAssistantMessageId());
+        view.put("feedbackType", safe(item.getFeedbackType()));
+        view.put("rating", item.getRating());
+        view.put("message", safe(item.getMessage()));
+        view.put("correction", safe(item.getCorrection()));
+        view.put("sourceType", safe(item.getSourceType()));
+        view.put("sourceLabel", feedbackSourceLabel(item.getSourceType()));
+        view.put("status", safe(item.getStatus()));
+        view.put("statusLabel", feedbackStatusLabel(item.getStatus()));
+        view.put("category", safe(item.getCategory()));
+        view.put("matchedCaseId", safe(item.getMatchedCaseId()));
+        view.put("resolved", item.getResolved());
+        view.put("submittedBy", safe(item.getSubmittedBy()));
+        view.put("createdAt", item.getCreatedAt());
+        view.put("updatedAt", item.getUpdatedAt());
+        view.put("qualificationHint", feedbackQualificationHint(item));
+        view.put("sourcePreview", feedbackSourcePreview(item, messages));
+        return view;
+    }
+
+    private Map<String, Object> caseView(AiCase item) {
+        LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+        view.put("id", item.getId());
+        view.put("caseId", safe(item.getCaseId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("title", safe(item.getTitle()));
+        view.put("summary", safe(item.getSummary()));
+        view.put("status", safe(item.getStatus()));
+        view.put("statusLabel", caseStatusLabel(item.getStatus()));
+        view.put("severity", safe(item.getSeverity()));
+        view.put("totalScore", item.getTotalScore());
+        view.put("owner", safe(item.getOwner()));
+        view.put("resolution", safe(item.getResolution()));
+        view.put("updatedAt", item.getUpdatedAt());
+        view.put("lastSeenAt", item.getLastSeenAt());
+        return view;
+    }
+
+    private List<Map<String, Object>> timeline(AiSession session,
+                                               List<ChatMessage> messages,
+                                               List<AiFeedback> feedback,
+                                               List<AiCase> cases,
+                                               MemorySummary summary,
+                                               AgentExecution latestExecution) {
+        java.util.ArrayList<Map<String, Object>> items = new java.util.ArrayList<>();
+        if (session != null) {
+            items.add(timelineItem(session.getCreatedAt(), "SESSION_CREATED", "会话创建",
+                    safe(session.getTitle()).isBlank() ? safe(session.getSessionId()) : safe(session.getTitle()),
+                    "INFO", safe(session.getSessionId())));
+        }
+        if (latestExecution != null) {
+            items.add(timelineItem(latestExecution.getUpdatedAt(), "EXECUTION",
+                    "最近一次执行",
+                    "路由=" + safe(latestExecution.getRouteType()) + "，状态=" + safe(latestExecution.getStatus())
+                            + "，步骤=" + (latestExecution.getCurrentStep() == null ? 0 : latestExecution.getCurrentStep()),
+                    safe(latestExecution.getStatus()), safe(latestExecution.getExecutionId())));
+        }
+        if (summary != null && !safe(summary.getSummary()).isBlank()) {
+            items.add(timelineItem(summary.getCreatedAt(), "MEMORY_SUMMARY", "短期记忆摘要",
+                    safe(summary.getSummary()), safe(summary.getStatus()), safe(summary.getSessionId())));
+        }
+        for (AiFeedback item : feedback) {
+            items.add(timelineItem(item.getUpdatedAt() != null ? item.getUpdatedAt() : item.getCreatedAt(),
+                    "FEEDBACK", "反馈评测",
+                    feedbackSourceLabel(item.getSourceType()) + " · " + feedbackStatusLabel(item.getStatus())
+                            + " · " + safe(item.getMessage()),
+                    safe(item.getStatus()), String.valueOf(item.getId())));
+        }
+        for (AiCase item : cases) {
+            items.add(timelineItem(item.getUpdatedAt() != null ? item.getUpdatedAt() : item.getCreatedAt(),
+                    "CASE", "Case流转",
+                    caseStatusLabel(item.getStatus()) + " · " + safe(item.getTitle()),
+                    safe(item.getStatus()), safe(item.getCaseId())));
+        }
+        items.sort(Comparator.comparing(
+                value -> (LocalDateTime) value.get("time"),
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return List.copyOf(items);
+    }
+
+    private Map<String, Object> timelineItem(LocalDateTime time,
+                                             String type,
+                                             String title,
+                                             String summary,
+                                             String status,
+                                             String refId) {
+        LinkedHashMap<String, Object> item = new LinkedHashMap<>();
+        item.put("time", time);
+        item.put("type", type);
+        item.put("title", title);
+        item.put("summary", summary);
+        item.put("status", status);
+        item.put("refId", refId);
+        return item;
+    }
+
+    private String feedbackSourcePreview(AiFeedback item, List<ChatMessage> messages) {
+        if (item.getAssistantMessageId() != null) {
+            for (ChatMessage message : messages) {
+                if (item.getAssistantMessageId().equals(message.getId())) {
+                    return preview(message.getContent());
+                }
+            }
+        }
+        for (ChatMessage message : messages) {
+            if ("user".equalsIgnoreCase(message.getRole())) {
+                return preview(message.getContent());
+            }
+        }
+        return "";
+    }
+
+    private String preview(String content) {
+        String text = safe(content).replaceAll("\\s+", " ").trim();
+        return text.length() <= 120 ? text : text.substring(0, 120);
+    }
+
+    private String feedbackQualificationHint(AiFeedback item) {
+        String status = safe(item.getStatus()).toUpperCase();
+        return switch (status) {
+            case "OPEN" -> "已记录，待进入评测或人工确认。";
+            case "AI_EVALUATING" -> "评测中，正在判断是否属于当前 Agent 的业务反馈。";
+            case "NEED_MORE_INFO" -> "信息不足，建议补充型号、页面、订单号、截图或复现场景。";
+            case "VALID" -> "已判定为有效业务反馈，可进一步聚类或升级为 Case。";
+            case "CLUSTERED" -> "已进入候选问题簇，适合与同类反馈合并升级。";
+            case "PROMOTED" -> "已完成晋升，进入 Case 工作流。";
+            case "RESOLVED" -> "反馈流程已关闭。";
+            case "INVALID" -> "已判定为无效或暂不纳入处理。";
+            default -> "当前反馈正在流转中。";
+        };
+    }
+
+    private String feedbackSourceLabel(String sourceType) {
+        return switch (safe(sourceType).toUpperCase()) {
+            case "EXPLICIT", "USER" -> "用户反馈";
+            case "OPERATIONS" -> "运维反馈";
+            case "TEST" -> "测试反馈";
+            case "AI_INFERRED" -> "AI观察";
+            default -> safe(sourceType);
+        };
+    }
+
+    private String feedbackStatusLabel(String status) {
+        return switch (safe(status).toUpperCase()) {
+            case "OPEN" -> "新反馈";
+            case "AI_EVALUATING" -> "AI评测中";
+            case "NEED_MORE_INFO" -> "待补充信息";
+            case "VALID" -> "已判定有效";
+            case "CLUSTERED" -> "待升级Case";
+            case "PROMOTED" -> "已升级Case";
+            case "RESOLVED" -> "已关闭";
+            case "INVALID" -> "无效反馈";
+            default -> safe(status);
+        };
+    }
+
+    private String caseStatusLabel(String status) {
+        return switch (safe(status).toUpperCase()) {
+            case "CANDIDATE" -> "候选Case";
+            case "PENDING_REVIEW" -> "待审核";
+            case "CONFIRMED" -> "已确认";
+            case "IN_PROGRESS" -> "处理中";
+            case "RESOLVED" -> "已解决";
+            case "ARCHIVED" -> "已归档";
+            case "IGNORED" -> "已驳回";
+            case "MERGED" -> "已合并";
+            default -> safe(status);
+        };
     }
 }

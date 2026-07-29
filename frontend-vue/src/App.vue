@@ -2004,10 +2004,25 @@ onMounted(() => {
                       <div class="kv"><div class="k">路由类型</div><div class="v">{{ routeTypeText(sessionDetail.overview.latestRouteType) }}</div></div>
                       <div class="kv"><div class="k">执行状态</div><div class="v">{{ executionStatusLabel(sessionDetail.overview.latestExecutionStatus) }}</div></div>
                       <div class="kv"><div class="k">反馈数量</div><div class="v">{{ sessionDetail.overview.feedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">业务反馈</div><div class="v">{{ sessionDetail.overview.businessFeedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">AI观察</div><div class="v">{{ sessionDetail.overview.aiObservationCount || 0 }}</div></div>
                       <div class="kv"><div class="k">关联 Case</div><div class="v">{{ sessionDetail.overview.caseCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">待升级反馈</div><div class="v">{{ sessionDetail.overview.readyForCaseFeedbackCount || 0 }}</div></div>
                       <div class="kv"><div class="k">工具消息</div><div class="v">{{ sessionDetail.overview.toolMessageCount || 0 }}</div></div>
                       <div class="kv"><div class="k">短期记忆</div><div class="v">{{ sessionDetail.overview.hasMemorySummary ? '已生成' : '未生成' }}</div></div>
                     </div>
+                    <section class="panel subtle" style="margin-top:12px">
+                      <div class="panel-title" style="margin-bottom:8px">运营链路时间线</div>
+                      <div v-if="!(sessionDetail.timeline || []).length" class="empty">当前会话暂无运营链路记录</div>
+                      <div v-for="entry in (sessionDetail.timeline || [])" :key="`${entry.type}-${entry.refId}-${entry.time}`" class="profile-entry">
+                        <div class="item-row">
+                          <div style="font-weight:600">{{ entry.title || entry.type }}</div>
+                          <span class="pill">{{ entry.status || '-' }}</span>
+                        </div>
+                        <div class="muted" style="font-size:12px;margin-top:6px">{{ entry.summary || '-' }}</div>
+                        <small class="muted">{{ entry.time || '-' }}</small>
+                      </div>
+                    </section>
                     <div class="conversation-side-grid">
                       <section class="panel subtle">
                         <div class="panel-title" style="margin-bottom:8px">关联业务反馈</div>
@@ -2018,6 +2033,8 @@ onMounted(() => {
                             <span class="pill">{{ labelStatus(item.status) }}</span>
                           </div>
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ feedbackSourceLabel(item.sourceType) }} / {{ item.category || '未分类' }}</div>
+                          <div v-if="item.sourcePreview" class="muted" style="font-size:12px;margin-top:4px">来源摘录：{{ item.sourcePreview }}</div>
+                          <div v-if="item.qualificationHint" class="muted" style="font-size:12px;margin-top:4px">{{ item.qualificationHint }}</div>
                           <div v-if="item.matchedCaseId" class="muted" style="font-size:12px;margin-top:4px">已关联 Case：{{ item.matchedCaseId }}</div>
                         </div>
                       </section>
@@ -2030,6 +2047,7 @@ onMounted(() => {
                             <span class="pill">{{ caseStatusText(item.status) }}</span>
                           </div>
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ item.caseId }}</div>
+                          <div v-if="item.summary" class="muted" style="font-size:12px;margin-top:4px">{{ item.summary }}</div>
                         </div>
                       </section>
                     </div>
