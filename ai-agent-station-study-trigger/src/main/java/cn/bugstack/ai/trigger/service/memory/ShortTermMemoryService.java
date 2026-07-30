@@ -32,6 +32,7 @@ public class ShortTermMemoryService {
     @Resource private IMemoryStateDao stateDao;
     @Resource private ApplicationContext applicationContext;
     @Resource private LongTermMemoryPort longTermMemoryPort;
+    @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     @Value("${agent.memory.token-budget:16000}") private int tokenBudget;
     @Value("${agent.memory.retain-messages:24}") private int retainMessages;
 
@@ -67,8 +68,10 @@ public class ShortTermMemoryService {
                 .goalsJson(arrayJson(result, "goals")).constraintsJson(arrayJson(result, "constraints"))
                 .entitiesJson(arrayJson(result, "entities")).pendingJson(arrayJson(result, "pending"))
                 .completedJson(arrayJson(result, "completed")).createdAt(now).build());
-        longTermMemoryPort.store(new LongTermMemoryPort.MemoryFact(agentId, agentId, "SESSION_SUMMARY", summary,
-                sessionId, "system-derived-after-short-term-threshold"));
+        if (memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
+            longTermMemoryPort.store(new LongTermMemoryPort.MemoryFact(agentId, agentId, "SESSION_SUMMARY", summary,
+                    sessionId, "system-derived-after-short-term-threshold"));
+        }
     }
 
     private String arrayJson(JSONObject result, String key) {

@@ -26,13 +26,16 @@ public class LongTermMemoryRecallService {
     private final LongTermMemoryPort longTermMemoryPort;
     private final IMemorySummaryDao memorySummaryDao;
     private final IAgentMemoryProfileDao profileDao;
+    private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
     public LongTermMemoryRecallService(LongTermMemoryPort longTermMemoryPort,
                                        IMemorySummaryDao memorySummaryDao,
-                                       IAgentMemoryProfileDao profileDao) {
+                                       IAgentMemoryProfileDao profileDao,
+                                       MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy) {
         this.longTermMemoryPort = longTermMemoryPort;
         this.memorySummaryDao = memorySummaryDao;
         this.profileDao = profileDao;
+        this.memoryQueryAdmissionPolicy = memoryQueryAdmissionPolicy;
     }
 
     public List<MemoryRecallItem> recall(String agentId, String query, int limit) {
@@ -40,6 +43,7 @@ public class LongTermMemoryRecallService {
         String safeQuery = safe(query);
         int safeLimit = Math.max(1, Math.min(20, limit));
         if (safeAgentId.isBlank() || safeQuery.isBlank()) return List.of();
+        if (!memoryQueryAdmissionPolicy.shouldRecall(safeQuery)) return List.of();
 
         Map<String, MemoryRecallItem> merged = new LinkedHashMap<>();
         longTermMemoryPort.retrieve(safeAgentId, safeAgentId, safeQuery, safeLimit).stream()

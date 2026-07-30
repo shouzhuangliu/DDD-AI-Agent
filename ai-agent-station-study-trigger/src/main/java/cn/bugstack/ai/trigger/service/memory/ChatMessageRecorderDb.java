@@ -42,6 +42,7 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private IAiSessionDao sessionDao;
     @Resource private LongTermMemoryPort longTermMemoryPort;
+    @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
     @Override public void recordUser(String s, String a, int t, String c) { save(s, a, t, 0, "user", c, null, null, null, null); }
     @Override public void recordAssistant(String s, String a, int t, int st, String c, String tc) {
@@ -92,8 +93,10 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
         String agentId = all.isEmpty() ? "" : all.get(0).getAgentId();
         String latestUserInput = all.stream().filter(message -> "user".equals(message.getRole()))
                 .reduce((ignored, latest) -> latest).map(ChatMessage::getContent).orElse("");
-        longTermMemoryPort.retrieve(agentId, agentId, latestUserInput, 3).forEach(memory ->
-                r.add(HistoryMessage.builder().role("assistant").content("[跨会话长期记忆] " + memory.content()).build()));
+        if (memoryQueryAdmissionPolicy.shouldRecall(latestUserInput)) {
+            longTermMemoryPort.retrieve(agentId, agentId, latestUserInput, 3).forEach(memory ->
+                    r.add(HistoryMessage.builder().role("assistant").content("[跨会话长期记忆] " + memory.content()).build()));
+        }
         for (ChatMessage m : all) {
             if (m.getId() > covered && ("user".equals(m.getRole()) || "assistant".equals(m.getRole())))
                 r.add(HistoryMessage.builder().role(m.getRole()).content(m.getContent()).build());

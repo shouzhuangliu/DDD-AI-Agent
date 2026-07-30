@@ -13,6 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class LongTermMemoryRecallServiceTest {
@@ -20,21 +21,24 @@ class LongTermMemoryRecallServiceTest {
     private final LongTermMemoryPort longTermMemoryPort = mock(LongTermMemoryPort.class);
     private final IMemorySummaryDao memorySummaryDao = mock(IMemorySummaryDao.class);
     private final IAgentMemoryProfileDao profileDao = mock(IAgentMemoryProfileDao.class);
+    private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy = new MemoryQueryAdmissionPolicy();
     private final LongTermMemoryRecallService service = new LongTermMemoryRecallService(
-            longTermMemoryPort, memorySummaryDao, profileDao);
+            longTermMemoryPort, memorySummaryDao, profileDao, memoryQueryAdmissionPolicy);
 
     @Test
     void recallOnlyReturnsMemoriesForRequestedAgent() {
         when(longTermMemoryPort.retrieve("cs", "cs", "DDR5 补货", 5)).thenReturn(List.of(
-                new LongTermMemoryPort.MemoryFact("cs", "cs", "AGENT_PROFILE", "DDR5 内存缺货时需要沉淀补货反馈",
-                        "", "vector", "case-1", 2),
-                new LongTermMemoryPort.MemoryFact("ops", "ops", "AGENT_PROFILE", "运维 Agent 的缓存告警",
-                        "", "vector", "case-ops", 1)
+                new LongTermMemoryPort.MemoryFact("cs", "cs", "AGENT_PROFILE",
+                        "DDR5 内存缺货时需要沉淀补货反馈", "", "vector", "case-1", 2),
+                new LongTermMemoryPort.MemoryFact("ops", "ops", "AGENT_PROFILE",
+                        "运维 Agent 的缓存告警", "", "vector", "case-ops", 1)
         ));
         when(memorySummaryDao.queryByAgent("cs", 5)).thenReturn(List.of(
-                MemorySummary.builder().agentId("cs").sessionId("sess-1").summary("用户反馈 DDR5 内存商品空缺，希望补货")
+                MemorySummary.builder().agentId("cs").sessionId("sess-1")
+                        .summary("用户反馈 DDR5 内存商品空缺，希望补货")
                         .status("ACTIVE").createdAt(LocalDateTime.of(2026, 7, 30, 10, 0)).build(),
-                MemorySummary.builder().agentId("ops").sessionId("sess-ops").summary("其它 Agent 数据")
+                MemorySummary.builder().agentId("ops").sessionId("sess-ops")
+                        .summary("其它 Agent 数据")
                         .status("ACTIVE").createdAt(LocalDateTime.of(2026, 7, 30, 10, 1)).build()
         ));
 
@@ -73,5 +77,13 @@ class LongTermMemoryRecallServiceTest {
         assertEquals(1, recalls.size());
         assertEquals("case-ok", recalls.getFirst().sourceId());
         assertTrue(recalls.getFirst().summary().contains("库存写入链路"));
+    }
+
+    @Test
+    void trivialQueryDoesNotTriggerRecall() {
+        List<LongTermMemoryRecallService.MemoryRecallItem> recalls = service.recall("cs", "1", 5);
+
+        assertTrue(recalls.isEmpty());
+        verifyNoInteractions(longTermMemoryPort, memorySummaryDao, profileDao);
     }
 }

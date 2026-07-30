@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.service.analysis;
 
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
+import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -13,9 +14,12 @@ public class AgentEvaluationContextBuilder {
     private static final int LONG_TERM_MEMORY_LIMIT = 5;
 
     private final LongTermMemoryPort longTermMemoryPort;
+    private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
-    public AgentEvaluationContextBuilder(LongTermMemoryPort longTermMemoryPort) {
+    public AgentEvaluationContextBuilder(LongTermMemoryPort longTermMemoryPort,
+                                         MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy) {
         this.longTermMemoryPort = longTermMemoryPort;
+        this.memoryQueryAdmissionPolicy = memoryQueryAdmissionPolicy;
     }
 
     public String build(String agentId, List<ChatMessage> messages) {
@@ -28,8 +32,9 @@ public class AgentEvaluationContextBuilder {
                 .orElse("");
 
         StringBuilder evidence = new StringBuilder("agentId=").append(safeAgentId).append('\n');
-        List<LongTermMemoryPort.MemoryFact> memories = longTermMemoryPort.retrieve(
-                safeAgentId, safeAgentId, latestUserInput, LONG_TERM_MEMORY_LIMIT);
+        List<LongTermMemoryPort.MemoryFact> memories = memoryQueryAdmissionPolicy.shouldRecall(latestUserInput)
+                ? longTermMemoryPort.retrieve(safeAgentId, safeAgentId, latestUserInput, LONG_TERM_MEMORY_LIMIT)
+                : List.of();
         if (!memories.isEmpty()) {
             evidence.append("\n[长期记忆召回]\n");
             memories.forEach(memory -> evidence.append("- kind=").append(blank(memory.kind()))
