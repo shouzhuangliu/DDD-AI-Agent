@@ -585,7 +585,7 @@ public class AgentOperationsController {
         view.put("qualificationHint", feedbackQualificationHint(item));
         view.put("evaluationReason", feedbackEvaluationReason(item));
         view.put("nextAction", feedbackNextAction(item));
-        view.put("availableActions", feedbackAvailableActions(status));
+        view.put("availableActions", feedbackAvailableActions(item, promotionReadiness));
         return view;
     }
 
@@ -641,7 +641,9 @@ public class AgentOperationsController {
         return "已识别" + String.join("、", evidence) + "。";
     }
 
-    private List<Map<String, Object>> feedbackAvailableActions(String status) {
+    private List<Map<String, Object>> feedbackAvailableActions(AiFeedback item, PromotionReadiness promotionReadiness) {
+        String status = safe(item == null ? "" : item.getStatus()).toUpperCase();
+        boolean promotionAllowed = promotionReadiness != null && promotionReadiness.eligible();
         return switch (safe(status).toUpperCase()) {
             case "OPEN" -> List.of(
                     action("AI_EVALUATING", "提交 AI 评测"),
@@ -653,12 +655,20 @@ public class AgentOperationsController {
             case "NEED_MORE_INFO" -> List.of(
                     action("AI_EVALUATING", "补充后重新评测"),
                     action("INVALID", "标记无效"));
-            case "VALID" -> List.of(
+            case "VALID" -> promotionAllowed
+                    ? List.of(
                     action("PROMOTED", "升级为 Case"),
                     action("CLUSTERED", "进入候选问题簇"),
+                    action("INVALID", "判定无效"))
+                    : List.of(
+                    action("CLUSTERED", "进入候选问题簇"),
                     action("INVALID", "判定无效"));
-            case "CLUSTERED" -> List.of(
+            case "CLUSTERED" -> promotionAllowed
+                    ? List.of(
                     action("PROMOTED", "升级为 Case"),
+                    action("VALID", "退回升级判断"),
+                    action("INVALID", "判定无效"))
+                    : List.of(
                     action("VALID", "退回升级判断"),
                     action("INVALID", "判定无效"));
             case "INVALID" -> List.of(action("OPEN", "重新打开"));

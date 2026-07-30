@@ -173,7 +173,7 @@ class AgentOperationsControllerTest {
                         .status("VALID")
                         .sourceType("USER")
                         .feedbackType("ISSUE_REPORT")
-                        .message("商品库存显示异常，订单页和详情页不一致")
+                        .message("商品库存显示异常，订单号5060在页面和接口返回不一致")
                         .category("业务问题反馈")
                         .build()
         ));
@@ -185,6 +185,29 @@ class AgentOperationsControllerTest {
         assertEquals("升级为 Case", actions.getFirst().get("label"));
         assertEquals("PROMOTED", actions.getFirst().get("status"));
         assertEquals("进入候选问题簇", actions.get(1).get("label"));
+    }
+
+    @Test
+    void feedbackViewHidesPromoteActionWhenEvidenceIsInsufficient() {
+        when(feedbackDao.queryWorkspaceByAgentId("cs", 50)).thenReturn(List.of(
+                AiFeedback.builder()
+                        .id(202L)
+                        .agentId("cs")
+                        .status("VALID")
+                        .sourceType("USER")
+                        .feedbackType("ISSUE_REPORT")
+                        .message("系统有问题，请处理一下")
+                        .category("业务问题反馈")
+                        .build()
+        ));
+
+        List<Map<String, Object>> result = controller.feedback("cs", 50);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) result.getFirst().get("availableActions");
+
+        assertEquals(false, result.getFirst().get("promotionEligible"));
+        assertTrue(actions.stream().noneMatch(action -> "PROMOTED".equals(action.get("status"))));
+        assertEquals("进入候选问题簇", actions.getFirst().get("label"));
     }
 
     @Test
