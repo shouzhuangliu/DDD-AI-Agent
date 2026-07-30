@@ -537,6 +537,11 @@ function caseActions(status) {
   return CASE_ACTIONS[String(status || '').toUpperCase()] || [];
 }
 
+function caseActionList(item) {
+  const serverActions = normalizeList(item?.availableActions);
+  return serverActions.length ? serverActions : caseActions(item?.status);
+}
+
 function feedbackActions(status) {
   return FEEDBACK_ACTIONS[String(status || '').toUpperCase()] || [];
 }
@@ -1962,13 +1967,13 @@ onMounted(() => {
                         <div class="muted case-meta">{{ item.caseId }} | {{ item.agentId }}</div>
                       </div>
                       <div class="actions">
-                        <span class="pill">{{ caseStatusText(item.status) }}</span>
+                        <span class="pill">{{ item.statusLabel || caseStatusText(item.status) }}</span>
                         <span class="pill">{{ item.severity || 'MEDIUM' }}</span>
                       </div>
                     </div>
                     <div class="muted case-summary">{{ item.summary || '-' }}</div>
                     <div class="actions case-actions" @click.stop>
-                      <button v-for="action in caseActions(item.status)" :key="action.status" class="btn" :class="{ primary: action.status === 'RESOLVED' }" @click="openCaseTransition(item, action)">
+                      <button v-for="action in caseActionList(item)" :key="action.status" class="btn" :class="{ primary: action.status === 'RESOLVED' }" @click="openCaseTransition(item, action)">
                         {{ action.label }}
                       </button>
                     </div>

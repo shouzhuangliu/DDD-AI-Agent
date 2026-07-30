@@ -9,6 +9,7 @@ import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
@@ -184,5 +185,27 @@ class AgentOperationsControllerTest {
         assertEquals("升级为 Case", actions.getFirst().get("label"));
         assertEquals("PROMOTED", actions.getFirst().get("status"));
         assertEquals("进入候选问题簇", actions.get(1).get("label"));
+    }
+
+    @Test
+    void caseViewExposesBackendAvailableActionsInChinese() {
+        when(caseDao.queryByAgentAndStatus("cs", "CANDIDATE", 50)).thenReturn(List.of(
+                AiCase.builder()
+                        .caseId("case-001")
+                        .agentId("cs")
+                        .title("库存异常")
+                        .status("CANDIDATE")
+                        .build()
+        ));
+
+        List<?> result = controller.cases("cs", "CANDIDATE", 50);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> first = (Map<String, Object>) result.getFirst();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) first.get("availableActions");
+
+        assertEquals("提交审核", actions.getFirst().get("label"));
+        assertEquals("PENDING_REVIEW", actions.getFirst().get("status"));
+        assertEquals("候选问题", first.get("statusLabel"));
     }
 }

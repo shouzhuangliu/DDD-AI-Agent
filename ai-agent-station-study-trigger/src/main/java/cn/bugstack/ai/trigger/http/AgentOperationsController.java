@@ -177,17 +177,19 @@ public class AgentOperationsController {
     }
 
     @GetMapping("/cases")
-    public List<AiCase> cases(@PathVariable("agentId") String agentId,
-                              @RequestParam(value = "status", defaultValue = "") String status,
-                              @RequestParam(value = "limit", defaultValue = "50") int limit) {
+    public List<Map<String, Object>> cases(@PathVariable("agentId") String agentId,
+                                           @RequestParam(value = "status", defaultValue = "") String status,
+                                           @RequestParam(value = "limit", defaultValue = "50") int limit) {
         String normalizedStatus = status == null ? "" : status.trim().toUpperCase();
-        return caseDao.queryByAgentAndStatus(agentId, normalizedStatus, bounded(limit));
+        return caseDao.queryByAgentAndStatus(agentId, normalizedStatus, bounded(limit))
+                .stream().map(this::caseView).toList();
     }
 
     @GetMapping("/cases/top")
-    public List<AiCase> topCases(@PathVariable("agentId") String agentId,
-                                 @RequestParam(value = "limit", defaultValue = "10") int limit) {
-        return caseDao.queryTopByAgent(agentId, bounded(limit));
+    public List<Map<String, Object>> topCases(@PathVariable("agentId") String agentId,
+                                              @RequestParam(value = "limit", defaultValue = "10") int limit) {
+        return caseDao.queryTopByAgent(agentId, bounded(limit))
+                .stream().map(this::caseView).toList();
     }
 
     @GetMapping("/cases/{caseId}")
@@ -202,7 +204,7 @@ public class AgentOperationsController {
                     return evidenceRow;
                 }).toList();
         return Map.of(
-                "case", item,
+                "case", caseView(item),
                 "evidence", evidence,
                 "scoreSnapshots", caseAuditDao.queryScoreSnapshots(agentId, caseId),
                 "reviews", caseAuditDao.queryReviews(agentId, caseId));
@@ -437,6 +439,76 @@ public class AgentOperationsController {
         if (message == null || !agentId.equals(message.getAgentId())) throw new IllegalArgumentException("Message source does not belong to this Agent");
         String content = message.getContent() == null ? "" : message.getContent().replaceAll("\\s+", " ").trim();
         return Map.of("agentId", agentId, "sessionId", message.getSessionId(), "messageId", message.getId(), "role", message.getRole(), "preview", content.substring(0, Math.min(content.length(), 240)));
+    }
+
+    private Map<String, Object> caseView(AiCase item) {
+        if (item == null) return Map.of();
+        String status = safe(item.getStatus()).toUpperCase();
+        Map<String, Object> view = new java.util.LinkedHashMap<>();
+        view.put("id", item.getId());
+        view.put("caseId", safe(item.getCaseId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("title", safe(item.getTitle()));
+        view.put("summary", safe(item.getSummary()));
+        view.put("caseType", safe(item.getCaseType()));
+        view.put("severity", safe(item.getSeverity()));
+        view.put("frequency", item.getFrequency() == null ? 0 : item.getFrequency());
+        view.put("affectedSessions", item.getAffectedSessions() == null ? 0 : item.getAffectedSessions());
+        view.put("importanceScore", item.getImportanceScore());
+        view.put("confidence", item.getConfidence());
+        view.put("totalScore", item.getTotalScore());
+        view.put("status", status);
+        view.put("statusLabel", rawCaseStatusLabel(status));
+        view.put("skillId", safe(item.getSkillId()));
+        view.put("sourceModel", safe(item.getSourceModel()));
+        view.put("extractionReason", safe(item.getExtractionReason()));
+        view.put("owner", safe(item.getOwner()));
+        view.put("resolution", safe(item.getResolution()));
+        view.put("mergedToCaseId", safe(item.getMergedToCaseId()));
+        view.put("lastSeenAt", item.getLastSeenAt());
+        view.put("createdAt", item.getCreatedAt());
+        view.put("updatedAt", item.getUpdatedAt());
+        view.put("availableActions", caseAvailableActions(status));
+        return view;
+    }
+
+    private List<Map<String, Object>> caseAvailableActions(String status) {
+        return switch (safe(status).toUpperCase()) {
+            case "CANDIDATE" -> List.of(
+                    action("PENDING_REVIEW", "提交审核"),
+                    action("IGNORED", "驳回问题"),
+                    action("MERGED", "合并到其他 Case"));
+            case "PENDING_REVIEW" -> List.of(
+                    action("CONFIRMED", "确认案件"),
+                    action("IGNORED", "驳回问题"),
+                    action("CANDIDATE", "退回候选"));
+            case "CONFIRMED" -> List.of(
+                    action("IN_PROGRESS", "开始处理"),
+                    action("PENDING_REVIEW", "退回待审核"));
+            case "IN_PROGRESS" -> List.of(
+                    action("RESOLVED", "标记已解决"),
+                    action("CONFIRMED", "退回已确认"));
+            case "RESOLVED" -> List.of(
+                    action("IN_PROGRESS", "重新处理"),
+                    action("ARCHIVED", "归档"));
+            case "ARCHIVED" -> List.of(action("CONFIRMED", "恢复跟踪"));
+            case "IGNORED", "MERGED" -> List.of(action("CANDIDATE", "重新提交"));
+            default -> List.of();
+        };
+    }
+
+    private String rawCaseStatusLabel(String value) {
+        return switch (safe(value).toUpperCase()) {
+            case "CANDIDATE" -> "候选问题";
+            case "PENDING_REVIEW" -> "待人工审核";
+            case "CONFIRMED" -> "已确认案件";
+            case "IN_PROGRESS" -> "处理中";
+            case "RESOLVED" -> "已解决";
+            case "ARCHIVED" -> "已归档";
+            case "IGNORED" -> "已驳回";
+            case "MERGED" -> "已合并";
+            default -> safe(value);
+        };
     }
 
     private Map<String, Object> feedbackView(AiFeedback item) {
