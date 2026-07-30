@@ -513,6 +513,7 @@ public class AgentOperationsController {
         view.put("qualificationHint", feedbackQualificationHint(item));
         view.put("evaluationReason", feedbackEvaluationReason(item));
         view.put("nextAction", feedbackNextAction(item));
+        view.put("availableActions", feedbackAvailableActions(status));
         return view;
     }
 
@@ -566,6 +567,37 @@ public class AgentOperationsController {
         if (containsAny(text, "截图", "日志", "报错", "异常", "不一致", "失败", "超时", "缺货", "补货", "缺失")) evidence.add("包含问题证据线索");
         if (evidence.isEmpty()) return "暂未识别到足够证据线索。";
         return "已识别" + String.join("、", evidence) + "。";
+    }
+
+    private List<Map<String, Object>> feedbackAvailableActions(String status) {
+        return switch (safe(status).toUpperCase()) {
+            case "OPEN" -> List.of(
+                    action("AI_EVALUATING", "提交 AI 评测"),
+                    action("INVALID", "标记无效"));
+            case "AI_EVALUATING" -> List.of(
+                    action("VALID", "确认可进入升级判断"),
+                    action("NEED_MORE_INFO", "要求补充信息"),
+                    action("INVALID", "标记无效"));
+            case "NEED_MORE_INFO" -> List.of(
+                    action("AI_EVALUATING", "补充后重新评测"),
+                    action("INVALID", "标记无效"));
+            case "VALID" -> List.of(
+                    action("PROMOTED", "升级为 Case"),
+                    action("CLUSTERED", "进入候选问题簇"),
+                    action("INVALID", "判定无效"));
+            case "CLUSTERED" -> List.of(
+                    action("PROMOTED", "升级为 Case"),
+                    action("VALID", "退回升级判断"),
+                    action("INVALID", "判定无效"));
+            case "INVALID" -> List.of(action("OPEN", "重新打开"));
+            case "PROMOTED" -> List.of(action("RESOLVED", "关闭反馈"));
+            case "RESOLVED" -> List.of(action("OPEN", "重新打开"));
+            default -> List.of();
+        };
+    }
+
+    private Map<String, Object> action(String status, String label) {
+        return Map.of("status", status, "label", label);
     }
 
     private PromotionReadiness promotionReadiness(AiFeedback item) {

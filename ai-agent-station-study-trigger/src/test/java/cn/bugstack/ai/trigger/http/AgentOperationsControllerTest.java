@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -160,5 +161,28 @@ class AgentOperationsControllerTest {
         assertEquals(1L, result.get("highPriorityCases"));
         assertEquals(2L, result.get("resolvedCases"));
         assertEquals(75.0d, result.get("satisfactionRate"));
+    }
+
+    @Test
+    void feedbackViewExposesBackendAvailableActionsInChinese() {
+        when(feedbackDao.queryWorkspaceByAgentId("cs", 50)).thenReturn(List.of(
+                AiFeedback.builder()
+                        .id(201L)
+                        .agentId("cs")
+                        .status("VALID")
+                        .sourceType("USER")
+                        .feedbackType("ISSUE_REPORT")
+                        .message("商品库存显示异常，订单页和详情页不一致")
+                        .category("业务问题反馈")
+                        .build()
+        ));
+
+        List<Map<String, Object>> result = controller.feedback("cs", 50);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) result.getFirst().get("availableActions");
+
+        assertEquals("升级为 Case", actions.getFirst().get("label"));
+        assertEquals("PROMOTED", actions.getFirst().get("status"));
+        assertEquals("进入候选问题簇", actions.get(1).get("label"));
     }
 }

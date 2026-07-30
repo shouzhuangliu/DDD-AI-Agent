@@ -541,6 +541,11 @@ function feedbackActions(status) {
   return FEEDBACK_ACTIONS[String(status || '').toUpperCase()] || [];
 }
 
+function feedbackActionList(item) {
+  const serverActions = normalizeList(item?.availableActions);
+  return serverActions.length ? serverActions : feedbackActions(item?.status);
+}
+
 function feedbackStatusHint(status) {
   const normalized = String(status || '').toUpperCase();
   return {
@@ -1818,7 +1823,7 @@ onMounted(() => {
                       </div>
                       <div class="actions case-actions" @click.stop>
                         <button
-                          v-for="action in feedbackActions(item.status)"
+                          v-for="action in feedbackActionList(item)"
                           :key="`${item.id}-${action.status}`"
                           class="btn"
                           :class="{ primary: action.status === 'PROMOTED' }"
