@@ -51,6 +51,8 @@ const logs = ref([]);
 const selectedLogAgent = ref('');
 const logSessionQuery = ref('');
 const selectedLogSessionKey = ref('');
+const logTraces = reactive({});
+const logTraceLoading = ref(false);
 const agentToolOptions = ref([]);
 const agentSkillOptions = ref([]);
 const agentMcpOptions = ref([]);
@@ -89,6 +91,8 @@ const logSessions = computed(() => logs.value
     || String(session.sessionId || '').toLowerCase().includes(logSessionQuery.value.trim().toLowerCase())));
 const businessFeedbackItems = computed(() => feedback.value.filter(item => isBusinessFeedbackItem(item)));
 const selectedLogSession = computed(() => logSessions.value.find(session => logSessionKey(session) === selectedLogSessionKey.value) || null);
+const selectedLogTrace = computed(() => logTraces[selectedLogSessionKey.value] || null);
+const selectedLogTimeline = computed(() => normalizeList(selectedLogTrace.value?.timeline));
 const profileSections = computed(() => {
   const raw = agentProfile.value?.profileJson;
   if (!raw) return [];
@@ -1625,11 +1629,13 @@ async function loadLogsPage() {
     if (!selectedLogSessionKey.value || !logSessions.value.some(session => logSessionKey(session) === selectedLogSessionKey.value)) {
       selectedLogSessionKey.value = logSessions.value[0] ? logSessionKey(logSessions.value[0]) : '';
     }
+    if (selectedLogSession.value) await loadLogTrace(selectedLogSession.value);
   });
 }
 
 function selectLogSession(session) {
   selectedLogSessionKey.value = logSessionKey(session);
+  loadLogTrace(session);
 }
 
 async function jumpToLogSession(agentId, sessionId) {
@@ -1639,6 +1645,23 @@ async function jumpToLogSession(agentId, sessionId) {
   await loadLogsPage();
   const matched = logSessions.value.find(session => session.agentId === agentId && session.sessionId === sessionId);
   selectedLogSessionKey.value = matched ? logSessionKey(matched) : `${agentId}::${sessionId}`;
+  await loadLogTrace(matched || { agentId, sessionId });
+}
+
+async function loadLogTrace(session, force = false) {
+  if (!session?.agentId || !session?.sessionId) return;
+  const key = logSessionKey(session);
+  if (!force && logTraces[key]) return;
+  logTraceLoading.value = true;
+  try {
+    logTraces[key] = await request(
+      `/agents/${encodeURIComponent(session.agentId)}/sessions/${encodeURIComponent(session.sessionId)}/trace`,
+      {},
+      null,
+    );
+  } finally {
+    logTraceLoading.value = false;
+  }
 }
 
 async function jumpToConversationSession(agentId, sessionId) {
@@ -1659,6 +1682,71 @@ function logRoleLabel(role) {
   if (value === 'assistant') return 'AI';
   if (value === 'tool') return '工具';
   return role || '消息';
+}
+
+function traceTypeLabel(type) {
+  const normalized = String(type || '').toUpperCase();
+  return {
+    ROUTE: '路由决策',
+    TODO: '执行 Todo',
+    LLM_CALL: '大模型调用',
+    TOOL_CALL: '工具调用',
+    TOOL_RESULT: '工具结果',
+    SUBAGENT: '子 Agent',
+    USER_MESSAGE: '用户消息',
+    ASSISTANT_MESSAGE: '助手回复',
+    FEEDBACK: '业务 Feedback',
+    CASE: 'Case',
+  }[normalized] || (type || '轨迹');
+}
+
+function traceTypeIcon(type) {
+  const normalized = String(type || '').toUpperCase();
+  return {
+    ROUTE: '🧭',
+    TODO: '✅',
+    LLM_CALL: '🧠',
+    TOOL_CALL: '🔧',
+    TOOL_RESULT: '📋',
+    SUBAGENT: '🧩',
+    USER_MESSAGE: '👤',
+    ASSISTANT_MESSAGE: '🤖',
+    FEEDBACK: '📝',
+    CASE: '🔥',
+  }[normalized] || '•';
+}
+
+function traceStatusLabel(status) {
+  const normalized = String(status || '').toUpperCase();
+  return {
+    SUCCESS: '成功',
+    FAILED: '失败',
+    ERROR: '异常',
+    RUNNING: '运行中',
+    PENDING: '等待中',
+    IN_PROGRESS: '进行中',
+    COMPLETED: '已完成',
+    UNKNOWN: '未知',
+  }[normalized] || (status || '-');
+}
+
+function traceStatusClass(status) {
+  const normalized = String(status || '').toUpperCase();
+  if (['FAILED', 'ERROR'].includes(normalized)) return 'danger';
+  if (['RUNNING', 'IN_PROGRESS', 'PENDING'].includes(normalized)) return 'warning';
+  if (['SUCCESS', 'COMPLETED', 'RESOLVED'].includes(normalized)) return 'success';
+  return '';
+}
+
+function traceMetadata(event) {
+  return Object.entries(event?.metadata || {})
+    .filter(([, value]) => value !== '' && value !== null && value !== undefined)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(' ｜ ');
+}
+
+function tracePrimaryContent(event) {
+  return event?.outputPreview || event?.input || event?.errorMessage || '';
 }
 
 watch(apiBase, value => {
@@ -2515,6 +2603,142 @@ onMounted(() => {
           </template>
 
           <template v-else-if="tab === 'logs'">
+            <section class="panel log-panel">
+              <div class="log-toolbar">
+                <div>
+                  <div class="page-title">Agent 运行追踪</div>
+                  <div class="muted log-subtitle">按 Agent / 会话查看思考、路由、模型、工具、子 Agent、Feedback 与 Case 全链路</div>
+                </div>
+                <div class="log-filters">
+                  <select class="select log-agent-filter" v-model="selectedLogAgent">
+                    <option value="">全部 Agent</option>
+                    <option v-for="agent in logAgentOptions" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
+                  </select>
+                  <input v-model="logSessionQuery" class="api-input log-search" placeholder="搜索会话 ID" />
+                  <button class="btn" @click="loadLogsPage">刷新</button>
+                </div>
+              </div>
+              <div class="log-layout">
+                <aside class="log-sessions">
+                  <div class="log-section-head"><span>会话列表</span><span class="pill">{{ logSessions.length }}</span></div>
+                  <div v-if="!logSessions.length" class="empty">暂无匹配会话</div>
+                  <button v-for="session in logSessions" :key="logSessionKey(session)" class="log-session-row" :class="{ active: logSessionKey(session) === selectedLogSessionKey }" @click="selectLogSession(session)">
+                    <span class="log-session-icon">◌</span>
+                    <span class="log-session-main">
+                      <strong>{{ session.sessionId }}</strong>
+                      <small>{{ logAgentName(session.agentId) }} · {{ session.lastSeenAt || '-' }}</small>
+                    </span>
+                    <span class="log-session-count">{{ session.callCount ?? 0 }}次</span>
+                  </button>
+                </aside>
+                <section class="log-conversation">
+                  <template v-if="selectedLogSession">
+                    <div class="log-conversation-head">
+                      <div>
+                        <div class="log-session-title">{{ selectedLogSession.sessionId }}</div>
+                        <div class="muted">{{ logAgentName(selectedLogSession.agentId) }} · 最近活动 {{ selectedLogSession.lastSeenAt || '-' }}</div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn" @click="loadLogTrace(selectedLogSession, true)">重新拉取轨迹</button>
+                        <span class="pill">LLM {{ selectedLogSession.callCount ?? 0 }}</span>
+                        <span class="pill">{{ selectedLogSession.totalTokens ?? 0 }} tokens</span>
+                      </div>
+                    </div>
+
+                    <div class="trace-summary-grid">
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.messageCount ?? selectedLogSession.messages?.length ?? 0 }}</strong><span>消息</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.llmCalls ?? selectedLogSession.callCount ?? 0 }}</strong><span>模型调用</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.toolCalls ?? 0 }}</strong><span>工具链路</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.feedbackCount ?? 0 }}</strong><span>Feedback</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.caseCount ?? 0 }}</strong><span>Case</span></div>
+                      <div class="trace-summary-card" :class="{ danger: selectedLogTrace?.summary?.hasFailure }"><strong>{{ selectedLogTrace?.summary?.hasFailure ? '有' : '无' }}</strong><span>失败/异常</span></div>
+                    </div>
+
+                    <div class="trace-split">
+                      <section class="trace-main-card">
+                        <div class="profile-section-title">运行时间线</div>
+                        <div v-if="logTraceLoading" class="empty">正在拉取轨迹...</div>
+                        <div v-else-if="!selectedLogTimeline.length" class="empty">该会话暂无结构化轨迹</div>
+                        <div v-else class="trace-timeline">
+                          <article v-for="(event, index) in selectedLogTimeline" :key="`${event.type}-${event.messageId || event.llmLogId || index}`" class="trace-event" :class="`trace-event-${String(event.type || '').toLowerCase()}`">
+                            <div class="trace-node">{{ traceTypeIcon(event.type) }}</div>
+                            <div class="trace-event-card">
+                              <div class="trace-event-head">
+                                <div>
+                                  <div class="trace-event-title">{{ event.title || traceTypeLabel(event.type) }}</div>
+                                  <div class="trace-event-sub">{{ traceTypeLabel(event.type) }} · {{ event.occurredAt || '-' }}</div>
+                                </div>
+                                <div class="actions">
+                                  <span v-if="event.toolSource" class="pill brand">{{ event.toolSource }}</span>
+                                  <span class="pill" :class="traceStatusClass(event.status)">{{ traceStatusLabel(event.status) }}</span>
+                                </div>
+                              </div>
+                              <div v-if="tracePrimaryContent(event)" class="trace-event-content">{{ tracePrimaryContent(event) }}</div>
+                              <details v-if="event.input || event.errorMessage || traceMetadata(event)" class="trace-detail">
+                                <summary>查看输入 / 元数据 / 错误</summary>
+                                <pre v-if="event.input">输入：{{ event.input }}</pre>
+                                <pre v-if="event.errorMessage">错误：{{ event.errorMessage }}</pre>
+                                <pre v-if="traceMetadata(event)">元数据：{{ traceMetadata(event) }}</pre>
+                              </details>
+                            </div>
+                          </article>
+                        </div>
+                      </section>
+
+                      <aside class="trace-side-card">
+                        <div class="profile-section-title">模型调用摘要</div>
+                        <div v-if="!selectedLogSession.logs?.length" class="empty">当前会话暂无模型调用记录</div>
+                        <div v-else class="trace-llm-list">
+                          <div v-for="(entry, index) in selectedLogSession.logs" :key="`llm-${selectedLogSession.sessionId}-${entry.id || index}`" class="trace-llm-card">
+                            <div style="font-weight:700">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
+                            <div class="muted" style="font-size:12px;margin-top:5px">
+                              {{ entry.mode || '-' }} · 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠 {{ entry.foldedMsgCount ?? 0 }}
+                            </div>
+                            <div class="trace-mini-tags">
+                              <span class="pill">{{ entry.status || '-' }}</span>
+                              <span class="pill">{{ entry.durationMs ?? 0 }} ms</span>
+                              <span class="pill">{{ entry.totalTokens ?? 0 }} tokens</span>
+                            </div>
+                            <div class="muted" style="font-size:12px;margin-top:8px">
+                              系统 {{ entry.systemPromptLen ?? 0 }}字 / 用户 {{ entry.userMessageLen ?? 0 }}字 / 回复 {{ entry.assistantResponseLen ?? 0 }}字
+                            </div>
+                            <div v-if="entry.errorMessage" class="error" style="margin-top:8px">{{ entry.errorMessage }}</div>
+                          </div>
+                        </div>
+                      </aside>
+                    </div>
+
+                    <details class="raw-dialog-box">
+                      <summary>原始对话消息</summary>
+                      <div class="log-messages">
+                        <div v-if="!selectedLogSession.messages?.length" class="empty">该会话暂无消息</div>
+                        <div v-for="msg in selectedLogSession.messages" :key="msg.id" class="log-message" :class="`log-message-${String(msg.role || '').toLowerCase()}`">
+                          <div class="log-avatar">{{ String(msg.role || '').toLowerCase() === 'user' ? 'U' : String(msg.role || '').toLowerCase() === 'tool' ? 'T' : 'AI' }}</div>
+                          <div class="log-message-body">
+                            <div class="log-message-meta">
+                              {{ logRoleLabel(msg.role) }}
+                              <span v-if="msg.turn != null">轮次 {{ msg.turn }}</span>
+                              <span v-if="msg.step != null">步骤 {{ msg.step }}</span>
+                              <span v-if="msg.toolName">工具 {{ msg.toolName }}</span>
+                              <span>{{ msg.createdAt || '' }}</span>
+                            </div>
+                            <div class="log-message-content">{{ msg.content || msg.toolArguments || msg.toolCallsJson || '(无内容)' }}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  </template>
+                  <div v-else class="log-empty-state">
+                    <div class="log-empty-icon">↗</div>
+                    <strong>选择一个会话</strong>
+                    <span class="muted">左侧选择会话后查看完整 Agent 执行链路</span>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </template>
+
+          <template v-else-if="tab === 'logs-old'">
             <section class="panel log-panel">
               <div class="log-toolbar">
                 <div>

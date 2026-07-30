@@ -841,6 +841,227 @@ button, input, select, textarea {
 .log-empty-state { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #475569; }
 .log-empty-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #e0e7ff; color: #4f46e5; font-size: 22px; }
 
+.trace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(92px, 1fr));
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fbff;
+}
+
+.trace-summary-card {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe7f5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.trace-summary-card strong {
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.trace-summary-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace-summary-card.danger {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.trace-summary-card.danger strong {
+  color: #dc2626;
+}
+
+.trace-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  min-height: 0;
+  flex: 1;
+  gap: 12px;
+  padding: 14px 18px 18px;
+  overflow: hidden;
+}
+
+.trace-main-card,
+.trace-side-card,
+.raw-dialog-box {
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.trace-main-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.trace-side-card {
+  padding: 14px;
+  overflow: auto;
+}
+
+.trace-timeline {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  overflow: auto;
+  padding: 2px 4px 2px 0;
+}
+
+.trace-timeline::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 17px;
+  width: 2px;
+  background: #dbeafe;
+  content: "";
+}
+
+.trace-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.trace-node {
+  z-index: 1;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  font-size: 15px;
+}
+
+.trace-event-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+}
+
+.trace-event-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trace-event-title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.trace-event-sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace-event-content {
+  max-height: 260px;
+  margin-top: 10px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #253247;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-detail {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace-detail summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.trace-detail pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.trace-llm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.trace-llm-card {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.trace-mini-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.raw-dialog-box {
+  margin: 0 18px 18px;
+  padding: 12px;
+}
+
+.raw-dialog-box summary {
+  cursor: pointer;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.raw-dialog-box .log-messages {
+  max-height: 360px;
+  padding: 14px 4px 4px;
+}
+
+.pill.success { border-color: #bbf7d0; background: #f0fdf4; color: #15803d; }
+.pill.warning { border-color: #fde68a; background: #fffbeb; color: #b45309; }
+.pill.danger { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+
 .field textarea {
   resize: vertical;
   min-height: 92px;
