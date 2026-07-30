@@ -1,9 +1,14 @@
 package cn.bugstack.ai.trigger.http;
 
+import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
+import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
+import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
+import cn.bugstack.ai.infrastructure.dao.IAiLlmLogDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSignalDao;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
@@ -14,6 +19,7 @@ import cn.bugstack.ai.infrastructure.dao.IAiSessionDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
+import cn.bugstack.ai.infrastructure.dao.po.AiLlmLog;
 import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
@@ -44,12 +50,14 @@ class AgentOperationsControllerTest {
     private IAiFeedbackDao feedbackDao;
     private IAiCaseDao caseDao;
     private ICaseEvidenceDao caseEvidenceDao;
+    private IAiLlmLogDao llmLogDao;
     private AgentMemoryProfileService agentMemoryProfileService;
     private IMemorySummaryDao memorySummaryDao;
     private IAiSessionDao sessionDao;
     private LongTermMemoryPort longTermMemoryPort;
     private ConversationSessionService conversationSessionService;
     private ConversationTraceService conversationTraceService;
+    private AgentRuntimeBindingService agentRuntimeBindingService;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -57,16 +65,19 @@ class AgentOperationsControllerTest {
         feedbackDao = mock(IAiFeedbackDao.class);
         caseDao = mock(IAiCaseDao.class);
         caseEvidenceDao = mock(ICaseEvidenceDao.class);
+        llmLogDao = mock(IAiLlmLogDao.class);
         agentMemoryProfileService = mock(AgentMemoryProfileService.class);
         memorySummaryDao = mock(IMemorySummaryDao.class);
         sessionDao = mock(IAiSessionDao.class);
         longTermMemoryPort = mock(LongTermMemoryPort.class);
         conversationSessionService = mock(ConversationSessionService.class);
         conversationTraceService = mock(ConversationTraceService.class);
+        agentRuntimeBindingService = mock(AgentRuntimeBindingService.class);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
         ReflectionTestUtils.setField(controller, "chatMessageDao", mock(IChatMessageDao.class));
+        ReflectionTestUtils.setField(controller, "llmLogDao", llmLogDao);
         ReflectionTestUtils.setField(controller, "signalDao", mock(IAiSignalDao.class));
         ReflectionTestUtils.setField(controller, "memorySummaryDao", memorySummaryDao);
         ReflectionTestUtils.setField(controller, "memoryStateDao", mock(IMemoryStateDao.class));
@@ -82,6 +93,7 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "memoryQueryAdmissionPolicy", new MemoryQueryAdmissionPolicy());
         ReflectionTestUtils.setField(controller, "conversationSessionService", conversationSessionService);
         ReflectionTestUtils.setField(controller, "conversationTraceService", conversationTraceService);
+        ReflectionTestUtils.setField(controller, "agentRuntimeBindingService", agentRuntimeBindingService);
     }
 
     @Test
@@ -457,5 +469,85 @@ class AgentOperationsControllerTest {
         Map<String, Long> eventStatusCounts = (Map<String, Long>) workbench.get("eventStatusCounts");
         assertEquals(2L, eventStatusCounts.get("SUCCESS"));
         assertEquals(1L, eventStatusCounts.get("VALID"));
+    }
+
+    @Test
+    void runtimeAuditAggregatesBindingsExecutionsAndLlmCalls() {
+        when(agentRuntimeBindingService.assemble("cs", ".", false)).thenReturn(
+                AgentRuntimeBindingService.AgentRuntimeBindings.builder()
+                        .agent(AiAgentVO.builder().agentId("cs").modelId("deepseek-v4-flash").channel("react").build())
+                        .workspace(java.nio.file.Path.of("D:/runtime/cs"))
+                        .skillIds(List.of("demo-skill"))
+                        .mcpIds(List.of("enterprise-demo-mcp"))
+                        .explicitToolIds(List.of("task"))
+                        .effectiveToolIds(List.of("task", "dispatch_subagents", "read_file", "call_mcp_tool"))
+                        .skillMetadataById(Map.of(
+                                "demo-skill",
+                                SkillScannerService.SkillInfo.builder()
+                                        .skillId("demo-skill")
+                                        .skillName("Demo Skill")
+                                        .description("演示技能")
+                                        .content("")
+                                        .build()
+                        ))
+                        .mcpTools(List.of(
+                                AiClientToolMcpVO.builder()
+                                        .mcpId("enterprise-demo-mcp")
+                                        .mcpName("Enterprise Demo MCP")
+                                        .transportType("sse")
+                                        .build()
+                        ))
+                        .build()
+        );
+        when(sessionDao.queryByAgentId("cs", 3)).thenReturn(List.of(
+                AiSession.builder().sessionId("sess-1").agentId("cs").title("运行时审计会话")
+                        .preview("用户反馈 DDR5 商品缺货").modelId("deepseek-v4-flash").messageCount(5).status(1).build()
+        ));
+        when(conversationSessionService.detail("cs", "sess-1")).thenReturn(Map.of(
+                "overview", Map.of(
+                        "latestRouteType", "feedback",
+                        "latestExecutionStatus", "SUCCESS",
+                        "latestModelId", "deepseek-v4-flash",
+                        "latestExecutionId", "exec-1",
+                        "latestExecutionAt", java.time.LocalDateTime.of(2026, 7, 30, 14, 55),
+                        "latestExecutionStep", 3,
+                        "latestExecutionStateJson", "{\"todos\":[{\"content\":\"记录反馈\"},{\"content\":\"评测升级\"}]}"
+                )
+        ));
+        when(conversationTraceService.trace("cs", "sess-1")).thenReturn(
+                new ConversationTraceService.ConversationTrace(
+                        "cs",
+                        "sess-1",
+                        new ConversationTraceService.TraceSummary(5, 2, 3, 1, 1, false),
+                        List.of()
+                )
+        );
+        when(llmLogDao.queryByAgentId("cs", 4)).thenReturn(List.of(
+                AiLlmLog.builder().id(900L).agentId("cs").sessionId("sess-1").modelName("deepseek-v4-flash")
+                        .mode("react").status("success").durationMs(320).totalTokens(1280)
+                        .historyMsgCount(4).foldedMsgCount(1).systemPromptLen(800).userMessageLen(66)
+                        .assistantResponseLen(188).createdAt(null).build()
+        ));
+
+        Map<String, Object> audit = controller.runtimeAudit("cs", 3, 4);
+
+        assertEquals("cs", audit.get("agentId"));
+        assertEquals("D:/runtime/cs", String.valueOf(audit.get("workspace")).replace('\\', '/'));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> runtimeBindings = (Map<String, Object>) audit.get("runtimeBindings");
+        assertEquals("deepseek-v4-flash", runtimeBindings.get("modelId"));
+        assertEquals("react", runtimeBindings.get("channel"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> effectiveTools = (List<Map<String, Object>>) runtimeBindings.get("effectiveTools");
+        assertEquals(4, effectiveTools.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recentExecutions = (List<Map<String, Object>>) audit.get("recentExecutions");
+        assertEquals(1, recentExecutions.size());
+        assertEquals("feedback", recentExecutions.getFirst().get("routeType"));
+        assertEquals(2, recentExecutions.getFirst().get("todoCount"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recentLlmCalls = (List<Map<String, Object>>) audit.get("recentLlmCalls");
+        assertEquals(1, recentLlmCalls.size());
+        assertEquals(1280, recentLlmCalls.getFirst().get("totalTokens"));
     }
 }

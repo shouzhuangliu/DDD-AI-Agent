@@ -3,8 +3,11 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.api.dto.operations.ExplicitFeedbackRequest;
 import cn.bugstack.ai.api.dto.operations.ManualFeedbackRequest;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
+import cn.bugstack.ai.infrastructure.dao.IAiLlmLogDao;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSignalDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
@@ -15,6 +18,7 @@ import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSessionDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
+import cn.bugstack.ai.infrastructure.dao.po.AiLlmLog;
 import cn.bugstack.ai.infrastructure.dao.po.CaseEvidence;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.infrastructure.dao.po.AiSession;
@@ -48,6 +52,7 @@ public class AgentOperationsController {
     @Resource private IAiFeedbackDao feedbackDao;
     @Resource private IAiCaseDao caseDao;
     @Resource private IChatMessageDao chatMessageDao;
+    @Resource private IAiLlmLogDao llmLogDao;
     @Resource private IAiSignalDao signalDao;
     @Resource private IMemorySummaryDao memorySummaryDao;
     @Resource private IMemoryStateDao memoryStateDao;
@@ -63,6 +68,7 @@ public class AgentOperationsController {
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     @Resource private ConversationSessionService conversationSessionService;
     @Resource private ConversationTraceService conversationTraceService;
+    @Resource private AgentRuntimeBindingService agentRuntimeBindingService;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
     private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
@@ -456,6 +462,36 @@ public class AgentOperationsController {
         return result;
     }
 
+    @GetMapping("/workspace/runtime-audit")
+    public Map<String, Object> runtimeAudit(@PathVariable("agentId") String agentId,
+                                            @RequestParam(value = "sessionLimit", defaultValue = "5") int sessionLimit,
+                                            @RequestParam(value = "llmLimit", defaultValue = "10") int llmLimit) {
+        int boundedSessionLimit = bounded(sessionLimit);
+        int boundedLlmLimit = bounded(llmLimit);
+        AgentRuntimeBindingService.AgentRuntimeBindings bindings = agentRuntimeBindingService.assemble(agentId, ".", false);
+        List<AiSession> sessions = sessionDao.queryByAgentId(agentId, boundedSessionLimit);
+        List<Map<String, Object>> recentSessions = sessions.stream()
+                .map(this::sessionQueueView)
+                .toList();
+        List<Map<String, Object>> recentExecutions = sessions.stream()
+                .map(session -> executionAuditView(agentId, safe(session.getSessionId())))
+                .filter(item -> !item.isEmpty())
+                .toList();
+        List<Map<String, Object>> llmLogs = llmLogDao.queryByAgentId(agentId, boundedLlmLimit).stream()
+                .map(this::llmAuditView)
+                .toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("workspace", bindings.getWorkspace() == null ? "" : bindings.getWorkspace().toString());
+        result.put("runtimeBindings", runtimeBindingsView(bindings));
+        result.put("recentSessions", recentSessions);
+        result.put("recentExecutions", recentExecutions);
+        result.put("recentLlmCalls", llmLogs);
+        result.put("generatedAt", LocalDateTime.now());
+        return result;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> invalid(IllegalArgumentException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -469,6 +505,147 @@ public class AgentOperationsController {
     }
 
     private int bounded(int limit) { return Math.max(1, Math.min(200, limit)); }
+
+    private Map<String, Object> runtimeBindingsView(AgentRuntimeBindingService.AgentRuntimeBindings bindings) {
+        Map<String, ReActToolAllowlistPolicy.ToolOption> toolOptionMap = ReActToolAllowlistPolicy.options().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        ReActToolAllowlistPolicy.ToolOption::toolId,
+                        option -> option,
+                        (first, ignored) -> first,
+                        java.util.LinkedHashMap::new));
+        List<Map<String, Object>> skills = bindings.getSkillIds().stream()
+                .map(skillId -> {
+                    var metadata = bindings.getSkillMetadataById().get(skillId);
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("skillId", skillId);
+                    item.put("skillName", metadata == null ? skillId : firstNonBlank(metadata.getSkillName(), skillId));
+                    item.put("description", metadata == null ? "" : firstNonBlank(metadata.getDescription(), ""));
+                    item.put("runtimeAvailable", metadata != null);
+                    item.put("runtimePath", ".ma/skills/" + skillId + "/SKILL.md");
+                    return item;
+                })
+                .toList();
+        List<Map<String, Object>> mcps = bindings.getMcpIds().stream()
+                .map(mcpId -> bindings.getMcpTools().stream()
+                        .filter(item -> mcpId.equals(item.getMcpId()))
+                        .findFirst()
+                        .map(item -> {
+                            Map<String, Object> row = new LinkedHashMap<>();
+                            row.put("mcpId", firstNonBlank(item.getMcpId(), mcpId));
+                            row.put("mcpName", firstNonBlank(item.getMcpName(), mcpId));
+                            row.put("transportType", firstNonBlank(item.getTransportType(), ""));
+                            row.put("runtimeAvailable", true);
+                            return row;
+                        })
+                        .orElseGet(() -> Map.of(
+                                "mcpId", mcpId,
+                                "mcpName", mcpId,
+                                "transportType", "",
+                                "runtimeAvailable", false
+                        )))
+                .toList();
+        List<Map<String, Object>> explicitTools = bindings.getExplicitToolIds().stream()
+                .map(toolId -> toolView(toolOptionMap.get(toolId), "agent_binding"))
+                .filter(item -> !item.isEmpty())
+                .toList();
+        List<Map<String, Object>> effectiveTools = bindings.getEffectiveToolIds().stream()
+                .map(toolId -> toolView(toolOptionMap.get(toolId),
+                        impliedToolSource(toolId, bindings.getExplicitToolIds(), bindings.getSkillIds(), bindings.getMcpIds())))
+                .filter(item -> !item.isEmpty())
+                .toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", safe(bindings.getAgent().getAgentId()));
+        result.put("modelId", safe(bindings.getAgent().getModelId()));
+        result.put("channel", safe(bindings.getAgent().getChannel()));
+        result.put("explicitToolIds", bindings.getExplicitToolIds());
+        result.put("effectiveToolIds", bindings.getEffectiveToolIds());
+        result.put("skills", skills);
+        result.put("mcps", mcps);
+        result.put("explicitTools", explicitTools);
+        result.put("effectiveTools", effectiveTools);
+        return result;
+    }
+
+    private Map<String, Object> toolView(ReActToolAllowlistPolicy.ToolOption option, String source) {
+        if (option == null) return Map.of();
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("toolId", option.toolId());
+        item.put("name", option.name());
+        item.put("description", option.description());
+        item.put("riskLevel", option.riskLevel());
+        item.put("source", source);
+        return item;
+    }
+
+    private Map<String, Object> executionAuditView(String agentId, String sessionId) {
+        if (blank(sessionId)) return Map.of();
+        Map<String, Object> detail = conversationSessionService.detail(agentId, sessionId);
+        ConversationTraceService.ConversationTrace trace = conversationTraceService.trace(agentId, sessionId);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> overview = (Map<String, Object>) detail.getOrDefault("overview", Map.of());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("sessionId", sessionId);
+        result.put("routeType", safe((String) overview.get("latestRouteType")));
+        result.put("executionStatus", safe((String) overview.get("latestExecutionStatus")));
+        result.put("modelId", safe((String) overview.get("latestModelId")));
+        result.put("executionId", safe((String) overview.get("latestExecutionId")));
+        result.put("toolCallCount", trace.summary().toolCalls());
+        result.put("llmCallCount", trace.summary().llmCalls());
+        result.put("feedbackCount", trace.summary().feedbackCount());
+        result.put("caseCount", trace.summary().caseCount());
+        result.put("hasFailure", trace.summary().hasFailure());
+        result.put("latestExecutionAt", overview.get("latestExecutionAt"));
+        result.put("latestExecutionStep", overview.get("latestExecutionStep"));
+        result.put("todoCount", countTodoFromStateJson((String) overview.get("latestExecutionStateJson")));
+        return result;
+    }
+
+    private Map<String, Object> llmAuditView(AiLlmLog log) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", log.getId());
+        item.put("sessionId", safe(log.getSessionId()));
+        item.put("modelName", safe(log.getModelName()));
+        item.put("mode", safe(log.getMode()));
+        item.put("status", safe(log.getStatus()));
+        item.put("durationMs", log.getDurationMs() == null ? 0 : log.getDurationMs());
+        item.put("totalTokens", log.getTotalTokens() == null ? 0 : log.getTotalTokens());
+        item.put("historyMsgCount", log.getHistoryMsgCount() == null ? 0 : log.getHistoryMsgCount());
+        item.put("foldedMsgCount", log.getFoldedMsgCount() == null ? 0 : log.getFoldedMsgCount());
+        item.put("systemPromptLen", log.getSystemPromptLen() == null ? 0 : log.getSystemPromptLen());
+        item.put("userMessageLen", log.getUserMessageLen() == null ? 0 : log.getUserMessageLen());
+        item.put("assistantResponseLen", log.getAssistantResponseLen() == null ? 0 : log.getAssistantResponseLen());
+        item.put("errorMessage", safe(log.getErrorMessage()));
+        item.put("createdAt", log.getCreatedAt());
+        return item;
+    }
+
+    private int countTodoFromStateJson(String stateJson) {
+        if (blank(stateJson)) return 0;
+        try {
+            com.alibaba.fastjson2.JSONObject root = com.alibaba.fastjson2.JSON.parseObject(stateJson);
+            com.alibaba.fastjson2.JSONArray todos = root == null ? null : root.getJSONArray("todos");
+            return todos == null ? 0 : todos.size();
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private String firstNonBlank(String first, String fallback) {
+        return blank(first) ? safe(fallback) : safe(first);
+    }
+
+    private String impliedToolSource(String toolId, List<String> explicitToolIds, List<String> skillIds, List<String> mcpIds) {
+        String normalized = firstNonBlank(toolId, "").trim().toLowerCase();
+        if ((explicitToolIds == null ? List.<String>of() : explicitToolIds).contains(normalized)) return "agent_binding";
+        if (ReActToolAllowlistPolicy.READ_FILE.equals(normalized) && skillIds != null && !skillIds.isEmpty()) return "skill_binding";
+        if (ReActToolAllowlistPolicy.CALL_MCP_TOOL.equals(normalized) && mcpIds != null && !mcpIds.isEmpty()) return "mcp_binding";
+        if (ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS.equals(normalized)
+                && (explicitToolIds == null ? List.<String>of() : explicitToolIds).contains(ReActToolAllowlistPolicy.TASK)) {
+            return "task_cascade";
+        }
+        return "agent_binding";
+    }
 
     private Map<String, Object> memorySummaryReadiness(cn.bugstack.ai.infrastructure.dao.po.MemorySummary summary) {
         MemoryQueryAdmissionPolicy.AdmissionDecision decision =
