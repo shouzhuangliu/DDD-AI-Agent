@@ -55,12 +55,19 @@ public class LlmLogObservationAssembler {
             logs.sort(Comparator.comparing(AiLlmLog::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
             List<TraceMessage> trace = (messages == null ? List.<ChatMessage>of() : messages).stream()
                     .filter(message -> agentId.equals(message.getAgentId()))
-                    .map(message -> new TraceMessage(message.getId(), message.getTurn(), message.getStep(), message.getRole(),
+                    .map(message -> new TraceMessage(message.getId(), message.getSessionId(), message.getAgentId(),
+                            message.getTurn(), message.getStep(), message.getRole(),
                             message.getContent(), message.getToolCallId(), message.getToolName(), message.getToolArguments(),
                             message.getToolCallsJson(), message.getCreatedAt()))
                     .toList();
-            LocalDateTime lastSeenAt = logs.stream().map(AiLlmLog::getCreatedAt).filter(value -> value != null)
+            LocalDateTime lastLogAt = logs.stream().map(AiLlmLog::getCreatedAt).filter(value -> value != null)
                     .max(LocalDateTime::compareTo).orElse(null);
+            LocalDateTime lastMessageAt = trace.stream().map(TraceMessage::createdAt).filter(value -> value != null)
+                    .max(LocalDateTime::compareTo).orElse(null);
+            LocalDateTime lastSeenAt = java.util.stream.Stream.of(lastLogAt, lastMessageAt)
+                    .filter(value -> value != null)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
             int totalTokens = logs.stream().map(AiLlmLog::getTotalTokens).filter(value -> value != null).mapToInt(Integer::intValue).sum();
             int toolCalls = (int) trace.stream().filter(message -> "tool".equalsIgnoreCase(message.role())
                     || (message.toolCallsJson() != null && !message.toolCallsJson().isBlank())).count();
@@ -71,6 +78,6 @@ public class LlmLogObservationAssembler {
     public record AgentGroup(String agentId, int totalCalls, int sessionCount, int totalTokens, List<SessionGroup> sessions) {}
     public record SessionGroup(String sessionId, LocalDateTime lastSeenAt, int callCount, int totalTokens, int toolCalls,
                                List<AiLlmLog> logs, List<TraceMessage> messages) {}
-    public record TraceMessage(Long id, Integer turn, Integer step, String role, String content, String toolCallId,
+    public record TraceMessage(Long id, String sessionId, String agentId, Integer turn, Integer step, String role, String content, String toolCallId,
                                String toolName, String toolArguments, String toolCallsJson, LocalDateTime createdAt) {}
 }
