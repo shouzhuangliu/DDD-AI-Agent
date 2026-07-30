@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 
 const defaultApiBase = import.meta.env.VITE_API_BASE || '/api/v1';
@@ -25,6 +25,9 @@ const selectedFeedback = ref(null);
 const feedback = ref([]);
 const signals = ref([]);
 const memories = ref([]);
+const memoryRecallQuery = ref('');
+const memoryRecallResults = ref([]);
+const memoryRecallLoading = ref(false);
 const sessions = ref([]);
 const currentSessionId = ref('');
 const sessionDetail = ref(null);
@@ -138,15 +141,9 @@ const FEEDBACK_ACTIONS = {
     { status: 'VALID', label: '退回升级判断' },
     { status: 'INVALID', label: '判定无效' },
   ],
-  INVALID: [
-    { status: 'OPEN', label: '重新打开' },
-  ],
-  PROMOTED: [
-    { status: 'RESOLVED', label: '关闭反馈' },
-  ],
-  RESOLVED: [
-    { status: 'OPEN', label: '重新打开' },
-  ],
+  INVALID: [{ status: 'OPEN', label: '重新打开' }],
+  PROMOTED: [{ status: 'RESOLVED', label: '关闭反馈' }],
+  RESOLVED: [{ status: 'OPEN', label: '重新打开' }],
 };
 
 const CASE_STATUS_TEXT = {
@@ -188,38 +185,38 @@ const dashboardCards = computed(() => ([
   { label: '候选Case', value: stats.value.candidateCases ?? 0 },
   { label: '待审核Case', value: stats.value.pendingCases ?? 0 },
   { label: '处理中Case', value: stats.value.inProgressCases ?? stats.value.highPriorityCases ?? 0 },
-  { label: '已解决案例', value: stats.value.resolvedCases ?? 0 },
-  { label: '满意度', value: `${stats.value.satisfactionRate ?? 0}%` },
+  { label: '已解决Case', value: stats.value.resolvedCases ?? 0 },
+  { label: '满意度', value: String(stats.value.satisfactionRate ?? 0) + '%' },
 ]));
 
 const STATUS_LABELS = {
-  CANDIDATE: '状态',
-  PENDING_REVIEW: '状态',
-  CONFIRMED: '状态',
-  IN_PROGRESS: '状态',
-  RESOLVED: '状态',
-  ARCHIVED: '状态',
-  IGNORED: '状态',
-  MERGED: '状态',
-  OPEN: '状态',
-  OBSERVED: '状态',
-  AI_EVALUATING: '状态',
-  NEED_MORE_INFO: '状态',
-  VALID: '状态',
-  VALIDATED: '状态',
-  CLUSTERED: '状态',
-  PROMOTED: '状态',
-  INVALID: '状态',
-  DRAFT: '状态',
-  CONNECTIVITY_CHECKED: '状态',
-  DISCOVERED: '状态',
-  SCANNED: '状态',
-  TESTED: '状态',
-  IN_REVIEW: '状态',
-  APPROVED: '状态',
-  SIGNED: '状态',
-  RELEASED: '状态',
-  ACTIVE: '状态',
+  CANDIDATE: '候选',
+  PENDING_REVIEW: '待审核',
+  CONFIRMED: '已确认',
+  IN_PROGRESS: '处理中',
+  RESOLVED: '已解决',
+  ARCHIVED: '已归档',
+  IGNORED: '已忽略',
+  MERGED: '已合并',
+  OPEN: '新反馈',
+  OBSERVED: 'AI观察',
+  AI_EVALUATING: 'AI评测中',
+  NEED_MORE_INFO: '需补充信息',
+  VALID: '有效',
+  VALIDATED: '已验证',
+  CLUSTERED: '已聚类',
+  PROMOTED: '已升级',
+  INVALID: '无效',
+  DRAFT: '草稿',
+  CONNECTIVITY_CHECKED: '连接已检查',
+  DISCOVERED: '已发现',
+  SCANNED: '已扫描',
+  TESTED: '已测试',
+  IN_REVIEW: '审核中',
+  APPROVED: '已批准',
+  SIGNED: '已签名',
+  RELEASED: '已发布',
+  ACTIVE: '启用',
 };
 
 function pick(obj, ...keys) {
@@ -267,7 +264,7 @@ function joinUrl(base, path) {
 function labelStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
   const overrides = {
-    CANDIDATE: '候选案例',
+    CANDIDATE: '候选Case',
     PENDING_REVIEW: '待人工审核',
     CONFIRMED: '已确认',
     IN_PROGRESS: '处理中',
@@ -281,7 +278,7 @@ function labelStatus(value) {
     NEED_MORE_INFO: '需要补充信息',
     VALID: '待升级判断',
     VALIDATED: '已验证',
-    CLUSTERED: '待升级 Case',
+    CLUSTERED: '待升级Case',
     PROMOTED: '已升级为 Case',
     INVALID: '无效反馈',
     DRAFT: '草稿',
@@ -305,7 +302,6 @@ function labelStatus(value) {
   };
   return overrides[normalized] || STATUS_LABELS[normalized] || value || '';
 }
-
 function routeTypeText(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return {
@@ -333,12 +329,12 @@ function executionStatusLabel(value) {
 function feedbackSourceLabel(value) {
   const normalized = String(value || '').trim().toUpperCase();
   return {
-    AI_INFERRED: '自动识别',
-    EXPLICIT: '用户显式反馈',
-    USER: '用户反馈',
-    OPERATIONS: '运维反馈',
-    TEST: '测试反馈',
-  }[normalized] || (value || '反馈');
+    AI_INFERRED: '鑷姩璇嗗埆',
+    EXPLICIT: '鐢ㄦ埛鏄惧紡鍙嶉',
+    USER: '鐢ㄦ埛鍙嶉',
+    OPERATIONS: '杩愮淮鍙嶉',
+    TEST: '娴嬭瘯鍙嶉',
+  }[normalized] || (value || '鍙嶉');
 }
 
 function isBusinessFeedbackItem(item) {
@@ -400,7 +396,7 @@ async function request(path, options = {}, fallback = NO_FALLBACK) {
     });
     const data = await readJson(res);
     if (!res.ok) throw new Error((data && data.message) || `HTTP ${res.status}`);
-      if (data && data.success === false) throw new Error(data.message || '请求失败');
+      if (data && data.success === false) throw new Error(data.message || '璇锋眰澶辫触');
     return data;
   } catch (err) {
     if (fallback !== NO_FALLBACK) return fallback;
@@ -416,14 +412,14 @@ async function requestForm(path, formData, headers = {}) {
   });
   const data = await readJson(res);
   if (!res.ok) throw new Error((data && data.message) || `HTTP ${res.status}`);
-    if (data && data.success === false) throw new Error(data.message || '请求失败');
+    if (data && data.success === false) throw new Error(data.message || '璇锋眰澶辫触');
   return data;
 }
 
 async function withLoading(task) {
   loadingCount += 1;
   loading.value = true;
-  // 防抖：仅当请求持续超过 150ms 才显示浮动加载药丸，快速请求不再闪烁。
+  // 闃叉姈锛氫粎褰撹姹傛寔缁秴杩?150ms 鎵嶆樉绀烘诞鍔ㄥ姞杞借嵂涓革紝蹇€熻姹備笉鍐嶉棯鐑併€?
   if (loadingCount === 1 && !loadingTimer) {
     loadingTimer = setTimeout(() => { loadingVisible.value = true; }, 150);
   }
@@ -486,6 +482,25 @@ async function loadDashboardData(agentId = selectedAgentId.value) {
   signals.value = normalizeList(signalData);
   memories.value = normalizeList(memoryData);
   agentProfile.value = profileData?.profile || null;
+  memoryRecallResults.value = [];
+}
+
+async function recallLongTermMemory() {
+  const query = String(memoryRecallQuery.value || '').trim();
+  if (!selectedAgentId.value || !query) {
+    memoryRecallResults.value = [];
+    return;
+  }
+  memoryRecallLoading.value = true;
+  try {
+    memoryRecallResults.value = normalizeList(await request(
+      `/agents/${encodeURIComponent(selectedAgentId.value)}/memory/recall?query=${encodeURIComponent(query)}&limit=8`,
+      {},
+      [],
+    ));
+  } finally {
+    memoryRecallLoading.value = false;
+  }
 }
 
 async function loadDashboard() {
@@ -558,30 +573,30 @@ function feedbackActionList(item) {
 function feedbackStatusHint(status) {
   const normalized = String(status || '').toUpperCase();
   return {
-    OPEN: '新进入队列，等待人工提交 AI 评测或直接判定无效。',
-    AI_EVALUATING: '正在确认这条反馈是否属于当前 Agent 负责的业务问题。',
-    NEED_MORE_INFO: '证据不足，需要补充商品型号、页面入口、订单号或截图等上下文。',
-    VALID: '已确认是有效业务反馈，下一步可以升级为 Case 或先归并同类问题。',
-    CLUSTERED: '已进入待升级问题簇，适合和同类反馈合并后统一升级。',
-    PROMOTED: '已升级为 Case，后续进入案例审核、处理和复盘流程。',
-    RESOLVED: '反馈流程已经关闭，如后续再次出现可以重新打开。',
-    INVALID: '已判定为无效反馈，或暂不属于当前 Agent 的业务范围。',
-  }[normalized] || '当前反馈正在流转中。';
+    OPEN: '鏂拌繘鍏ラ槦鍒楋紝绛夊緟浜哄伐鎻愪氦 AI 璇勬祴鎴栫洿鎺ュ垽瀹氭棤鏁堛€?',
+    AI_EVALUATING: '姝ｅ湪纭杩欐潯鍙嶉鏄惁灞炰簬褰撳墠 Agent 璐熻矗鐨勪笟鍔￠棶棰樸€?',
+    NEED_MORE_INFO: '璇佹嵁涓嶈冻锛岄渶瑕佽ˉ鍏呭晢鍝佸瀷鍙枫€侀〉闈㈠叆鍙ｃ€佽鍗曞彿鎴栨埅鍥剧瓑涓婁笅鏂囥€?',
+    VALID: '宸茬‘璁ゆ槸鏈夋晥涓氬姟鍙嶉锛屼笅涓€姝ュ彲浠ュ崌绾т负 Case 鎴栧厛褰掑苟鍚岀被闂銆?',
+    CLUSTERED: '宸茶繘鍏ュ緟鍗囩骇闂绨囷紝閫傚悎鍜屽悓绫诲弽棣堝悎骞跺悗缁熶竴鍗囩骇銆?',
+    PROMOTED: '宸插崌绾т负 Case锛屽悗缁繘鍏ユ渚嬪鏍搞€佸鐞嗗拰澶嶇洏娴佺▼銆?',
+    RESOLVED: '鍙嶉娴佺▼宸茬粡鍏抽棴锛屽鍚庣画鍐嶆鍑虹幇鍙互閲嶆柊鎵撳紑銆?',
+    INVALID: '宸插垽瀹氫负鏃犳晥鍙嶉锛屾垨鏆備笉灞炰簬褰撳墠 Agent 鐨勪笟鍔¤寖鍥淬€?',
+  }[normalized] || '褰撳墠鍙嶉姝ｅ湪娴佽浆涓€?';
 }
 
 function feedbackNextStep(item) {
   const actions = feedbackActions(item?.status);
-  if (!actions.length) return '当前阶段暂无可执行动作。';
-  return `建议下一步：${actions.map(action => action.label).join(' / ')}`;
+  if (!actions.length) return '褰撳墠闃舵鏆傛棤鍙墽琛屽姩浣溿€?';
+  return `寤鸿涓嬩竴姝ワ細${actions.map(action => action.label).join(' / ')}`;
 }
 
 function feedbackEvidenceChips(item) {
   const text = String(item?.message || '').toLowerCase();
   const chips = [];
-  if (/\d{2,}/.test(text)) chips.push('包含数字线索');
-  if (/(sku|型号|model|ddr|显卡|内存|品牌|id)/i.test(text)) chips.push('包含商品或型号线索');
-  if (/(页面|列表|详情|接口|api|下单|库存|支付|订单)/i.test(text)) chips.push('包含业务位置线索');
-  if (/(截图|日志|报错|异常|不一致|失败|超时|缺货|补货|缺失)/i.test(text)) chips.push('包含问题证据线索');
+  if (/\d{2,}/.test(text)) chips.push('鍖呭惈鏁板瓧绾跨储');
+  if (/(sku|鍨嬪彿|model|ddr|鏄惧崱|鍐呭瓨|鍝佺墝|id)/i.test(text)) chips.push('鍖呭惈鍟嗗搧鎴栧瀷鍙风嚎绱?');
+  if (/(椤甸潰|鍒楄〃|璇︽儏|鎺ュ彛|api|涓嬪崟|搴撳瓨|鏀粯|璁㈠崟)/i.test(text)) chips.push('鍖呭惈涓氬姟浣嶇疆绾跨储');
+  if (/(鎴浘|鏃ュ織|鎶ラ敊|寮傚父|涓嶄竴鑷磡澶辫触|瓒呮椂|缂鸿揣|琛ヨ揣|缂哄け)/i.test(text)) chips.push('鍖呭惈闂璇佹嵁绾跨储');
   return chips;
 }
 
@@ -589,15 +604,14 @@ function feedbackReasonText(item) {
   if (!item) return '暂无评测说明。';
   if (item.evaluationReason) return item.evaluationReason;
   const status = String(item.status || '').toUpperCase();
-  const category = item.category ? `分类：${item.category}。` : '';
   const chips = feedbackEvidenceChips(item);
-  const evidence = chips.length ? `已识别${chips.join('、')}。` : '暂未识别到足够证据线索。';
-  if (status === 'NEED_MORE_INFO') return `${category}${evidence} 当前能判断这是业务相关反馈，但缺少足够上下文，暂时不能稳定升级为 Case。`;
-  if (status === 'VALID') return `${category}${evidence} 已具备“问题描述 + 业务对象 + 基础证据”，可以进入待升级或直接转 Case。`;
-  if (status === 'PROMOTED') return `${category}${evidence} 这条反馈已满足升级条件，已进入 Case 工作流。`;
-  if (status === 'INVALID') return `${category}${evidence} 当前描述更像测试语句、问候或缺少明确业务问题，暂不纳入有效反馈。`;
-  if (status === 'AI_EVALUATING') return `${category}${evidence} 系统正在确认它是否属于当前 Agent 的业务范围，以及是否达到升级阈值。`;
-  return `${category}${evidence}`;
+  const evidence = chips.length ? '已识别：' + chips.join('、') + '。' : '暂未识别到足够证据线索。';
+  if (status === 'NEED_MORE_INFO') return evidence + ' 当前可判断为业务相关反馈，但还缺少上下文，暂不能稳定升级为 Case。';
+  if (status === 'VALID') return evidence + ' 已具备问题描述、业务对象和基础证据，可进入待升级判断。';
+  if (status === 'PROMOTED') return evidence + ' 已升级为 Case，进入处理工作流。';
+  if (status === 'INVALID') return evidence + ' 当前暂不纳入有效业务反馈。';
+  if (status === 'AI_EVALUATING') return evidence + ' 系统正在确认业务范围和升级阈值。';
+  return evidence;
 }
 
 function feedbackActionAdvice(item) {
@@ -605,9 +619,9 @@ function feedbackActionAdvice(item) {
   if (item.nextAction) return item.nextAction;
   const status = String(item.status || '').toUpperCase();
   if (status === 'NEED_MORE_INFO') return '建议补充商品型号、页面位置、订单号、截图或稳定复现场景。';
-  if (status === 'VALID') return '建议由运营或开发确认是否与历史同类反馈合并，再决定是否升级为 Case。';
+  if (status === 'VALID') return '建议确认是否与历史同类反馈合并，再决定是否升级为 Case。';
   if (status === 'PROMOTED') return '建议进入 Case 审核、指派负责人并补充处理进展。';
-  if (status === 'INVALID') return '如果这是真实业务问题，请补充具体业务对象和异常表现后重新提交。';
+  if (status === 'INVALID') return '如果是真实业务问题，请补充具体对象和异常表现后重新提交。';
   return feedbackNextStep(item);
 }
 
@@ -679,11 +693,11 @@ async function saveCaseMerge() {
   const form = modal.form;
   const targetCaseId = String(form.targetCaseId || '').trim();
   if (!targetCaseId) {
-    error.value = '合并 Case 必须填写目标 Case ID';
+    error.value = '鍚堝苟 Case 蹇呴』濉啓鐩爣 Case ID';
     return;
   }
   if (targetCaseId === String(modal.extra.caseId || '').trim()) {
-    error.value = '不能把 Case 合并到自己';
+    error.value = '涓嶈兘鎶?Case 鍚堝苟鍒拌嚜宸?';
     return;
   }
   modal.saving = true;
@@ -721,7 +735,7 @@ async function saveFeedbackTransition() {
   const form = modal.form;
   const toStatus = String(form.toStatus || '').toUpperCase();
   if (['INVALID', 'PROMOTED'].includes(toStatus) && !String(form.reason || '').trim()) {
-    error.value = '标记无效或升级为Case时必须填写处理说明';
+    error.value = '鏍囪鏃犳晥鎴栧崌绾т负Case鏃跺繀椤诲～鍐欏鐞嗚鏄?';
     return;
   }
   modal.saving = true;
@@ -834,7 +848,7 @@ async function newChat() {
   if (!selectedAgentId.value) return;
   const created = await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/sessions`, {
     method: 'POST',
-    body: { title: '新对话', modelId: chatModelId.value || '' },
+    body: { title: '鏂板璇?', modelId: chatModelId.value || '' },
   });
   currentSessionId.value = created?.sessionId || created?.session?.sessionId || '';
   await loadConversationPage(selectedAgentId.value);
@@ -842,10 +856,10 @@ async function newChat() {
 
 function sessionName(session) {
   const title = String(session?.title || '').trim();
-  const defaultTitles = ['新对话', 'New chat', 'New Chat'];
+  const defaultTitles = ['鏂板璇?', 'New chat', 'New Chat'];
   if (title && !defaultTitles.includes(title)) return title;
   const preview = String(session?.preview || '').replace(/\s+/g, ' ').trim();
-  return preview.slice(0, 5) || '新对话';
+  return preview.slice(0, 5) || '鏂板璇?';
 }
 
 function appendTrace(type, subType, step, content) {
@@ -868,17 +882,17 @@ function handleStreamEvent(payload) {
   if (type === 'subagent_started') {
     subagentTasks[payload.taskId] = {
       taskId: payload.taskId,
-      description: payload.description || '子任务',
+      description: payload.description || '瀛愪换鍔?',
       status: 'RUNNING',
       result: '',
       error: '',
     };
-    chatStatus.value = '子任务执行中...';
+    chatStatus.value = '瀛愪换鍔℃墽琛屼腑...';
     return;
   }
   if (type === 'subagent_completed' || type === 'subagent_failed'
     || type === 'subagent_cancelled' || type === 'subagent_timed_out') {
-    const task = subagentTasks[payload.taskId] || { taskId: payload.taskId, description: '子任务' };
+    const task = subagentTasks[payload.taskId] || { taskId: payload.taskId, description: '瀛愪换鍔?' };
     task.status = payload.status || (type === 'subagent_completed' ? 'COMPLETED'
       : type === 'subagent_cancelled' ? 'CANCELLED'
         : type === 'subagent_timed_out' ? 'TIMED_OUT' : 'FAILED');
@@ -890,7 +904,7 @@ function handleStreamEvent(payload) {
   if (type === 'subagent_trace') {
     const task = subagentTasks[payload.taskId] || {
       taskId: payload.taskId,
-      description: '子任务',
+      description: '瀛愪换鍔?',
       status: 'RUNNING',
       traces: [],
     };
@@ -918,15 +932,15 @@ function clearExecutionProgress() {
 
 function executionStatusText(status) {
   return {
-    PENDING: '排队中',
-    RUNNING: '执行中',
-    CANCEL_REQUESTED: '正在停止',
-    COMPLETED: '已完成',
-    FAILED: '失败',
-    CANCELLED: '已取消',
-    TIMED_OUT: '已超时',
-    IN_PROGRESS: '进行中',
-  }[status] || status || '未知';
+    PENDING: '鎺掗槦涓?',
+    RUNNING: '鎵ц涓?',
+    CANCEL_REQUESTED: '姝ｅ湪鍋滄',
+    COMPLETED: '宸插畬鎴?',
+    FAILED: '澶辫触',
+    CANCELLED: '宸插彇娑?',
+    TIMED_OUT: '宸茶秴鏃?',
+    IN_PROGRESS: '杩涜涓?',
+  }[status] || status || '鏈煡';
 }
 
 async function cancelSubagentTask(taskId) {
@@ -944,7 +958,7 @@ async function cancelSubagentTask(taskId) {
 
 async function cancelMainExecution() {
   if (!currentExecutionId.value || !isStreaming.value) return;
-  chatStatus.value = '正在等待当前工具完成...';
+  chatStatus.value = '姝ｅ湪绛夊緟褰撳墠宸ュ叿瀹屾垚...';
   try {
     await request(`/agent/executions/${encodeURIComponent(currentExecutionId.value)}/cancel`, { method: 'POST' }, {});
   } catch (err) {
@@ -970,7 +984,7 @@ async function sendMessage() {
   appendTrace('chat', '', '', message);
 
   isStreaming.value = true;
-  chatStatus.value = '处理中...';
+  chatStatus.value = '澶勭悊涓?..';
 
   try {
     const response = await fetch(joinUrl(apiBase.value, '/agent/auto_agent'), {
@@ -1029,7 +1043,7 @@ async function loadModelsPage() {
 }
 
 function openModelCreate() {
-  setModal('model', '模型配置', 'create', {
+  setModal('model', '妯″瀷閰嶇疆', 'create', {
     modelId: '',
     modelName: '',
     modelStatus: 1,
@@ -1044,7 +1058,7 @@ async function openModelEdit(item) {
   const apiId = pick(item, 'apiId');
   const detail = apiId ? await request(`/client-apis/${encodeURIComponent(apiId)}`, {}, { api: null }) : { api: null };
   const api = detail?.api || {};
-  setModal('model', '编辑模型 ' + pick(item, 'modelId'), 'edit', {
+  setModal('model', '缂栬緫妯″瀷 ' + pick(item, 'modelId'), 'edit', {
     modelId: pick(item, 'modelId'),
     modelName: pick(item, 'modelName'),
     modelStatus: Number(pick(item, 'status') ?? 1),
@@ -1123,11 +1137,11 @@ function defaultAgentModelId() {
 
 function effectiveToolSourceLabel(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'agent_binding') return '手动勾选';
-  if (normalized === 'skill_binding') return '由 Skill 自动赋能';
-  if (normalized === 'mcp_binding') return '由 MCP 自动赋能';
-  if (normalized === 'task_cascade') return '由子任务能力级联';
-  return '未知来源';
+  if (normalized === 'agent_binding') return '鎵嬪姩鍕鹃€?';
+  if (normalized === 'skill_binding') return '鐢?Skill 鑷姩璧嬭兘';
+  if (normalized === 'mcp_binding') return '鐢?MCP 鑷姩璧嬭兘';
+  if (normalized === 'task_cascade') return '鐢卞瓙浠诲姟鑳藉姏绾ц仈';
+  return '鏈煡鏉ユ簮';
 }
 
 function runtimeAvailabilityClass(value) {
@@ -1140,14 +1154,14 @@ function runtimeAvailabilityText(item, fallbackAvailable, fallbackUnavailable) {
 }
 
 function modelLabel(modelId) {
-  if (!modelId) return '未绑定';
+  if (!modelId) return '鏈粦瀹?';
   const found = models.value.find(item => item.modelId === modelId);
   return found ? (found.modelName || found.modelId) : modelId;
 }
 
 async function openAgentCreate() {
   await loadAgentBindingOptions();
-  setModal('agent', '配置智能体', 'create', {
+  setModal('agent', '閰嶇疆鏅鸿兘浣?', 'create', {
     agentId: '',
     agentName: '',
     description: '',
@@ -1178,7 +1192,7 @@ async function openAgentEdit(agentId) {
     mcps: [],
     tools: [],
   };
-  setModal('agent', '编辑智能体 ' + (agent.agentName || agent.agentId), 'edit', {
+  setModal('agent', '缂栬緫鏅鸿兘浣?' + (agent.agentName || agent.agentId), 'edit', {
     agentId: agent.agentId,
     agentName: agent.agentName || '',
     description: agent.description || '',
@@ -1281,7 +1295,7 @@ async function loadMcpVersions(serverId) {
 }
 
 function openMcpCreate() {
-  setModal('mcpServer', '新建 MCP', 'create', {
+  setModal('mcpServer', '鏂板缓 MCP', 'create', {
     mcpKey: '',
     name: '',
     description: '',
@@ -1290,7 +1304,7 @@ function openMcpCreate() {
 
 function openMcpVersionCreate() {
   if (!selectedMcpServerId.value) return;
-  setModal('mcpVersion', 'MCP 版本', 'create', {
+  setModal('mcpVersion', 'MCP 鐗堟湰', 'create', {
     serverId: selectedMcpServerId.value,
     version: '1.0.0',
     transportType: 'sse',
@@ -1356,7 +1370,7 @@ async function mcpAction(versionId, action) {
     : action === 'release' ? 'RELEASE_MANAGER'
     : 'DEVELOPER';
   if (action === 'discover') {
-    const toolsJson = prompt('请输入 JSON 工具列表', '[]') || '[]';
+    const toolsJson = prompt('璇疯緭鍏?JSON 宸ュ叿鍒楄〃', '[]') || '[]';
     const tools = JSON.parse(toolsJson);
     await request(`/capabilities/mcp-versions/${versionId}/discovery`, {
       method: 'POST',
@@ -1516,7 +1530,7 @@ async function loadSkillVersions(packageId) {
 }
 
 function openSkillUpload() {
-  setModal('skillUpload', '上传 Skill', 'create', {
+  setModal('skillUpload', '涓婁紶 Skill', 'create', {
     skillKey: '',
     name: '',
     description: '',
@@ -1587,7 +1601,7 @@ async function selectConversationAgent(agentId) {
 }
 
 function openSessionRename(session) {
-  setModal('sessionTitle', '重命名对话', 'edit', {
+  setModal('sessionTitle', '閲嶅懡鍚嶅璇?', 'edit', {
     sessionTitle: session.title || session.sessionId,
   }, {
     sessionId: session.sessionId,
@@ -1610,7 +1624,7 @@ async function saveSessionRename() {
 }
 
 async function deleteSession(sessionId) {
-  if (!confirm('确认删除对话 ' + sessionId + ' 吗？')) return;
+  if (!confirm('纭鍒犻櫎瀵硅瘽 ' + sessionId + ' 鍚楋紵')) return;
   await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   });
@@ -1673,60 +1687,60 @@ async function jumpToConversationSession(agentId, sessionId) {
 }
 
 function logAgentName(agentId) {
-  return logAgentOptions.value.find(agent => agent.id === agentId)?.name || agentId || '未知 Agent';
+  return logAgentOptions.value.find(agent => agent.id === agentId)?.name || agentId || '鏈煡 Agent';
 }
 
 function logRoleLabel(role) {
   const value = String(role || '').toLowerCase();
-  if (value === 'user') return '用户';
+  if (value === 'user') return '鐢ㄦ埛';
   if (value === 'assistant') return 'AI';
-  if (value === 'tool') return '工具';
-  return role || '消息';
+  if (value === 'tool') return '宸ュ叿';
+  return role || '娑堟伅';
 }
 
 function traceTypeLabel(type) {
   const normalized = String(type || '').toUpperCase();
   return {
-    ROUTE: '路由决策',
-    TODO: '执行 Todo',
-    LLM_CALL: '大模型调用',
-    TOOL_CALL: '工具调用',
-    TOOL_RESULT: '工具结果',
-    SUBAGENT: '子 Agent',
-    USER_MESSAGE: '用户消息',
-    ASSISTANT_MESSAGE: '助手回复',
-    FEEDBACK: '业务 Feedback',
+    ROUTE: '璺敱鍐崇瓥',
+    TODO: '鎵ц Todo',
+    LLM_CALL: '澶фā鍨嬭皟鐢?',
+    TOOL_CALL: '宸ュ叿璋冪敤',
+    TOOL_RESULT: '宸ュ叿缁撴灉',
+    SUBAGENT: '瀛?Agent',
+    USER_MESSAGE: '鐢ㄦ埛娑堟伅',
+    ASSISTANT_MESSAGE: '鍔╂墜鍥炲',
+    FEEDBACK: '涓氬姟 Feedback',
     CASE: 'Case',
-  }[normalized] || (type || '轨迹');
+  }[normalized] || (type || '杞ㄨ抗');
 }
 
 function traceTypeIcon(type) {
   const normalized = String(type || '').toUpperCase();
   return {
-    ROUTE: '🧭',
-    TODO: '✅',
-    LLM_CALL: '🧠',
-    TOOL_CALL: '🔧',
-    TOOL_RESULT: '📋',
-    SUBAGENT: '🧩',
-    USER_MESSAGE: '👤',
-    ASSISTANT_MESSAGE: '🤖',
-    FEEDBACK: '📝',
-    CASE: '🔥',
-  }[normalized] || '•';
+    ROUTE: '馃Л',
+    TODO: '鉁?',
+    LLM_CALL: '馃',
+    TOOL_CALL: '馃敡',
+    TOOL_RESULT: '馃搵',
+    SUBAGENT: '馃З',
+    USER_MESSAGE: '馃懁',
+    ASSISTANT_MESSAGE: '馃',
+    FEEDBACK: '馃摑',
+    CASE: '馃敟',
+  }[normalized] || '鈥?';
 }
 
 function traceStatusLabel(status) {
   const normalized = String(status || '').toUpperCase();
   return {
-    SUCCESS: '成功',
-    FAILED: '失败',
-    ERROR: '异常',
-    RUNNING: '运行中',
-    PENDING: '等待中',
-    IN_PROGRESS: '进行中',
-    COMPLETED: '已完成',
-    UNKNOWN: '未知',
+    SUCCESS: '鎴愬姛',
+    FAILED: '澶辫触',
+    ERROR: '寮傚父',
+    RUNNING: '杩愯涓?',
+    PENDING: '绛夊緟涓?',
+    IN_PROGRESS: '杩涜涓?',
+    COMPLETED: '宸插畬鎴?',
+    UNKNOWN: '鏈煡',
   }[normalized] || (status || '-');
 }
 
@@ -1742,7 +1756,7 @@ function traceMetadata(event) {
   return Object.entries(event?.metadata || {})
     .filter(([, value]) => value !== '' && value !== null && value !== undefined)
     .map(([key, value]) => `${key}: ${value}`)
-    .join(' ｜ ');
+    .join(' 锝?');
 }
 
 function tracePrimaryContent(event) {
@@ -1764,7 +1778,7 @@ onMounted(() => {
       <div class="brand">
         <div class="brand-badge">AI</div>
         <div class="brand-text">
-          <div class="brand-name">智能体工作台</div>
+          <div class="brand-name">鏅鸿兘浣撳伐浣滃彴</div>
           <div class="brand-sub">AI Agent Station</div>
         </div>
       </div>
@@ -1775,7 +1789,7 @@ onMounted(() => {
           <div v-if="showSettings" class="popover-card" @click.stop>
             <label>API Base URL</label>
             <input v-model="apiBase" placeholder="/api/v1" />
-            <div class="popover-hint">默认 /api/v1，一般无需修改</div>
+            <div class="popover-hint">榛樿 /api/v1锛屼竴鑸棤闇€淇敼</div>
           </div>
         </div>
         <button class="icon-btn" title="刷新当前页" @click="refreshCurrentTab">⟳</button>
@@ -1784,9 +1798,9 @@ onMounted(() => {
 
     <div class="layout">
       <aside class="sidebar">
-        <button class="nav-btn" :class="{ active: tab === 'dashboard' }" @click="switchTab('dashboard')">控制台</button>
+        <button class="nav-btn" :class="{ active: tab === 'dashboard' }" @click="switchTab('dashboard')">仪表盘</button>
         <button class="nav-btn" :class="{ active: tab === 'feedback' }" @click="switchTab('feedback')">反馈</button>
-        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">案例</button>
+        <button class="nav-btn" :class="{ active: tab === 'cases' }" @click="switchTab('cases')">Case</button>
         <button class="nav-btn" :class="{ active: tab === 'agents' }" @click="switchTab('agents')">智能体</button>
         <button class="nav-btn" :class="{ active: tab === 'conversations' }" @click="switchTab('conversations')">对话</button>
         <button class="nav-btn" :class="{ active: tab === 'models' }" @click="switchTab('models')">模型</button>
@@ -1801,20 +1815,20 @@ onMounted(() => {
           <div v-if="error" class="error section-gap">{{ error }}</div>
           <div v-if="loadingVisible" class="loading-indicator">
             <span class="loading-dot"></span>
-            <span>加载中…</span>
+            <span>加载中...</span>
           </div>
 
           <template v-if="tab === 'dashboard'">
             <section class="panel section-gap">
               <div class="panel-title">
-                <span>数据概览</span>
+                <span>鏁版嵁姒傝</span>
                 <div class="toolbar">
                   <select class="select" style="width:260px" v-model="selectedAgentId" @change="loadDashboard">
                     <option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">
                       {{ agent.agentName || agent.agentId }}
                     </option>
                   </select>
-                  <button class="btn primary" @click="loadDashboard">刷新数据</button>
+                  <button class="btn primary" @click="loadDashboard">鍒锋柊鏁版嵁</button>
                 </div>
               </div>
               <div class="stats">
@@ -1827,10 +1841,10 @@ onMounted(() => {
 
             <div class="grid-2">
               <section class="panel">
-                <div class="panel-title">重点案例</div>
+                <div class="panel-title">閲嶇偣妗堜緥</div>
                 <div class="list">
-                  <div v-if="!topCases.length" class="empty">信息</div>
-                  <div v-for="item in topCases" :key="item.caseId" class="item clickable" @click="openWorkspaceDetail('Case 详情', item)">
+                  <div v-if="!topCases.length" class="empty">淇℃伅</div>
+                  <div v-for="item in topCases" :key="item.caseId" class="item clickable" @click="openWorkspaceDetail('Case 璇︽儏', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.title || item.caseId }}</div>
@@ -1838,7 +1852,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <div class="pill brand">{{ item.totalScore ?? 0 }}</div>
-                        <button class="btn" @click.stop="openWorkspaceDetail('Case 详情', item)">查看详情</button>
+                        <button class="btn" @click.stop="openWorkspaceDetail('Case 璇︽儏', item)">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                   </div>
@@ -1846,10 +1860,10 @@ onMounted(() => {
               </section>
 
               <section class="panel">
-                <div class="panel-title">反馈概览</div>
+                <div class="panel-title">鍙嶉姒傝</div>
                 <div class="list">
-                  <div v-if="!businessFeedbackItems.length" class="empty">暂无业务反馈</div>
-                  <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
+                  <div v-if="!businessFeedbackItems.length" class="empty">鏆傛棤涓氬姟鍙嶉</div>
+                  <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" @click="openWorkspaceDetail('鍙嶉璇︽儏', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.feedbackType || 'COMMENT' }}</div>
@@ -1857,7 +1871,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <div class="pill">{{ labelStatus(item.status) }}</div>
-                        <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看详情</button>
+                        <button class="btn" @click.stop="openWorkspaceDetail('鍙嶉璇︽儏', item)">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                   </div>
@@ -1866,10 +1880,10 @@ onMounted(() => {
             </div>
             <div class="grid-2 section-gap">
               <section class="panel">
-                <div class="panel-title">信号</div>
+                <div class="panel-title">淇″彿</div>
                 <div class="list">
-                  <div v-if="!signals.length" class="empty">暂无数据</div>
-                  <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
+                  <div v-if="!signals.length" class="empty">鏆傛棤鏁版嵁</div>
+                  <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('淇″彿璇︽儏', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.signalType || item.sourceType || '-' }}</div>
@@ -1878,17 +1892,17 @@ onMounted(() => {
                       <div class="actions">
                         <span class="pill">{{ item.severity || '-' }}</span>
                         <span class="pill">{{ labelStatus(item.status) }}</span>
-                        <button class="btn" @click.stop="openWorkspaceDetail('信号详情', item)">查看详情</button>
+                        <button class="btn" @click.stop="openWorkspaceDetail('淇″彿璇︽儏', item)">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                   </div>
                 </div>
               </section>
               <section class="panel">
-                <div class="panel-title">记忆摘要</div>
+                <div class="panel-title">璁板繂鎽樿</div>
                 <div class="list">
-                  <div v-if="!memories.length" class="empty">暂无数据</div>
-                  <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('记忆详情', item)">
+                  <div v-if="!memories.length" class="empty">鏆傛棤鏁版嵁</div>
+                  <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('璁板繂璇︽儏', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.sessionId || '-' }}</div>
@@ -1897,7 +1911,7 @@ onMounted(() => {
                       <div class="actions">
                         <span class="pill">v{{ item.version ?? '-' }}</span>
                         <span class="pill">{{ item.status || '-' }}</span>
-                        <button class="btn" @click.stop="openWorkspaceDetail('记忆详情', item)">查看详情</button>
+                        <button class="btn" @click.stop="openWorkspaceDetail('璁板繂璇︽儏', item)">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                   </div>
@@ -1905,14 +1919,52 @@ onMounted(() => {
               </section>
             </div>
             <section class="panel section-gap">
-              <div class="panel-title">长期记忆画像</div>
-              <div v-if="!profileSections.length" class="empty">当前 Agent 暂无长期画像，可通过已解决 Case 与沉淀记忆逐步形成</div>
+              <div class="panel-title">闀挎湡璁板繂鐢诲儚</div>
+              <div v-if="!profileSections.length" class="empty">褰撳墠 Agent 鏆傛棤闀挎湡鐢诲儚锛屽彲閫氳繃宸茶В鍐?Case 涓庢矇娣€璁板繂閫愭褰㈡垚</div>
               <div v-else class="grid-2">
                 <div v-for="[section, values] in profileSections" :key="`dashboard-${section}`" class="profile-section">
                   <div class="profile-section-title">{{ section }}</div>
                   <div v-for="entry in values.slice(0, 3)" :key="`dashboard-${section}-${entry.caseId || entry.id || entry.summary}`" class="profile-entry">
                     <div>{{ entry.summary || entry.title || entry.memory || '-' }}</div>
-                    <small class="muted">来源 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
+                    <small class="muted">鏉ユ簮 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section class="panel section-gap">
+              <div class="panel-title">
+                <span>长期记忆召回实验台</span>
+                <span class="pill brand">BGE-M3 / pgvector / profile fallback</span>
+              </div>
+              <div class="memory-recall-bar">
+                <input
+                  v-model="memoryRecallQuery"
+                  class="api-input"
+                  placeholder="输入业务问题，例如：DDR5 补货、缓存不一致、下单库存异常"
+                  @keyup.enter="recallLongTermMemory"
+                />
+                <button class="btn primary" :disabled="memoryRecallLoading || !memoryRecallQuery.trim()" @click="recallLongTermMemory">
+                  {{ memoryRecallLoading ? '召回中...' : '召回记忆' }}
+                </button>
+              </div>
+              <div class="memory-recall-hint">只按当前 Agent 召回；候选/未解决 Case 不进入长期召回结果，避免把测试噪声沉淀成知识。</div>
+              <div class="memory-recall-grid">
+                <div v-if="!memoryRecallResults.length" class="empty">暂无召回结果。输入一个真实业务问题后查看来源证据。</div>
+                <div v-for="item in memoryRecallResults" :key="`${item.sourceType}-${item.sourceId}-${item.summary}`" class="memory-recall-card">
+                  <div class="item-row">
+                    <div>
+                      <div class="memory-recall-title">{{ item.kind || item.sourceType || '长期记忆' }}</div>
+                      <div class="muted" style="font-size:12px;margin-top:4px">{{ item.summary }}</div>
+                    </div>
+                    <div class="actions">
+                      <span class="pill brand">{{ item.sourceType }}</span>
+                      <span class="pill">评分 {{ Math.round(item.score ?? 0) }}</span>
+                    </div>
+                  </div>
+                  <div class="memory-recall-source">
+                    <span>来源：{{ item.sourceCaseId || item.sourceSessionId || item.sourceId || '-' }}</span>
+                    <span v-if="item.profileVersion">画像 v{{ item.profileVersion }}</span>
+                    <button v-if="item.sourceSessionId" class="btn" @click="jumpToLogSession(item.agentId || selectedAgentId, item.sourceSessionId)">查看链路</button>
                   </div>
                 </div>
               </div>
@@ -1921,21 +1973,21 @@ onMounted(() => {
           <template v-else-if="tab === 'feedback'">
             <section class="panel section-gap">
               <div class="panel-title">
-                <span>反馈工作台</span>
+                <span>鍙嶉宸ヤ綔鍙</span>
                 <div class="toolbar">
                   <select class="select" style="width:260px" v-model="selectedAgentId" @change="loadFeedbackWorkspace">
                     <option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">
                       {{ agent.agentName || agent.agentId }}
                     </option>
                   </select>
-                  <button class="btn primary" @click="loadFeedbackWorkspace">刷新反馈</button>
+                  <button class="btn primary" @click="loadFeedbackWorkspace">鍒锋柊鍙嶉</button>
                 </div>
               </div>
               <div class="grid-2">
                 <section class="panel">
-                  <div class="panel-title">业务反馈</div>
+                  <div class="panel-title">涓氬姟鍙嶉</div>
                   <div class="list">
-                    <div v-if="!businessFeedbackItems.length" class="empty">暂无业务反馈</div>
+                    <div v-if="!businessFeedbackItems.length" class="empty">鏆傛棤涓氬姟鍙嶉</div>
                     <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" :class="{ active: selectedFeedback?.id === item.id }" @click="openFeedback(item)">
                       <div class="item-row">
                         <div>
@@ -1948,7 +2000,7 @@ onMounted(() => {
                           </div>
                         </div>
                         <div class="actions">
-                          <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">原始数据</button>
+                          <button class="btn" @click.stop="openWorkspaceDetail('鍙嶉璇︽儏', item)">鍘熷鏁版嵁</button>
                         </div>
                       </div>
                       <div class="actions case-actions" @click.stop>
@@ -1966,11 +2018,11 @@ onMounted(() => {
                   </div>
                 </section>
                 <section class="panel">
-                  <div class="panel-title">反馈详情</div>
-                  <div v-if="!selectedFeedback" class="empty">请选择左侧一条反馈查看详情</div>
+                  <div class="panel-title">鍙嶉璇︽儏</div>
+                  <div v-if="!selectedFeedback" class="empty">璇烽€夋嫨宸︿晶涓€鏉″弽棣堟煡鐪嬭鎯</div>
                   <template v-else>
                     <div class="profile-entry">
-                      <div style="font-weight:700">{{ selectedFeedback.sourceLabel || selectedFeedback.feedbackType || `反馈 #${selectedFeedback.id}` }}</div>
+                      <div style="font-weight:700">{{ selectedFeedback.sourceLabel || selectedFeedback.feedbackType || `鍙嶉 #${selectedFeedback.id}` }}</div>
                       <div class="muted" style="margin-top:6px">{{ selectedFeedback.message || '-' }}</div>
                       <div class="actions" style="margin-top:10px; flex-wrap:wrap">
                         <span class="pill">{{ selectedFeedback.statusLabel || labelStatus(selectedFeedback.status) }}</span>
@@ -1981,7 +2033,7 @@ onMounted(() => {
                       </div>
                     </div>
                     <div class="profile-section">
-                      <div class="profile-section-title">当前判断</div>
+                      <div class="profile-section-title">褰撳墠鍒ゆ柇</div>
                       <div class="profile-entry">
                         <div>{{ feedbackStatusHint(selectedFeedback.status) }}</div>
                         <small>{{ feedbackReasonText(selectedFeedback) }}</small>
@@ -1989,26 +2041,26 @@ onMounted(() => {
                       </div>
                     </div>
                     <div class="profile-section">
-                      <div class="profile-section-title">升级 Case 资格</div>
+                      <div class="profile-section-title">鍗囩骇 Case 璧勬牸</div>
                       <div class="profile-entry">
-                        <div>{{ selectedFeedback.promotionReadinessLabel || (selectedFeedback.promotionEligible ? '满足升级条件' : '暂不满足升级条件') }}</div>
+                        <div>{{ selectedFeedback.promotionReadinessLabel || (selectedFeedback.promotionEligible ? '婊¤冻鍗囩骇鏉′欢' : '鏆備笉婊¤冻鍗囩骇鏉′欢') }}</div>
                         <small>{{ selectedFeedback.promotionReadinessReason || '当前暂无升级资格说明。' }}</small>
                       </div>
                     </div>
                     <div class="profile-section">
-                      <div class="profile-section-title">业务上下文</div>
+                      <div class="profile-section-title">涓氬姟涓婁笅鏂</div>
                       <div class="profile-entry">
-                        <div>反馈分类：{{ selectedFeedback.category || '未分类' }}</div>
-                        <small>提交来源：{{ feedbackSourceLabel(selectedFeedback.sourceType) }} / 提交人：{{ selectedFeedback.submittedBy || '-' }}</small>
-                        <small v-if="selectedFeedback.matchedCaseId">已关联 Case：{{ selectedFeedback.matchedCaseId }}</small>
-                        <small v-else>当前尚未关联 Case</small>
+                        <div>鍙嶉鍒嗙被锛歿{ selectedFeedback.category || '鏈垎绫? }}</div>
+                        <small>鎻愪氦鏉ユ簮锛歿{ feedbackSourceLabel(selectedFeedback.sourceType) }} / 鎻愪氦浜猴細{{ selectedFeedback.submittedBy || '-' }}</small>
+                        <small v-if="selectedFeedback.matchedCaseId">宸插叧鑱?Case锛歿{ selectedFeedback.matchedCaseId }}</small>
+                        <small v-else>褰撳墠灏氭湭鍏宠仈 Case</small>
                       </div>
                     </div>
                     <div class="profile-section">
-                      <div class="profile-section-title">AI 观察信号</div>
+                      <div class="profile-section-title">AI 瑙傚療淇″彿</div>
                       <div class="list">
-                        <div v-if="!signals.length" class="empty">暂无 AI 观察信号</div>
-                        <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
+                        <div v-if="!signals.length" class="empty">鏆傛棤 AI 瑙傚療淇″彿</div>
+                        <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('淇″彿璇︽儏', item)">
                           <div class="item-row">
                             <div>
                               <div style="font-weight:600">{{ item.signalType || item.sourceType || '-' }}</div>
@@ -2026,10 +2078,10 @@ onMounted(() => {
                 </section>
               </div>
               <section class="panel section-gap">
-                <div class="panel-title">短期记忆摘要</div>
+                <div class="panel-title">鐭湡璁板繂鎽樿</div>
                 <div class="list">
-                  <div v-if="!memories.length" class="empty">暂无短期记忆摘要</div>
-                  <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('记忆详情', item)">
+                  <div v-if="!memories.length" class="empty">鏆傛棤鐭湡璁板繂鎽樿</div>
+                  <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('璁板繂璇︽儏', item)">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:600">{{ item.sessionId || '-' }}</div>
@@ -2044,14 +2096,14 @@ onMounted(() => {
                 </div>
               </section>
               <section class="panel section-gap">
-                <div class="panel-title">长期记忆画像</div>
-                <div v-if="!profileSections.length" class="empty">当前 Agent 暂无长期画像，真实业务反馈升级为 Case 后会逐步沉淀</div>
+                <div class="panel-title">闀挎湡璁板繂鐢诲儚</div>
+                <div v-if="!profileSections.length" class="empty">褰撳墠 Agent 鏆傛棤闀挎湡鐢诲儚锛岀湡瀹炰笟鍔″弽棣堝崌绾т负 Case 鍚庝細閫愭娌夋穩</div>
                 <div v-else class="grid-2">
                   <div v-for="[section, values] in profileSections" :key="`feedback-${section}`" class="profile-section">
                     <div class="profile-section-title">{{ section }}</div>
                     <div v-for="entry in values.slice(0, 3)" :key="`feedback-${section}-${entry.caseId || entry.id || entry.summary}`" class="profile-entry">
                       <div>{{ entry.summary || entry.title || entry.memory || '-' }}</div>
-                      <small class="muted">来源 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
+                      <small class="muted">鏉ユ簮 {{ entry.caseId || entry.source || entry.sessionId || '-' }}</small>
                     </div>
                   </div>
                 </div>
@@ -2066,7 +2118,7 @@ onMounted(() => {
                 <span v-if="caseStatusFilter" class="muted">{{ caseStatusHint(caseStatusFilter) }}</span>
               </div>
               <div class="panel-title">
-                <span>案件工作台</span>
+                <span>妗堜欢宸ヤ綔鍙</span>
                 <div class="toolbar">
                   <select class="select" v-model="selectedAgentId" @change="loadCaseWorkspace">
                     <option v-for="agent in agents" :key="agent.agentId" :value="agent.agentId">{{ agent.agentName || agent.agentId }}</option>
@@ -2079,12 +2131,12 @@ onMounted(() => {
                     <option value="RESOLVED">{{ caseStatusText('RESOLVED') }}</option>
                     <option value="ARCHIVED">{{ caseStatusText('ARCHIVED') }}</option>
                   </select>
-                  <button class="btn" @click="loadCaseWorkspace">刷新</button>
+                  <button class="btn" @click="loadCaseWorkspace">鍒锋柊</button>
                 </div>
               </div>
               <div class="case-layout">
                 <section class="case-list">
-                  <div v-if="!cases.length" class="empty">暂无案件</div>
+                  <div v-if="!cases.length" class="empty">鏆傛棤妗堜欢</div>
                   <article v-for="item in cases" :key="item.caseId" class="item case-item" :class="{ active: selectedCase?.caseId === item.caseId }" @click="openCase(item)">
                     <div class="item-row">
                       <div>
@@ -2107,32 +2159,32 @@ onMounted(() => {
 
                 <aside class="panel profile-panel">
                   <div class="panel-title">
-                    <span>智能体长期画像</span>
+                    <span>鏅鸿兘浣撻暱鏈熺敾鍍</span>
                     <span v-if="agentProfile" class="pill brand">v{{ agentProfile.version }}</span>
                   </div>
-                  <div v-if="agentProfile" class="profile-source">来源案例：{{ agentProfile.sourceCaseIds || '-' }}</div>
-                  <div v-if="!agentProfile" class="empty">暂无已解决案件画像</div>
+                  <div v-if="agentProfile" class="profile-source">鏉ユ簮妗堜緥锛歿{ agentProfile.sourceCaseIds || '-' }}</div>
+                  <div v-if="!agentProfile" class="empty">鏆傛棤宸茶В鍐虫浠剁敾鍍</div>
                   <div v-for="[section, values] in profileSections" :key="section" class="profile-section">
                     <div class="profile-section-title">{{ section }}</div>
                     <div v-for="entry in values" :key="`${section}-${entry.caseId}`" class="profile-entry">
                       <div>{{ entry.text || '-' }}</div>
-                      <small class="muted">案例 {{ entry.caseId }} | {{ caseStatusText(entry.status) }}</small>
+                      <small class="muted">妗堜緥 {{ entry.caseId }} | {{ caseStatusText(entry.status) }}</small>
                     </div>
                   </div>
                   <div v-if="selectedCase" class="profile-selected">
-                    <div class="profile-section-title">当前选择案件</div>
+                    <div class="profile-section-title">褰撳墠閫夋嫨妗堜欢</div>
                     <div>{{ selectedCase.title || selectedCase.caseId }}</div>
-                    <div class="muted">{{ caseStatusText(selectedCase.status) }} | 负责人: {{ selectedCase.owner || '-' }}</div>
+                    <div class="muted">{{ caseStatusText(selectedCase.status) }} | 璐熻矗浜? {{ selectedCase.owner || '-' }}</div>
                   </div>
                   <div v-if="selectedCaseDetail?.evidence?.length" class="profile-section" style="margin-top:12px">
-                    <div class="profile-section-title">来源证据</div>
+                    <div class="profile-section-title">鏉ユ簮璇佹嵁</div>
                     <div v-for="entry in selectedCaseDetail.evidence" :key="`${selectedCase?.caseId || 'case'}-${entry.evidence_id || entry.id}`" class="profile-entry">
                       <div>{{ entry.excerpt || entry.preview || '-' }}</div>
                       <small class="muted">{{ entry.evidence_type || 'FEEDBACK' }} | {{ entry.session_id || entry.sessionId || '-' }}</small>
                     </div>
                   </div>
                   <div v-if="selectedCaseDetail?.reviews?.length" class="profile-section" style="margin-top:12px">
-                    <div class="profile-section-title">审核记录</div>
+                    <div class="profile-section-title">瀹℃牳璁板綍</div>
                     <div v-for="entry in selectedCaseDetail.reviews" :key="`${selectedCase?.caseId || 'case'}-${entry.id || entry.createdAt}`" class="profile-entry">
                       <div>{{ entry.toStatus || entry.to_status || '-' }}</div>
                       <small class="muted">{{ entry.actor || entry.createdBy || '-' }} | {{ entry.reason || entry.notes || '-' }}</small>
@@ -2145,14 +2197,14 @@ onMounted(() => {
           <template v-else-if="tab === 'agents'">
             <section class="panel section-gap">
               <div class="panel-title">
-                <span>智能体配置</span>
+                <span>鏅鸿兘浣撻厤缃</span>
                 <div class="actions">
-                  <button class="btn primary" @click="openAgentCreate">新建智能体</button>
-                  <button class="btn" @click="loadAgentConfigPage">操作</button>
+                  <button class="btn primary" @click="openAgentCreate">鏂板缓鏅鸿兘浣</button>
+                  <button class="btn" @click="loadAgentConfigPage">鎿嶄綔</button>
                 </div>
               </div>
               <div class="list">
-                <div v-if="!agents.length" class="empty">暂无数据</div>
+                <div v-if="!agents.length" class="empty">鏆傛棤鏁版嵁</div>
                 <div
                   v-for="agent in agents"
                   :key="agent.agentId"
@@ -2173,9 +2225,9 @@ onMounted(() => {
                     </div>
                     <div class="actions">
                       <span class="pill" :class="agent.channel === 'react' ? 'warn' : 'brand'">{{ agent.channel || 'auto' }}</span>
-                      <button class="btn primary" @click.stop="openConversationForAgent(agent.agentId)">进入对话</button>
-                      <button class="btn" @click.stop="openAgentEdit(agent.agentId)">编辑</button>
-                      <button class="btn danger" @click.stop="deleteAgent(agent.agentId)">删除</button>
+                      <button class="btn primary" @click.stop="openConversationForAgent(agent.agentId)">杩涘叆瀵硅瘽</button>
+                      <button class="btn" @click.stop="openAgentEdit(agent.agentId)">缂栬緫</button>
+                      <button class="btn danger" @click.stop="deleteAgent(agent.agentId)">鍒犻櫎</button>
                     </div>
                   </div>
                 </div>
@@ -2187,10 +2239,10 @@ onMounted(() => {
             <section class="panel section-gap conversation-panel">
               <div class="conversation-controls">
                 <div class="panel-title">
-                  <span>对话记录</span>
+                  <span>瀵硅瘽璁板綍</span>
                   <div class="actions">
-                    <button class="btn" :disabled="!selectedAgentId" @click="newChat">新建对话</button>
-                    <button class="btn primary" :disabled="!selectedAgentId" @click="loadConversationPage(selectedAgentId)">刷新记录</button>
+                    <button class="btn" :disabled="!selectedAgentId" @click="newChat">鏂板缓瀵硅瘽</button>
+                    <button class="btn primary" :disabled="!selectedAgentId" @click="loadConversationPage(selectedAgentId)">鍒锋柊璁板綍</button>
                   </div>
                 </div>
 
@@ -2201,7 +2253,7 @@ onMounted(() => {
                     </option>
                   </select>
                   <select class="select" v-model="chatModelId">
-                    <option value="">请选择对话模型</option>
+                    <option value="">璇烽€夋嫨瀵硅瘽妯″瀷</option>
                     <option v-for="model in models" :key="model.modelId" :value="model.modelId">
                       {{ model.modelName || model.modelId }}
                     </option>
@@ -2211,9 +2263,9 @@ onMounted(() => {
 
               <div class="conversation-page">
                 <div class="conversation-list">
-                  <div class="panel-title" style="margin-bottom:8px">对话列表</div>
+                  <div class="panel-title" style="margin-bottom:8px">瀵硅瘽鍒楄〃</div>
                   <div class="list">
-                    <div v-if="!sessions.length" class="empty">暂无对话</div>
+                    <div v-if="!sessions.length" class="empty">鏆傛棤瀵硅瘽</div>
                     <div
                       v-for="session in sessions"
                       :key="session.sessionId"
@@ -2226,9 +2278,9 @@ onMounted(() => {
                           <div class="session-name">{{ sessionDisplayName(session) }}</div>
                         </div>
                         <div class="actions session-actions">
-                          <button class="btn primary" @click.stop="openSession(session.sessionId)">继续对话</button>
-                          <button class="btn" @click.stop="openSessionRename(session)">重命名</button>
-                          <button class="btn danger" @click.stop="deleteSession(session.sessionId)">删除</button>
+                          <button class="btn primary" @click.stop="openSession(session.sessionId)">缁х画瀵硅瘽</button>
+                          <button class="btn" @click.stop="openSessionRename(session)">閲嶅懡鍚</button>
+                          <button class="btn danger" @click.stop="deleteSession(session.sessionId)">鍒犻櫎</button>
                         </div>
                       </div>
                     </div>
@@ -2236,22 +2288,22 @@ onMounted(() => {
                 </div>
 
                 <div class="conversation-detail">
-                  <div class="panel-title" style="margin-bottom:8px">当前对话</div>
+                  <div class="panel-title" style="margin-bottom:8px">褰撳墠瀵硅瘽</div>
                   <div v-if="currentSessionId && sessionDetail?.overview" class="conversation-overview">
                     <div class="kvs conversation-summary-grid">
-                      <div class="kv"><div class="k">路由类型</div><div class="v">{{ routeTypeText(sessionDetail.overview.latestRouteType) }}</div></div>
-                      <div class="kv"><div class="k">执行状态</div><div class="v">{{ executionStatusLabel(sessionDetail.overview.latestExecutionStatus) }}</div></div>
-                      <div class="kv"><div class="k">反馈数量</div><div class="v">{{ sessionDetail.overview.feedbackCount || 0 }}</div></div>
-                      <div class="kv"><div class="k">业务反馈</div><div class="v">{{ sessionDetail.overview.businessFeedbackCount || 0 }}</div></div>
-                      <div class="kv"><div class="k">AI观察</div><div class="v">{{ sessionDetail.overview.aiObservationCount || 0 }}</div></div>
-                      <div class="kv"><div class="k">关联 Case</div><div class="v">{{ sessionDetail.overview.caseCount || 0 }}</div></div>
-                      <div class="kv"><div class="k">待升级反馈</div><div class="v">{{ sessionDetail.overview.readyForCaseFeedbackCount || 0 }}</div></div>
-                      <div class="kv"><div class="k">工具消息</div><div class="v">{{ sessionDetail.overview.toolMessageCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">璺敱绫诲瀷</div><div class="v">{{ routeTypeText(sessionDetail.overview.latestRouteType) }}</div></div>
+                      <div class="kv"><div class="k">鎵ц鐘舵€</div><div class="v">{{ executionStatusLabel(sessionDetail.overview.latestExecutionStatus) }}</div></div>
+                      <div class="kv"><div class="k">鍙嶉鏁伴噺</div><div class="v">{{ sessionDetail.overview.feedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">涓氬姟鍙嶉</div><div class="v">{{ sessionDetail.overview.businessFeedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">AI瑙傚療</div><div class="v">{{ sessionDetail.overview.aiObservationCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">鍏宠仈 Case</div><div class="v">{{ sessionDetail.overview.caseCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">寰呭崌绾у弽棣</div><div class="v">{{ sessionDetail.overview.readyForCaseFeedbackCount || 0 }}</div></div>
+                      <div class="kv"><div class="k">宸ュ叿娑堟伅</div><div class="v">{{ sessionDetail.overview.toolMessageCount || 0 }}</div></div>
                       <div class="kv"><div class="k">短期记忆</div><div class="v">{{ sessionDetail.overview.hasMemorySummary ? '已生成' : '未生成' }}</div></div>
                     </div>
                     <section class="panel subtle" style="margin-top:12px">
-                      <div class="panel-title" style="margin-bottom:8px">运营链路时间线</div>
-                      <div v-if="!(sessionDetail.timeline || []).length" class="empty">当前会话暂无运营链路记录</div>
+                      <div class="panel-title" style="margin-bottom:8px">杩愯惀閾捐矾鏃堕棿绾</div>
+                      <div v-if="!(sessionDetail.timeline || []).length" class="empty">褰撳墠浼氳瘽鏆傛棤杩愯惀閾捐矾璁板綍</div>
                       <div v-for="entry in (sessionDetail.timeline || [])" :key="`${entry.type}-${entry.refId}-${entry.time}`" class="profile-entry">
                         <div class="item-row">
                           <div style="font-weight:600">{{ entry.title || entry.type }}</div>
@@ -2259,55 +2311,55 @@ onMounted(() => {
                         </div>
                         <div class="muted" style="font-size:12px;margin-top:6px">{{ entry.summary || '-' }}</div>
                         <div class="actions" style="margin-top:8px">
-                          <button class="btn" @click="jumpToLogSession(selectedAgentId, currentSessionId)">查看日志链路</button>
+                          <button class="btn" @click="jumpToLogSession(selectedAgentId, currentSessionId)">鏌ョ湅鏃ュ織閾捐矾</button>
                         </div>
                         <small class="muted">{{ entry.time || '-' }}</small>
                       </div>
                     </section>
                     <div class="conversation-side-grid">
                       <section class="panel subtle">
-                        <div class="panel-title" style="margin-bottom:8px">关联业务反馈</div>
-                        <div v-if="!(sessionDetail.feedback || []).length" class="empty">当前会话暂无反馈</div>
+                        <div class="panel-title" style="margin-bottom:8px">鍏宠仈涓氬姟鍙嶉</div>
+                        <div v-if="!(sessionDetail.feedback || []).length" class="empty">褰撳墠浼氳瘽鏆傛棤鍙嶉</div>
                         <div v-for="item in (sessionDetail.feedback || [])" :key="`fb-${item.id}`" class="item">
                           <div class="item-row">
-                            <div style="font-weight:600">{{ item.message || item.category || `反馈 #${item.id}` }}</div>
+                            <div style="font-weight:600">{{ item.message || item.category || `鍙嶉 #${item.id}` }}</div>
                             <span class="pill">{{ labelStatus(item.status) }}</span>
                           </div>
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ feedbackSourceLabel(item.sourceType) }} / {{ item.category || '未分类' }}</div>
-                          <div v-if="item.sourcePreview" class="muted" style="font-size:12px;margin-top:4px">来源摘录：{{ item.sourcePreview }}</div>
+                          <div v-if="item.sourcePreview" class="muted" style="font-size:12px;margin-top:4px">鏉ユ簮鎽樺綍锛歿{ item.sourcePreview }}</div>
                           <div v-if="item.qualificationHint" class="muted" style="font-size:12px;margin-top:4px">{{ item.qualificationHint }}</div>
                           <div class="muted" style="font-size:12px;margin-top:4px">{{ feedbackReasonText(item) }}</div>
                           <div class="actions" style="margin-top:8px">
-                            <button class="btn" @click="jumpToLogSession(item.agentId || selectedAgentId, item.sessionId || currentSessionId)">查看日志</button>
+                            <button class="btn" @click="jumpToLogSession(item.agentId || selectedAgentId, item.sessionId || currentSessionId)">鏌ョ湅鏃ュ織</button>
                           </div>
-                          <div v-if="item.matchedCaseId" class="muted" style="font-size:12px;margin-top:4px">已关联 Case：{{ item.matchedCaseId }}</div>
+                          <div v-if="item.matchedCaseId" class="muted" style="font-size:12px;margin-top:4px">宸插叧鑱?Case锛歿{ item.matchedCaseId }}</div>
                         </div>
                       </section>
                       <section class="panel subtle">
-                        <div class="panel-title" style="margin-bottom:8px">最近一次 Subagent 执行</div>
-                        <div v-if="!(sessionDetail.subagents || []).length" class="empty">当前会话暂无已落库的子任务执行记录</div>
+                        <div class="panel-title" style="margin-bottom:8px">鏈€杩戜竴娆?Subagent 鎵ц</div>
+                        <div v-if="!(sessionDetail.subagents || []).length" class="empty">褰撳墠浼氳瘽鏆傛棤宸茶惤搴撶殑瀛愪换鍔℃墽琛岃褰</div>
                         <div
                           v-for="item in (sessionDetail.subagents || [])"
                           :key="item.taskId || item.id"
                           class="item"
                         >
                           <div class="item-row">
-                            <div style="font-weight:600">{{ item.description || item.taskId || '未命名子任务' }}</div>
+                            <div style="font-weight:600">{{ item.description || item.taskId || '鏈懡鍚嶅瓙浠诲姟' }}</div>
                             <span class="pill">{{ executionStatusText(item.status) }}</span>
                           </div>
                           <div v-if="item.result" class="muted" style="font-size:12px;margin-top:6px">{{ item.result }}</div>
                           <div v-else-if="item.errorMessage" class="muted danger-text" style="font-size:12px;margin-top:6px">{{ item.errorMessage }}</div>
                           <div class="muted" style="font-size:12px;margin-top:4px">
-                            taskId：{{ item.taskId || '-' }} / 执行批次：{{ item.executionId || '-' }}
+                            taskId锛歿{ item.taskId || '-' }} / 鎵ц鎵规锛歿{ item.executionId || '-' }}
                           </div>
                           <div class="muted" style="font-size:12px;margin-top:4px">
-                            开始：{{ item.startedAt || '-' }} / 完成：{{ item.completedAt || item.updatedAt || '-' }}
+                            寮€濮嬶細{{ item.startedAt || '-' }} / 瀹屾垚锛歿{ item.completedAt || item.updatedAt || '-' }}
                           </div>
                         </div>
                       </section>
                       <section class="panel subtle">
-                        <div class="panel-title" style="margin-bottom:8px">关联 Case</div>
-                        <div v-if="!(sessionDetail.cases || []).length" class="empty">当前会话暂无 Case</div>
+                        <div class="panel-title" style="margin-bottom:8px">鍏宠仈 Case</div>
+                        <div v-if="!(sessionDetail.cases || []).length" class="empty">褰撳墠浼氳瘽鏆傛棤 Case</div>
                         <div v-for="item in (sessionDetail.cases || [])" :key="item.caseId" class="item clickable" @click="openCase(item)">
                           <div class="item-row">
                             <div style="font-weight:600">{{ item.title || item.caseId }}</div>
@@ -2316,7 +2368,7 @@ onMounted(() => {
                           <div class="muted" style="font-size:12px;margin-top:6px">{{ item.caseId }}</div>
                           <div v-if="item.summary" class="muted" style="font-size:12px;margin-top:4px">{{ item.summary }}</div>
                           <div class="actions" style="margin-top:8px">
-                            <button class="btn" @click.stop="jumpToLogSession(item.agentId || selectedAgentId, currentSessionId)">查看日志</button>
+                            <button class="btn" @click.stop="jumpToLogSession(item.agentId || selectedAgentId, currentSessionId)">鏌ョ湅鏃ュ織</button>
                           </div>
                         </div>
                       </section>
@@ -2324,9 +2376,9 @@ onMounted(() => {
                   </div>
                   <div v-if="Object.keys(subagentTasks).length || todoItems.length" class="execution-progress">
                     <div v-if="todoItems.length" class="todo-strip">
-                      <span class="progress-label">执行计划</span>
+                      <span class="progress-label">鎵ц璁″垝</span>
                       <span v-for="todo in todoItems" :key="todo.todoId" class="progress-chip" :class="String(todo.status || '').toLowerCase()">
-                        {{ todo.content }} · {{ executionStatusText(todo.status) }}
+                        {{ todo.content }} 路 {{ executionStatusText(todo.status) }}
                       </span>
                     </div>
                     <div v-if="Object.keys(subagentTasks).length" class="subagent-strip">
@@ -2338,7 +2390,7 @@ onMounted(() => {
                           v-if="['RUNNING', 'PENDING'].includes(task.status)"
                           class="btn danger compact"
                           @click="cancelSubagentTask(task.taskId)"
-                        >停止</button>
+                        >鍋滄</button>
                         <span v-if="task.traces?.length" class="subagent-trace">
                           {{ task.traces[task.traces.length - 1].content }}
                         </span>
@@ -2346,7 +2398,7 @@ onMounted(() => {
                     </div>
                   </div>
                   <div ref="chatMessagesRef" class="chat-list conversation-messages" style="padding-right:2px">
-                    <div v-if="!currentSessionId" class="empty">暂无对话</div>
+                    <div v-if="!currentSessionId" class="empty">鏆傛棤瀵硅瘽</div>
                     <template v-else>
                       <div v-if="sessionDetail?.messages?.length">
                         <div
@@ -2360,7 +2412,7 @@ onMounted(() => {
                           <div>{{ msg.content }}</div>
                         </div>
                       </div>
-                      <div v-else-if="!chatStream.length" class="empty">暂无消息</div>
+                      <div v-else-if="!chatStream.length" class="empty">鏆傛棤娑堟伅</div>
                       <div
                         v-for="entry in chatStream"
                         :key="entry.id"
@@ -2384,7 +2436,7 @@ onMounted(() => {
                       @keydown.enter.exact.prevent="sendMessage"
                     ></textarea>
                     <button class="btn primary" :disabled="isStreaming" @click="sendMessage">发送</button>
-                    <button v-if="isStreaming" class="btn danger" @click="cancelMainExecution">停止本轮</button>
+                    <button v-if="isStreaming" class="btn danger" @click="cancelMainExecution">鍋滄鏈疆</button>
                   </div>
                   <div class="muted" style="font-size:12px">{{ chatStatus }}</div>
                 </div>
@@ -2396,33 +2448,33 @@ onMounted(() => {
             <div class="grid-2">
               <section class="panel">
                 <div class="panel-title">
-                  <span>模型配置</span>
+                  <span>妯″瀷閰嶇疆</span>
                   <div class="actions">
-                    <button class="btn primary" @click="openModelCreate">新建模型</button>
-                    <button class="btn" @click="loadModelsPage">操作</button>
+                    <button class="btn primary" @click="openModelCreate">鏂板缓妯″瀷</button>
+                    <button class="btn" @click="loadModelsPage">鎿嶄綔</button>
                   </div>
                 </div>
                 <div class="list">
-                  <div v-if="!models.length" class="empty">暂无数据</div>
+                  <div v-if="!models.length" class="empty">鏆傛棤鏁版嵁</div>
                   <div v-for="model in models" :key="model.modelId" class="item">
                     <div class="item-row">
                       <div>
                         <div style="font-weight:700">{{ model.modelName || model.modelId }}</div>
                         <div class="muted" style="font-size:12px;margin-top:4px">
-                           {{ model.providerName || 'OpenAI 兼容接口' }}
+                           {{ model.providerName || 'OpenAI 鍏煎鎺ュ彛' }}
                         </div>
                       </div>
                       <div class="actions">
                         <span class="pill" :class="Number(model.status) === 1 ? 'ok' : 'bad'">
-                           {{ Number(model.status) === 1 ? '启用' : '停用' }}
+                           {{ Number(model.status) === 1 ? '鍚敤' : '鍋滅敤' }}
                         </span>
-                        <button class="btn" @click="openModelEdit(model)">编辑</button>
-                        <button class="btn danger" @click="deleteModel(model.modelId)">删除</button>
+                        <button class="btn" @click="openModelEdit(model)">缂栬緫</button>
+                        <button class="btn danger" @click="deleteModel(model.modelId)">鍒犻櫎</button>
                       </div>
                     </div>
                     <div class="kvs" style="margin-top:10px">
                       <div class="kv"><div class="k">配置状态</div><div class="v">{{ model.configured ? '可用' : '未配置或不可用' }}</div></div>
-                      <div class="kv"><div class="k">类型</div><div class="v">{{ model.modelType || 'openai' }}</div></div>
+                      <div class="kv"><div class="k">绫诲瀷</div><div class="v">{{ model.modelType || 'openai' }}</div></div>
                     </div>
                   </div>
                 </div>
@@ -2437,15 +2489,15 @@ onMounted(() => {
                 <div class="panel-title">
                   <span>MCP</span>
                   <div class="actions">
-                    <button class="btn primary" @click="openMcpCreate">新建 MCP</button>
-                    <button class="btn" @click="seedLocalTestMcp">导入本地测试 MCP</button>
-                    <button class="btn" @click="loadMcpPage">操作</button>
+                    <button class="btn primary" @click="openMcpCreate">鏂板缓 MCP</button>
+                    <button class="btn" @click="seedLocalTestMcp">瀵煎叆鏈湴娴嬭瘯 MCP</button>
+                    <button class="btn" @click="loadMcpPage">鎿嶄綔</button>
                   </div>
                 </div>
                 <div class="list">
                   <div v-if="!mcpServers.length" class="empty">
-                    <div>暂无 MCP 服务</div>
-                    <button class="btn primary" @click="seedLocalTestMcp">导入本地测试 MCP</button>
+                    <div>鏆傛棤 MCP 鏈嶅姟</div>
+                    <button class="btn primary" @click="seedLocalTestMcp">瀵煎叆鏈湴娴嬭瘯 MCP</button>
                   </div>
                   <div
                     v-for="item in mcpServers"
@@ -2461,7 +2513,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <span class="pill">{{ pick(item, 'latestVersion', 'LATEST_VERSION') || '-' }}</span>
-                        <button class="btn" @click.stop="loadMcpVersions(pick(item, 'id', 'ID'))">操作</button>
+                        <button class="btn" @click.stop="loadMcpVersions(pick(item, 'id', 'ID'))">鎿嶄綔</button>
                       </div>
                     </div>
                   </div>
@@ -2470,17 +2522,17 @@ onMounted(() => {
 
               <section class="panel">
                 <div class="panel-title">
-                  <span>MCP 版本</span>
+                  <span>MCP 鐗堟湰</span>
                   <div class="actions">
-                    <button class="btn primary" :disabled="!selectedMcpServerId" @click="openMcpVersionCreate">新建版本</button>
-                    <button class="btn" :disabled="!selectedMcpServerId" @click="loadMcpVersions(selectedMcpServerId)">操作</button>
+                    <button class="btn primary" :disabled="!selectedMcpServerId" @click="openMcpVersionCreate">鏂板缓鐗堟湰</button>
+                    <button class="btn" :disabled="!selectedMcpServerId" @click="loadMcpVersions(selectedMcpServerId)">鎿嶄綔</button>
                   </div>
                 </div>
-                <div class="muted" style="font-size:12px;margin-bottom:10px">信息</div>
+                <div class="muted" style="font-size:12px;margin-bottom:10px">淇℃伅</div>
                 <div class="list">
                   <div v-if="!mcpVersions.length" class="empty">
-                    <div>这个 MCP 还没有版本配置</div>
-                    <button class="btn primary" :disabled="!selectedMcpServerId" @click="openMcpVersionCreate">创建第一个版本</button>
+                    <div>杩欎釜 MCP 杩樻病鏈夌増鏈厤缃</div>
+                    <button class="btn primary" :disabled="!selectedMcpServerId" @click="openMcpVersionCreate">鍒涘缓绗竴涓増鏈</button>
                   </div>
                   <div v-for="version in mcpVersions" :key="pick(version, 'id', 'ID')" class="item">
                     <div class="item-row">
@@ -2490,7 +2542,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <span class="pill">{{ labelStatus(pick(version, 'status', 'STATUS')) }}</span>
-                        <button class="btn" @click="openCapabilityDetail('mcp', pick(version, 'id', 'ID'))">查看详情</button>
+                        <button class="btn" @click="openCapabilityDetail('mcp', pick(version, 'id', 'ID'))">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                     <div class="actions" style="margin-top:10px;gap:6px">
@@ -2515,12 +2567,12 @@ onMounted(() => {
                 <div class="panel-title">
                   <span>Skills</span>
                   <div class="actions">
-                    <button class="btn primary" @click="openSkillUpload">上传 Skill</button>
-                    <button class="btn" @click="loadSkillPage">操作</button>
+                    <button class="btn primary" @click="openSkillUpload">涓婁紶 Skill</button>
+                    <button class="btn" @click="loadSkillPage">鎿嶄綔</button>
                   </div>
                 </div>
                 <div class="list">
-                  <div v-if="!skillPackages.length && !localSkills.length" class="empty">暂无 Skill</div>
+                  <div v-if="!skillPackages.length && !localSkills.length" class="empty">鏆傛棤 Skill</div>
                   <div
                     v-for="item in skillPackages"
                     :key="pick(item, 'id', 'ID')"
@@ -2535,7 +2587,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <span class="pill">{{ labelStatus(pick(item, 'status', 'STATUS', 'lifecycleStatus', 'LIFECYCLE_STATUS')) }}</span>
-                        <button class="btn" @click.stop="loadSkillVersions(pick(item, 'id', 'ID'))">操作</button>
+                        <button class="btn" @click.stop="loadSkillVersions(pick(item, 'id', 'ID'))">鎿嶄綔</button>
                       </div>
                     </div>
                     <div class="muted" style="font-size:12px;margin-top:8px">{{ pick(item, 'description', 'DESCRIPTION') || '-' }}</div>
@@ -2546,7 +2598,7 @@ onMounted(() => {
                         <div style="font-weight:700">{{ item.skillName || item.skillId }}</div>
                         <div class="muted" style="font-size:12px;margin-top:4px">{{ item.skillId }}</div>
                       </div>
-                      <span class="pill brand">本地</span>
+                      <span class="pill brand">鏈湴</span>
                     </div>
                     <div class="muted" style="font-size:12px;margin-top:8px">{{ item.description || '-' }}</div>
                   </div>
@@ -2557,23 +2609,23 @@ onMounted(() => {
                 <template v-if="selectedLocalSkill">
                   <div class="panel-title">
                     <span>{{ selectedLocalSkill.skillName || selectedLocalSkill.skillId }}</span>
-                    <span class="pill brand">本地 Skill</span>
+                    <span class="pill brand">鏈湴 Skill</span>
                   </div>
                   <div class="muted" style="font-size:12px;margin-bottom:10px">{{ selectedLocalSkill.skillId }}</div>
                   <div class="muted" style="font-size:12px;margin-bottom:10px">
                     {{ selectedAgentId ? `当前按 Agent「${currentAgentName}」的运行时技能视角读取（.ma/skills）` : '当前未选择 Agent，正在读取全局本地 Skill 视图' }}
                   </div>
                   <div v-if="localSkillDetail?.skill" class="json-box" style="white-space:pre-wrap;max-height:520px;overflow:auto">{{ localSkillDetail.skill.content }}</div>
-                  <div v-else class="empty">无法读取本地 SKILL.md</div>
+                  <div v-else class="empty">鏃犳硶璇诲彇鏈湴 SKILL.md</div>
                 </template>
                 <template v-else>
                 <div class="panel-title">
-                  <span>Skill 版本</span>
-                  <button class="btn" :disabled="!selectedSkillPackageId" @click="loadSkillVersions(selectedSkillPackageId)">操作</button>
+                  <span>Skill 鐗堟湰</span>
+                  <button class="btn" :disabled="!selectedSkillPackageId" @click="loadSkillVersions(selectedSkillPackageId)">鎿嶄綔</button>
                 </div>
-                <div class="muted" style="font-size:12px;margin-bottom:10px">信息</div>
+                <div class="muted" style="font-size:12px;margin-bottom:10px">淇℃伅</div>
                 <div class="list">
-                   <div v-if="!skillVersions.length" class="empty">暂无数据</div>
+                   <div v-if="!skillVersions.length" class="empty">鏆傛棤鏁版嵁</div>
                   <div v-for="version in skillVersions" :key="pick(version, 'id', 'ID')" class="item">
                     <div class="item-row">
                       <div>
@@ -2582,7 +2634,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <span class="pill">{{ labelStatus(pick(version, 'status', 'STATUS')) }}</span>
-                        <button class="btn" @click="openCapabilityDetail('skill', pick(version, 'id', 'ID'))">查看详情</button>
+                        <button class="btn" @click="openCapabilityDetail('skill', pick(version, 'id', 'ID'))">鏌ョ湅璇︽儏</button>
                       </div>
                     </div>
                     <div class="actions" style="margin-top:10px;gap:6px">
@@ -2606,29 +2658,29 @@ onMounted(() => {
             <section class="panel log-panel">
               <div class="log-toolbar">
                 <div>
-                  <div class="page-title">Agent 运行追踪</div>
-                  <div class="muted log-subtitle">按 Agent / 会话查看思考、路由、模型、工具、子 Agent、Feedback 与 Case 全链路</div>
+                  <div class="page-title">Agent 杩愯杩借釜</div>
+                  <div class="muted log-subtitle">鎸?Agent / 浼氳瘽鏌ョ湅鎬濊€冦€佽矾鐢便€佹ā鍨嬨€佸伐鍏枫€佸瓙 Agent銆丗eedback 涓?Case 鍏ㄩ摼璺</div>
                 </div>
                 <div class="log-filters">
                   <select class="select log-agent-filter" v-model="selectedLogAgent">
-                    <option value="">全部 Agent</option>
+                    <option value="">鍏ㄩ儴 Agent</option>
                     <option v-for="agent in logAgentOptions" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
                   </select>
-                  <input v-model="logSessionQuery" class="api-input log-search" placeholder="搜索会话 ID" />
-                  <button class="btn" @click="loadLogsPage">刷新</button>
+                  <input v-model="logSessionQuery" class="api-input log-search" placeholder="鎼滅储浼氳瘽 ID" />
+                  <button class="btn" @click="loadLogsPage">鍒锋柊</button>
                 </div>
               </div>
               <div class="log-layout">
                 <aside class="log-sessions">
-                  <div class="log-section-head"><span>会话列表</span><span class="pill">{{ logSessions.length }}</span></div>
-                  <div v-if="!logSessions.length" class="empty">暂无匹配会话</div>
+                  <div class="log-section-head"><span>浼氳瘽鍒楄〃</span><span class="pill">{{ logSessions.length }}</span></div>
+                  <div v-if="!logSessions.length" class="empty">鏆傛棤鍖归厤浼氳瘽</div>
                   <button v-for="session in logSessions" :key="logSessionKey(session)" class="log-session-row" :class="{ active: logSessionKey(session) === selectedLogSessionKey }" @click="selectLogSession(session)">
-                    <span class="log-session-icon">◌</span>
+                    <span class="log-session-icon">鈼</span>
                     <span class="log-session-main">
                       <strong>{{ session.sessionId }}</strong>
-                      <small>{{ logAgentName(session.agentId) }} · {{ session.lastSeenAt || '-' }}</small>
+                      <small>{{ logAgentName(session.agentId) }} 路 {{ session.lastSeenAt || '-' }}</small>
                     </span>
-                    <span class="log-session-count">{{ session.callCount ?? 0 }}次</span>
+                    <span class="log-session-count">{{ session.callCount ?? 0 }}娆</span>
                   </button>
                 </aside>
                 <section class="log-conversation">
@@ -2636,19 +2688,19 @@ onMounted(() => {
                     <div class="log-conversation-head">
                       <div>
                         <div class="log-session-title">{{ selectedLogSession.sessionId }}</div>
-                        <div class="muted">{{ logAgentName(selectedLogSession.agentId) }} · 最近活动 {{ selectedLogSession.lastSeenAt || '-' }}</div>
+                        <div class="muted">{{ logAgentName(selectedLogSession.agentId) }} 路 鏈€杩戞椿鍔?{{ selectedLogSession.lastSeenAt || '-' }}</div>
                       </div>
                       <div class="actions">
-                        <button class="btn" @click="loadLogTrace(selectedLogSession, true)">重新拉取轨迹</button>
+                        <button class="btn" @click="loadLogTrace(selectedLogSession, true)">閲嶆柊鎷夊彇杞ㄨ抗</button>
                         <span class="pill">LLM {{ selectedLogSession.callCount ?? 0 }}</span>
                         <span class="pill">{{ selectedLogSession.totalTokens ?? 0 }} tokens</span>
                       </div>
                     </div>
 
                     <div class="trace-summary-grid">
-                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.messageCount ?? selectedLogSession.messages?.length ?? 0 }}</strong><span>消息</span></div>
-                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.llmCalls ?? selectedLogSession.callCount ?? 0 }}</strong><span>模型调用</span></div>
-                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.toolCalls ?? 0 }}</strong><span>工具链路</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.messageCount ?? selectedLogSession.messages?.length ?? 0 }}</strong><span>娑堟伅</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.llmCalls ?? selectedLogSession.callCount ?? 0 }}</strong><span>妯″瀷璋冪敤</span></div>
+                      <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.toolCalls ?? 0 }}</strong><span>宸ュ叿閾捐矾</span></div>
                       <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.feedbackCount ?? 0 }}</strong><span>Feedback</span></div>
                       <div class="trace-summary-card"><strong>{{ selectedLogTrace?.summary?.caseCount ?? 0 }}</strong><span>Case</span></div>
                       <div class="trace-summary-card" :class="{ danger: selectedLogTrace?.summary?.hasFailure }"><strong>{{ selectedLogTrace?.summary?.hasFailure ? '有' : '无' }}</strong><span>失败/异常</span></div>
@@ -2656,9 +2708,9 @@ onMounted(() => {
 
                     <div class="trace-split">
                       <section class="trace-main-card">
-                        <div class="profile-section-title">运行时间线</div>
-                        <div v-if="logTraceLoading" class="empty">正在拉取轨迹...</div>
-                        <div v-else-if="!selectedLogTimeline.length" class="empty">该会话暂无结构化轨迹</div>
+                        <div class="profile-section-title">杩愯鏃堕棿绾</div>
+                        <div v-if="logTraceLoading" class="empty">姝ｅ湪鎷夊彇杞ㄨ抗...</div>
+                        <div v-else-if="!selectedLogTimeline.length" class="empty">璇ヤ細璇濇殏鏃犵粨鏋勫寲杞ㄨ抗</div>
                         <div v-else class="trace-timeline">
                           <article v-for="(event, index) in selectedLogTimeline" :key="`${event.type}-${event.messageId || event.llmLogId || index}`" class="trace-event" :class="`trace-event-${String(event.type || '').toLowerCase()}`">
                             <div class="trace-node">{{ traceTypeIcon(event.type) }}</div>
@@ -2666,7 +2718,7 @@ onMounted(() => {
                               <div class="trace-event-head">
                                 <div>
                                   <div class="trace-event-title">{{ event.title || traceTypeLabel(event.type) }}</div>
-                                  <div class="trace-event-sub">{{ traceTypeLabel(event.type) }} · {{ event.occurredAt || '-' }}</div>
+                                  <div class="trace-event-sub">{{ traceTypeLabel(event.type) }} 路 {{ event.occurredAt || '-' }}</div>
                                 </div>
                                 <div class="actions">
                                   <span v-if="event.toolSource" class="pill brand">{{ event.toolSource }}</span>
@@ -2675,10 +2727,10 @@ onMounted(() => {
                               </div>
                               <div v-if="tracePrimaryContent(event)" class="trace-event-content">{{ tracePrimaryContent(event) }}</div>
                               <details v-if="event.input || event.errorMessage || traceMetadata(event)" class="trace-detail">
-                                <summary>查看输入 / 元数据 / 错误</summary>
-                                <pre v-if="event.input">输入：{{ event.input }}</pre>
-                                <pre v-if="event.errorMessage">错误：{{ event.errorMessage }}</pre>
-                                <pre v-if="traceMetadata(event)">元数据：{{ traceMetadata(event) }}</pre>
+                                <summary>鏌ョ湅杈撳叆 / 鍏冩暟鎹?/ 閿欒</summary>
+                                <pre v-if="event.input">杈撳叆锛歿{ event.input }}</pre>
+                                <pre v-if="event.errorMessage">閿欒锛歿{ event.errorMessage }}</pre>
+                                <pre v-if="traceMetadata(event)">鍏冩暟鎹細{{ traceMetadata(event) }}</pre>
                               </details>
                             </div>
                           </article>
@@ -2686,13 +2738,13 @@ onMounted(() => {
                       </section>
 
                       <aside class="trace-side-card">
-                        <div class="profile-section-title">模型调用摘要</div>
-                        <div v-if="!selectedLogSession.logs?.length" class="empty">当前会话暂无模型调用记录</div>
+                        <div class="profile-section-title">妯″瀷璋冪敤鎽樿</div>
+                        <div v-if="!selectedLogSession.logs?.length" class="empty">褰撳墠浼氳瘽鏆傛棤妯″瀷璋冪敤璁板綍</div>
                         <div v-else class="trace-llm-list">
                           <div v-for="(entry, index) in selectedLogSession.logs" :key="`llm-${selectedLogSession.sessionId}-${entry.id || index}`" class="trace-llm-card">
-                            <div style="font-weight:700">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
+                            <div style="font-weight:700">{{ entry.modelName || entry.modelId || '鏈煡妯″瀷' }}</div>
                             <div class="muted" style="font-size:12px;margin-top:5px">
-                              {{ entry.mode || '-' }} · 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠 {{ entry.foldedMsgCount ?? 0 }}
+                              {{ entry.mode || '-' }} 路 鍘嗗彶 {{ entry.historyMsgCount ?? 0 }} / 鎶樺彔 {{ entry.foldedMsgCount ?? 0 }}
                             </div>
                             <div class="trace-mini-tags">
                               <span class="pill">{{ entry.status || '-' }}</span>
@@ -2700,8 +2752,7 @@ onMounted(() => {
                               <span class="pill">{{ entry.totalTokens ?? 0 }} tokens</span>
                             </div>
                             <div class="muted" style="font-size:12px;margin-top:8px">
-                              系统 {{ entry.systemPromptLen ?? 0 }}字 / 用户 {{ entry.userMessageLen ?? 0 }}字 / 回复 {{ entry.assistantResponseLen ?? 0 }}字
-                            </div>
+                              绯荤粺 {{ entry.systemPromptLen ?? 0 }}瀛?/ 鐢ㄦ埛 {{ entry.userMessageLen ?? 0 }}瀛?/ 鍥炲 {{ entry.assistantResponseLen ?? 0 }}瀛?                            </div>
                             <div v-if="entry.errorMessage" class="error" style="margin-top:8px">{{ entry.errorMessage }}</div>
                           </div>
                         </div>
@@ -2709,101 +2760,30 @@ onMounted(() => {
                     </div>
 
                     <details class="raw-dialog-box">
-                      <summary>原始对话消息</summary>
+                      <summary>鍘熷瀵硅瘽娑堟伅</summary>
                       <div class="log-messages">
-                        <div v-if="!selectedLogSession.messages?.length" class="empty">该会话暂无消息</div>
+                        <div v-if="!selectedLogSession.messages?.length" class="empty">璇ヤ細璇濇殏鏃犳秷鎭</div>
                         <div v-for="msg in selectedLogSession.messages" :key="msg.id" class="log-message" :class="`log-message-${String(msg.role || '').toLowerCase()}`">
                           <div class="log-avatar">{{ String(msg.role || '').toLowerCase() === 'user' ? 'U' : String(msg.role || '').toLowerCase() === 'tool' ? 'T' : 'AI' }}</div>
                           <div class="log-message-body">
                             <div class="log-message-meta">
                               {{ logRoleLabel(msg.role) }}
-                              <span v-if="msg.turn != null">轮次 {{ msg.turn }}</span>
-                              <span v-if="msg.step != null">步骤 {{ msg.step }}</span>
-                              <span v-if="msg.toolName">工具 {{ msg.toolName }}</span>
+                              <span v-if="msg.turn != null">杞 {{ msg.turn }}</span>
+                              <span v-if="msg.step != null">姝ラ {{ msg.step }}</span>
+                              <span v-if="msg.toolName">宸ュ叿 {{ msg.toolName }}</span>
                               <span>{{ msg.createdAt || '' }}</span>
                             </div>
-                            <div class="log-message-content">{{ msg.content || msg.toolArguments || msg.toolCallsJson || '(无内容)' }}</div>
+                            <div class="log-message-content">{{ msg.content || msg.toolArguments || msg.toolCallsJson || '(鏃犲唴瀹?' }}</div>
                           </div>
                         </div>
                       </div>
                     </details>
                   </template>
                   <div v-else class="log-empty-state">
-                    <div class="log-empty-icon">↗</div>
-                    <strong>选择一个会话</strong>
-                    <span class="muted">左侧选择会话后查看完整 Agent 执行链路</span>
+                    <div class="log-empty-icon">鈫</div>
+                    <strong>閫夋嫨涓€涓細璇</strong>
+                    <span class="muted">宸︿晶閫夋嫨浼氳瘽鍚庢煡鐪嬪畬鏁?Agent 鎵ц閾捐矾</span>
                   </div>
-                </section>
-              </div>
-            </section>
-          </template>
-
-          <template v-else-if="tab === 'logs-old'">
-            <section class="panel log-panel">
-              <div class="log-toolbar">
-                <div>
-                  <div class="page-title">对话日志</div>
-                  <div class="muted log-subtitle">按 Agent 和会话查看完整问答记录</div>
-                </div>
-                <div class="log-filters">
-                  <select class="select log-agent-filter" v-model="selectedLogAgent">
-                    <option value="">全部 Agent</option>
-                    <option v-for="agent in logAgentOptions" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
-                  </select>
-                  <input v-model="logSessionQuery" class="api-input log-search" placeholder="搜索会话 ID" />
-                  <button class="btn" @click="loadLogsPage">刷新</button>
-                </div>
-              </div>
-              <div class="log-layout">
-                <aside class="log-sessions">
-                  <div class="log-section-head"><span>会话</span><span class="pill">{{ logSessions.length }}</span></div>
-                  <div v-if="!logSessions.length" class="empty">暂无匹配的会话</div>
-                  <button v-for="session in logSessions" :key="logSessionKey(session)" class="log-session-row" :class="{ active: logSessionKey(session) === selectedLogSessionKey }" @click="selectLogSession(session)">
-                    <span class="log-session-icon">◌</span>
-                    <span class="log-session-main"><strong>{{ session.sessionId }}</strong><small>{{ logAgentName(session.agentId) }}</small></span>
-                    <span class="log-session-count">{{ session.messages?.length ?? 0 }}</span>
-                  </button>
-                </aside>
-                <section class="log-conversation">
-                  <template v-if="selectedLogSession">
-                    <div class="log-conversation-head">
-                      <div><div class="log-session-title">{{ selectedLogSession.sessionId }}</div><div class="muted">{{ logAgentName(selectedLogSession.agentId) }} · {{ selectedLogSession.lastSeenAt || '-' }}</div></div>
-                      <div class="actions"><span class="pill">{{ selectedLogSession.callCount ?? 0 }} 次调用</span><span class="pill">{{ selectedLogSession.totalTokens ?? 0 }} tokens</span></div>
-                    </div>
-                    <div class="profile-section" style="margin-bottom:12px">
-                      <div class="profile-section-title">LLM 调用摘要</div>
-                      <div v-if="!selectedLogSession.logs?.length" class="empty">当前会话暂无模型调用记录</div>
-                      <div v-else class="list">
-                        <div v-for="(entry, index) in selectedLogSession.logs" :key="`llm-${selectedLogSession.sessionId}-${entry.id || index}`" class="item">
-                          <div class="item-row">
-                            <div>
-                              <div style="font-weight:600">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
-                              <div class="muted" style="font-size:12px;margin-top:4px">
-                                {{ entry.mode || '-' }} / 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠后 {{ entry.foldedMsgCount ?? 0 }}
-                              </div>
-                            </div>
-                            <div class="actions">
-                              <span class="pill">{{ entry.status || '-' }}</span>
-                              <span class="pill">{{ entry.durationMs ?? 0 }} ms</span>
-                              <span class="pill">{{ entry.totalTokens ?? 0 }} tokens</span>
-                            </div>
-                          </div>
-                          <div class="muted" style="font-size:12px;margin-top:8px">
-                            系统提示 {{ entry.systemPromptLen ?? 0 }} 字 / 用户 {{ entry.userMessageLen ?? 0 }} 字 / 回复 {{ entry.assistantResponseLen ?? 0 }} 字
-                          </div>
-                          <div v-if="entry.errorMessage" class="error section-gap" style="margin-top:8px">{{ entry.errorMessage }}</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="log-messages">
-                      <div v-if="!selectedLogSession.messages?.length" class="empty">该会话暂无消息</div>
-                      <div v-for="msg in selectedLogSession.messages" :key="msg.id" class="log-message" :class="`log-message-${String(msg.role || '').toLowerCase()}`">
-                        <div class="log-avatar">{{ String(msg.role || '').toLowerCase() === 'user' ? 'U' : String(msg.role || '').toLowerCase() === 'tool' ? 'T' : 'AI' }}</div>
-                        <div class="log-message-body"><div class="log-message-meta">{{ logRoleLabel(msg.role) }} <span v-if="msg.turn != null">轮次 {{ msg.turn }}</span><span v-if="msg.step != null">步骤 {{ msg.step }}</span><span v-if="msg.toolName">工具 {{ msg.toolName }}</span><span>{{ msg.createdAt || '' }}</span></div><div class="log-message-content">{{ msg.content || msg.toolArguments || msg.toolCallsJson || '(无内容)' }}</div></div>
-                      </div>
-                    </div>
-                  </template>
-                  <div v-else class="log-empty-state"><div class="log-empty-icon">↗</div><strong>选择一个会话</strong><span class="muted">左侧选择会话后查看完整对话记录</span></div>
                 </section>
               </div>
             </section>
@@ -2811,9 +2791,9 @@ onMounted(() => {
 
           <template v-else-if="tab === 'legacy-logs'">
             <section class="panel">
-              <div class="panel-title">模型调用日志</div>
+              <div class="panel-title">妯″瀷璋冪敤鏃ュ織</div>
               <div class="list">
-                <div v-if="!logs.length" class="empty">暂无数据</div>
+                <div v-if="!logs.length" class="empty">鏆傛棤鏁版嵁</div>
                 <div v-for="agent in logs" :key="agent.agentId" class="item">
                   <div class="item-row">
                     <div>
@@ -2822,7 +2802,7 @@ onMounted(() => {
                          Sessions: {{ agent.sessionCount ?? 0 }} | Calls: {{ agent.totalCalls ?? 0 }} | Token: {{ agent.totalTokens ?? 0 }}
                       </div>
                     </div>
-                    <button class="btn" @click="selectedLogAgent = agent.agentId">查看详情</button>
+                    <button class="btn" @click="selectedLogAgent = agent.agentId">鏌ョ湅璇︽儏</button>
                   </div>
 
                   <div v-if="selectedLogAgent === agent.agentId" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
@@ -2858,7 +2838,7 @@ onMounted(() => {
       <div class="modal-content">
         <div class="modal-head">
           <h2>{{ modal.title }}</h2>
-          <button class="btn" @click="closeModal">取消</button>
+          <button class="btn" @click="closeModal">鍙栨秷</button>
         </div>
 
         <template v-if="modal.kind === 'agent'">
@@ -2881,7 +2861,7 @@ onMounted(() => {
             <div class="field">
               <label>modelId</label>
               <select v-model="modal.form.modelId">
-                <option value="">请选择模型</option>
+                <option value="">璇烽€夋嫨妯″瀷</option>
                 <option v-for="model in models" :key="model.modelId" :value="model.modelId">
                   {{ model.modelName || model.modelId }}
                 </option>
@@ -2890,14 +2870,14 @@ onMounted(() => {
             <div class="field">
               <label>status</label>
               <select v-model="modal.form.status">
-                <option :value="1">启用</option>
-                <option :value="0">停用</option>
+                <option :value="1">鍚敤</option>
+                <option :value="0">鍋滅敤</option>
               </select>
             </div>
             <div class="field">
-              <label>沙箱父目录</label>
-               <input v-model="modal.form.workDir" placeholder="留空则使用项目 .ma/workspaces 目录" />
-               <div class="field-hint">每个 Agent 会在此目录下自动创建独立的 .ma/workspaces/agentId 沙箱。</div>
+              <label>娌欑鐖剁洰褰</label>
+               <input v-model="modal.form.workDir" placeholder="鐣欑┖鍒欎娇鐢ㄩ」鐩?.ma/workspaces 鐩綍" />
+               <div class="field-hint">姣忎釜 Agent 浼氬湪姝ょ洰褰曚笅鑷姩鍒涘缓鐙珛鐨?.ma/workspaces/agentId 娌欑銆</div>
             </div>
             <div class="field field-full">
               <label>description</label>
@@ -2909,7 +2889,7 @@ onMounted(() => {
             </div>
 
             <div class="field field-full">
-              <label>名称</label>
+              <label>鍚嶇О</label>
               <div class="bind-list">
                 <label
                   v-for="tool in agentToolOptions.filter(item => !['call_mcp_tool'].includes(pick(item, 'toolId', 'tool_id')))"
@@ -2963,13 +2943,13 @@ onMounted(() => {
             </div>
 
             <div class="field field-full">
-              <label>运行时能力预览</label>
+              <label>杩愯鏃惰兘鍔涢瑙</label>
               <div class="bind-runtime-panel">
                 <div class="field-hint">
-                  当前工作目录：{{ agentBindingDetail?.workspace || modal.form.workDir || '将使用默认 Agent 工作目录' }}
+                  褰撳墠宸ヤ綔鐩綍锛歿{ agentBindingDetail?.workspace || modal.form.workDir || '灏嗕娇鐢ㄩ粯璁?Agent 宸ヤ綔鐩綍' }}
                 </div>
                 <div v-if="(agentBindingDetail?.skills || []).length" class="bind-runtime-section">
-                  <div class="bind-runtime-section-title">Skill 装配状态</div>
+                  <div class="bind-runtime-section-title">Skill 瑁呴厤鐘舵€</div>
                   <div class="bind-list">
                     <div
                       v-for="skill in (agentBindingDetail?.skills || [])"
@@ -2988,7 +2968,7 @@ onMounted(() => {
                   </div>
                 </div>
                 <div v-if="(agentBindingDetail?.mcps || []).length" class="bind-runtime-section">
-                  <div class="bind-runtime-section-title">MCP 装配状态</div>
+                  <div class="bind-runtime-section-title">MCP 瑁呴厤鐘舵€</div>
                   <div class="bind-list">
                     <div
                       v-for="mcp in (agentBindingDetail?.mcps || [])"
@@ -3023,63 +3003,63 @@ onMounted(() => {
                   </div>
                 </div>
                 <div v-else class="empty-inline">
-                  当前还没有可展示的运行时生效工具；保存绑定后会自动计算。
+                  褰撳墠杩樻病鏈夊彲灞曠ず鐨勮繍琛屾椂鐢熸晥宸ュ叿锛涗繚瀛樼粦瀹氬悗浼氳嚜鍔ㄨ绠椼€?
                 </div>
               </div>
             </div>
 
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving || !modal.form.agentId || !modal.form.modelId" @click="saveAgent">保存智能体</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.agentId || !modal.form.modelId" @click="saveAgent">淇濆瓨鏅鸿兘浣</button>
           </div>
         </template>
 
         <template v-else-if="modal.kind === 'sessionTitle'">
           <div class="field-grid">
             <div class="field field-full">
-              <label>对话标题</label>
-              <input v-model="modal.form.sessionTitle" placeholder="对话标题" />
+              <label>瀵硅瘽鏍囬</label>
+              <input v-model="modal.form.sessionTitle" placeholder="瀵硅瘽鏍囬" />
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving" @click="saveSessionRename">保存</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving" @click="saveSessionRename">淇濆瓨</button>
           </div>
         </template>
         <template v-else-if="modal.kind === 'model'">
           <div class="field-grid">
             <div class="field">
-              <label>模型名称</label>
+              <label>妯″瀷鍚嶇О</label>
               <input v-model="modal.form.modelName" placeholder="deepseek-chat" />
             </div>
             <div class="field">
-              <label>接口地址</label>
+              <label>鎺ュ彛鍦板潃</label>
               <input v-model="modal.form.modelUrl" placeholder="https://api.deepseek.com/v1" />
             </div>
             <div class="field">
               <label>API Key</label>
-              <input v-model="modal.form.apiKey" type="password" placeholder="sk-... 或 ${DEEPSEEK_API_KEY}" />
+              <input v-model="modal.form.apiKey" type="password" placeholder="sk-... 鎴?${DEEPSEEK_API_KEY}" />
             </div>
             <div class="field">
-              <label>对话补全路径</label>
+              <label>瀵硅瘽琛ュ叏璺緞</label>
               <input v-model="modal.form.completionsPath" placeholder="/v1/chat/completions" />
             </div>
             <div class="field">
-              <label>模型类型</label>
+              <label>妯″瀷绫诲瀷</label>
               <input v-model="modal.form.modelType" placeholder="openai" />
             </div>
             <div class="field">
-              <label>状态</label>
+              <label>鐘舵€</label>
               <select v-model="modal.form.modelStatus">
-                <option :value="1">启用</option>
-                <option :value="0">停用</option>
+                <option :value="1">鍚敤</option>
+                <option :value="0">鍋滅敤</option>
               </select>
             </div>
           </div>
           <div class="field-actions">
-             <button class="btn" @click="closeModal">取消</button>
-             <button class="btn primary" :disabled="modal.saving" @click="saveModel">保存模型</button>
+             <button class="btn" @click="closeModal">鍙栨秷</button>
+             <button class="btn primary" :disabled="modal.saving" @click="saveModel">淇濆瓨妯″瀷</button>
           </div>
         </template>
 
@@ -3091,16 +3071,16 @@ onMounted(() => {
             </div>
             <div class="field">
               <label>name</label>
-              <input v-model="modal.form.name" placeholder="MCP 名称" />
+              <input v-model="modal.form.name" placeholder="MCP 鍚嶇О" />
             </div>
             <div class="field field-full">
               <label>description</label>
-              <textarea v-model="modal.form.description" rows="4" placeholder="MCP 描述"></textarea>
+              <textarea v-model="modal.form.description" rows="4" placeholder="MCP 鎻忚堪"></textarea>
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving || !modal.form.mcpKey || !modal.form.name" @click="saveMcpServer">保存 MCP</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.mcpKey || !modal.form.name" @click="saveMcpServer">淇濆瓨 MCP</button>
           </div>
         </template>
 
@@ -3124,12 +3104,12 @@ onMounted(() => {
             </div>
             <div class="field field-full">
               <label>endpointConfig</label>
-              <textarea v-model="modal.form.endpointConfig" rows="5" placeholder='HTTP: {"baseUri":"http://localhost:3000"}；STDIO: {"command":"node","args":["server.js"]}'></textarea>
+              <textarea v-model="modal.form.endpointConfig" rows="5" placeholder='HTTP: {"baseUri":"http://localhost:3000"}锛汼TDIO: {"command":"node","args":["server.js"]}'></textarea>
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving || !modal.form.version || !modal.form.transportType || !modal.form.endpointConfig" @click="saveMcpVersion">保存版本</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.version || !modal.form.transportType || !modal.form.endpointConfig" @click="saveMcpVersion">淇濆瓨鐗堟湰</button>
           </div>
         </template>
 
@@ -3157,8 +3137,8 @@ onMounted(() => {
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving || !modal.form.file" @click="saveSkillUpload">保存</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.file" @click="saveSkillUpload">淇濆瓨</button>
           </div>
         </template>
 
@@ -3178,15 +3158,15 @@ onMounted(() => {
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
-            <button class="btn primary" :disabled="modal.saving || !modal.form.targetCaseId" @click="saveCaseMerge">提交合并</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.targetCaseId" @click="saveCaseMerge">鎻愪氦鍚堝苟</button>
           </div>
         </template>
 
         <template v-else-if="modal.kind === 'caseTransition'">
           <div class="transition-context">
             <div class="transition-target">{{ modal.form.actionLabel }}</div>
-            <div class="muted">当前状态: {{ caseStatusText(modal.extra.fromStatus || '') }} -> {{ caseStatusText(modal.form.toStatus) }}</div>
+            <div class="muted">当前状态：{{ caseStatusText(modal.extra.fromStatus || '') }} -> {{ caseStatusText(modal.form.toStatus) }}</div>
           </div>
           <div class="field-grid">
             <div v-if="modal.form.toStatus === 'IN_PROGRESS'" class="field field-full">
@@ -3203,7 +3183,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
             <button class="btn primary" :disabled="modal.saving" @click="saveCaseTransition">提交状态变更</button>
           </div>
         </template>
@@ -3228,7 +3208,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="field-actions">
-            <button class="btn" @click="closeModal">取消</button>
+            <button class="btn" @click="closeModal">鍙栨秷</button>
             <button class="btn primary" :disabled="modal.saving" @click="saveFeedbackTransition">提交反馈动作</button>
           </div>
         </template>
@@ -3236,10 +3216,14 @@ onMounted(() => {
         <template v-else-if="modal.kind === 'json'">
           <pre class="json-box">{{ modal.form.json }}</pre>
           <div class="field-actions">
-            <button class="btn primary" @click="closeModal">取消</button>
+            <button class="btn primary" @click="closeModal">鍙栨秷</button>
           </div>
         </template>
       </div>
     </div>
   </div>
 </template>
+
+
+
+

@@ -1062,6 +1062,51 @@ button, input, select, textarea {
 .pill.warning { border-color: #fde68a; background: #fffbeb; color: #b45309; }
 .pill.danger { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
 
+.memory-recall-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.memory-recall-hint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.memory-recall-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.memory-recall-card {
+  padding: 13px;
+  border: 1px solid #dbe7f5;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #fff, #f8fbff);
+}
+
+.memory-recall-title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.memory-recall-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dbe7f5;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .field textarea {
   resize: vertical;
   min-height: 92px;
