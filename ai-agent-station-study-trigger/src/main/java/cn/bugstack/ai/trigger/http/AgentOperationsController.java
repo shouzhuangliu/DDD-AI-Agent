@@ -477,7 +477,7 @@ public class AgentOperationsController {
             case "CANDIDATE" -> List.of(
                     action("PENDING_REVIEW", "提交审核"),
                     action("IGNORED", "驳回问题"),
-                    action("MERGED", "合并到其他 Case"));
+                    action("MERGED", "合并到其他 Case", "MERGE"));
             case "PENDING_REVIEW" -> List.of(
                     action("CONFIRMED", "确认案件"),
                     action("IGNORED", "驳回问题"),
@@ -669,7 +669,11 @@ public class AgentOperationsController {
     }
 
     private Map<String, Object> action(String status, String label) {
-        return Map.of("status", status, "label", label);
+        return action(status, label, "TRANSITION");
+    }
+
+    private Map<String, Object> action(String status, String label, String operation) {
+        return Map.of("status", status, "label", label, "operation", operation);
     }
 
     private PromotionReadiness promotionReadiness(AiFeedback item) {

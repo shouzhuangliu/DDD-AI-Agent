@@ -207,5 +207,7 @@ class AgentOperationsControllerTest {
         assertEquals("提交审核", actions.getFirst().get("label"));
         assertEquals("PENDING_REVIEW", actions.getFirst().get("status"));
         assertEquals("候选问题", first.get("statusLabel"));
+        assertEquals("合并到其他 Case", actions.get(2).get("label"));
+        assertEquals("MERGE", actions.get(2).get("operation"));
     }
 }

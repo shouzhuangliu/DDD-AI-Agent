@@ -616,6 +616,15 @@ function caseStatusHint(status) {
 }
 
 function openCaseTransition(item, action) {
+  const operation = String(action.operation || '').toUpperCase();
+  if (operation === 'MERGE' || String(action.status || '').toUpperCase() === 'MERGED') {
+    setModal('caseMerge', `${action.label}: ${item.title || item.caseId}`, 'edit', {
+      actionLabel: action.label,
+      targetCaseId: '',
+      reason: '',
+    }, { caseId: item.caseId, fromStatus: item.status });
+    return;
+  }
   setModal('caseTransition', `${action.label}: ${item.title || item.caseId}`, 'edit', {
     toStatus: action.status,
     actionLabel: action.label,
@@ -653,6 +662,34 @@ async function saveCaseTransition() {
         actorRole: 'OPERATOR',
         owner: String(form.owner || '').trim(),
         resolution: String(form.resolution || '').trim(),
+        reason: String(form.reason || '').trim(),
+      },
+    });
+    closeModal();
+    await loadCaseWorkspace();
+  });
+  modal.saving = false;
+}
+
+async function saveCaseMerge() {
+  const form = modal.form;
+  const targetCaseId = String(form.targetCaseId || '').trim();
+  if (!targetCaseId) {
+    error.value = '合并 Case 必须填写目标 Case ID';
+    return;
+  }
+  if (targetCaseId === String(modal.extra.caseId || '').trim()) {
+    error.value = '不能把 Case 合并到自己';
+    return;
+  }
+  modal.saving = true;
+  await withLoading(async () => {
+    await request(`/agents/${encodeURIComponent(selectedAgentId.value)}/cases/${encodeURIComponent(modal.extra.caseId)}/merge`, {
+      method: 'POST',
+      headers: capHeaders('local-admin', 'OPERATOR'),
+      body: {
+        targetCaseId,
+        actor: 'local-admin',
         reason: String(form.reason || '').trim(),
       },
     });
@@ -2898,6 +2935,27 @@ onMounted(() => {
           <div class="field-actions">
             <button class="btn" @click="closeModal">取消</button>
             <button class="btn primary" :disabled="modal.saving || !modal.form.file" @click="saveSkillUpload">保存</button>
+          </div>
+        </template>
+
+        <template v-else-if="modal.kind === 'caseMerge'">
+          <div class="transition-context">
+            <div class="transition-target">{{ modal.form.actionLabel }}</div>
+            <div class="muted">当前 Case：{{ modal.extra.caseId }}</div>
+          </div>
+          <div class="field-grid">
+            <div class="field field-full">
+              <label>目标 Case ID</label>
+              <input v-model="modal.form.targetCaseId" placeholder="填写要合并到的目标 Case ID" />
+            </div>
+            <div class="field field-full">
+              <label>合并原因</label>
+              <textarea v-model="modal.form.reason" rows="3" placeholder="说明两个 Case 为什么属于同一类业务问题"></textarea>
+            </div>
+          </div>
+          <div class="field-actions">
+            <button class="btn" @click="closeModal">取消</button>
+            <button class="btn primary" :disabled="modal.saving || !modal.form.targetCaseId" @click="saveCaseMerge">提交合并</button>
           </div>
         </template>
 
