@@ -19,8 +19,10 @@ import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
+import cn.bugstack.ai.trigger.service.observability.ConversationTraceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -46,6 +48,8 @@ class AgentOperationsControllerTest {
     private IMemorySummaryDao memorySummaryDao;
     private IAiSessionDao sessionDao;
     private LongTermMemoryPort longTermMemoryPort;
+    private ConversationSessionService conversationSessionService;
+    private ConversationTraceService conversationTraceService;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -57,6 +61,8 @@ class AgentOperationsControllerTest {
         memorySummaryDao = mock(IMemorySummaryDao.class);
         sessionDao = mock(IAiSessionDao.class);
         longTermMemoryPort = mock(LongTermMemoryPort.class);
+        conversationSessionService = mock(ConversationSessionService.class);
+        conversationTraceService = mock(ConversationTraceService.class);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
@@ -74,6 +80,8 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "longTermMemoryRecallService", mock(LongTermMemoryRecallService.class));
         ReflectionTestUtils.setField(controller, "longTermMemoryPort", longTermMemoryPort);
         ReflectionTestUtils.setField(controller, "memoryQueryAdmissionPolicy", new MemoryQueryAdmissionPolicy());
+        ReflectionTestUtils.setField(controller, "conversationSessionService", conversationSessionService);
+        ReflectionTestUtils.setField(controller, "conversationTraceService", conversationTraceService);
     }
 
     @Test
@@ -403,5 +411,51 @@ class AgentOperationsControllerTest {
         List<LongTermMemoryRecallService.MemoryRecallItem> recallPreview =
                 (List<LongTermMemoryRecallService.MemoryRecallItem>) governance.get("recallPreview");
         assertEquals(1, recallPreview.size());
+    }
+
+    @Test
+    void sessionWorkbenchAggregatesDetailAndTrace() {
+        when(conversationSessionService.detail("cs", "sess-1")).thenReturn(Map.of(
+                "session", Map.of("sessionId", "sess-1", "title", "DDR5 补货会话"),
+                "overview", Map.of("messageCount", 4, "feedbackCount", 1),
+                "memory", Map.of("summary", Map.of("summary", "用户反馈 DDR5 商品长期缺货")),
+                "feedback", List.of(Map.of("id", 1L, "status", "VALID")),
+                "cases", List.of(Map.of("caseId", "case-1", "status", "CANDIDATE")),
+                "subagents", List.of(Map.of("taskId", "sub-1", "status", "SUCCESS")),
+                "messages", List.of(Map.of("id", 11L, "role", "user")),
+                "timeline", List.of(Map.of("type", "FEEDBACK", "status", "VALID"))
+        ));
+        when(conversationTraceService.trace("cs", "sess-1")).thenReturn(
+                new ConversationTraceService.ConversationTrace(
+                        "cs",
+                        "sess-1",
+                        new ConversationTraceService.TraceSummary(4, 2, 1, 1, 1, false),
+                        List.of(
+                                new ConversationTraceService.TimelineEvent("USER_MESSAGE", "用户消息", null,
+                                        "SUCCESS", 11L, null, "", "", "", "你好", "", Map.of(), 10),
+                                new ConversationTraceService.TimelineEvent("LLM_CALL", "模型调用", null,
+                                        "SUCCESS", null, 100L, "", "", "", "完成补货建议", "", Map.of(), 20),
+                                new ConversationTraceService.TimelineEvent("FEEDBACK", "反馈", null,
+                                        "VALID", null, null, "", "", "", "DDR5 缺货", "", Map.of(), 50)
+                        )
+                )
+        );
+
+        Map<String, Object> workbench = controller.sessionWorkbench("cs", "sess-1");
+
+        assertEquals("cs", workbench.get("agentId"));
+        assertEquals("sess-1", workbench.get("sessionId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> session = (Map<String, Object>) workbench.get("session");
+        assertEquals("DDR5 补货会话", session.get("title"));
+        @SuppressWarnings("unchecked")
+        Map<String, Long> eventTypeCounts = (Map<String, Long>) workbench.get("eventTypeCounts");
+        assertEquals(1L, eventTypeCounts.get("USER_MESSAGE"));
+        assertEquals(1L, eventTypeCounts.get("LLM_CALL"));
+        assertEquals(1L, eventTypeCounts.get("FEEDBACK"));
+        @SuppressWarnings("unchecked")
+        Map<String, Long> eventStatusCounts = (Map<String, Long>) workbench.get("eventStatusCounts");
+        assertEquals(2L, eventStatusCounts.get("SUCCESS"));
+        assertEquals(1L, eventStatusCounts.get("VALID"));
     }
 }

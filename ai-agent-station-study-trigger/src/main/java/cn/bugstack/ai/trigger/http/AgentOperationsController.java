@@ -23,8 +23,10 @@ import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.ConversationQualificationPolicy;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
+import cn.bugstack.ai.trigger.service.observability.ConversationTraceService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -59,6 +61,8 @@ public class AgentOperationsController {
     @Resource private LongTermMemoryRecallService longTermMemoryRecallService;
     @Resource private LongTermMemoryPort longTermMemoryPort;
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
+    @Resource private ConversationSessionService conversationSessionService;
+    @Resource private ConversationTraceService conversationTraceService;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
     private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
@@ -411,6 +415,45 @@ public class AgentOperationsController {
     public List<ChatMessage> messages(@PathVariable("agentId") String agentId, @PathVariable("sessionId") String sessionId) {
         return chatMessageDao.queryBySessionId(sessionId).stream()
                 .filter(message -> agentId.equals(message.getAgentId())).toList();
+    }
+
+    @GetMapping("/sessions/{sessionId}/workbench")
+    public Map<String, Object> sessionWorkbench(@PathVariable("agentId") String agentId,
+                                                @PathVariable("sessionId") String sessionId) {
+        Map<String, Object> detail = conversationSessionService.detail(agentId, sessionId);
+        ConversationTraceService.ConversationTrace trace = conversationTraceService.trace(agentId, sessionId);
+        Map<String, Long> eventTypeCounts = trace.timeline().stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        ConversationTraceService.TimelineEvent::type,
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()
+                ));
+        Map<String, Long> eventStatusCounts = trace.timeline().stream()
+                .map(ConversationTraceService.TimelineEvent::status)
+                .filter(status -> !safe(status).isBlank())
+                .collect(java.util.stream.Collectors.groupingBy(
+                        value -> value.toUpperCase(),
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()
+                ));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("sessionId", sessionId);
+        result.put("session", detail.getOrDefault("session", Map.of()));
+        result.put("overview", detail.getOrDefault("overview", Map.of()));
+        result.put("memory", detail.getOrDefault("memory", Map.of()));
+        result.put("feedback", detail.getOrDefault("feedback", List.of()));
+        result.put("cases", detail.getOrDefault("cases", List.of()));
+        result.put("subagents", detail.getOrDefault("subagents", List.of()));
+        result.put("messages", detail.getOrDefault("messages", List.of()));
+        result.put("timeline", detail.getOrDefault("timeline", List.of()));
+        result.put("traceSummary", trace.summary());
+        result.put("traceTimeline", trace.timeline());
+        result.put("eventTypeCounts", eventTypeCounts);
+        result.put("eventStatusCounts", eventStatusCounts);
+        result.put("generatedAt", LocalDateTime.now());
+        return result;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
