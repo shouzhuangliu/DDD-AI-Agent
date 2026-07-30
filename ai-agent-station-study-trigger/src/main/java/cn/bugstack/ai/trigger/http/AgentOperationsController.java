@@ -20,6 +20,7 @@ import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.ConversationQualificationPolicy;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -49,6 +50,7 @@ public class AgentOperationsController {
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
     @Resource private AgentMemoryProfileService agentMemoryProfileService;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
+    @Resource private LongTermMemoryRecallService longTermMemoryRecallService;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
     private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
@@ -165,6 +167,13 @@ public class AgentOperationsController {
     public Map<String, Object> memoryProfile(@PathVariable("agentId") String agentId) {
         var profile = agentMemoryProfileService.latest(agentId);
         return Map.of("agentId", agentId, "profile", profile == null ? Map.of() : profile);
+    }
+
+    @GetMapping("/memory/recall")
+    public List<LongTermMemoryRecallService.MemoryRecallItem> memoryRecall(@PathVariable("agentId") String agentId,
+                                                                           @RequestParam("query") String query,
+                                                                           @RequestParam(value = "limit", defaultValue = "10") int limit) {
+        return longTermMemoryRecallService.recall(agentId, query, bounded(limit));
     }
 
     @GetMapping("/sessions/{sessionId}/memory")
