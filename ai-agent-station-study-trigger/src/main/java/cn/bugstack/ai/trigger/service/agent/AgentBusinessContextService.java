@@ -1,9 +1,7 @@
 package cn.bugstack.ai.trigger.service.agent;
 
-import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
-import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
-import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,27 +19,20 @@ public class AgentBusinessContextService {
     private static final Pattern DOMAIN_TOKEN = Pattern.compile("[\\p{IsHan}]{2,}|[a-zA-Z]{3,}|\\d{2,}");
 
     @Resource
-    private IAgentRepository agentRepository;
-
-    @Resource
-    private SkillScannerService skillScannerService;
-
-    @Resource
-    private AgentWorkspaceService agentWorkspaceService;
+    private AgentRuntimeBindingService agentRuntimeBindingService;
 
     public Set<String> collectKeywords(String agentId) {
         LinkedHashSet<String> keywords = new LinkedHashSet<>();
         if (agentId == null || agentId.isBlank()) return keywords;
         try {
-            AiAgentVO agent = agentRepository.queryAgentById(agentId);
+            AgentRuntimeBindingService.AgentRuntimeBindings bindings =
+                    agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+            var agent = bindings.getAgent();
             if (agent == null) return keywords;
             appendTokens(keywords, agent.getAgentName());
             appendTokens(keywords, agent.getDescription());
-            String workspace = agentWorkspaceService
-                    .resolveWorkDir(agentId, agent.getWorkDir(), System.getProperty("user.dir"))
-                    .toString();
-            for (String skillId : agentRepository.queryBoundSkillIds(agentId)) {
-                SkillScannerService.SkillInfo metadata = skillScannerService.readSkillMetadataFromWorkDir(workspace, skillId);
+            for (String skillId : bindings.getSkillIds()) {
+                SkillScannerService.SkillInfo metadata = bindings.getSkillMetadataById().get(skillId);
                 if (metadata == null) continue;
                 appendTokens(keywords, metadata.getSkillId());
                 appendTokens(keywords, metadata.getSkillName());

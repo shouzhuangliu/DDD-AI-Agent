@@ -13,6 +13,7 @@ import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
@@ -113,6 +114,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     private SkillScannerService skillScannerService;
 
     @Resource
+    private AgentRuntimeBindingService agentRuntimeBindingService;
+
+    @Resource
     private ChatMessageRecorder messageRecorder;
 
     @Resource
@@ -140,9 +144,11 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             return;
         }
 
-        List<String> skillIds = repository.queryBoundSkillIds(agentId);
-        List<String> mcpIds = repository.queryBoundMcpIds(agentId);
-        Path workDir = agentWorkspaceService.syncSkills(agentId, agent.getWorkDir(), properties.getWorkDir(), skillIds);
+        AgentRuntimeBindingService.AgentRuntimeBindings bindings =
+                agentRuntimeBindingService.assemble(agentId, properties.getWorkDir(), true);
+        List<String> skillIds = bindings.getSkillIds();
+        List<String> mcpIds = bindings.getMcpIds();
+        Path workDir = bindings.getWorkspace();
 
         ReActToolContextHolder.set(ReActToolContext.builder()
                 .sessionId(sessionId)
@@ -175,8 +181,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     .content(requestParameter.getMessage()).status("IN_PROGRESS").owner("REACT")
                     .position(0).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
             sendTodoEvent(emitter, executionId, sessionId, todos);
-            List<String> explicitToolIds = toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId));
-            List<String> allowedTools = resolveRuntimeTools(explicitToolIds, skillIds, mcpIds);
+            List<String> explicitToolIds = bindings.getExplicitToolIds();
+            List<String> allowedTools = bindings.getEffectiveToolIds();
             String currentExecutionId = executionId;
             ReActToolContextHolder.set(ReActToolContext.builder()
                     .sessionId(sessionId).agentId(agentId).emitter(emitter).workDir(workDir)
@@ -189,7 +195,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             OpenAiChatModel chatModel = applicationContext.getBean(modelBeanName, OpenAiChatModel.class);
             log.info("ReAct 使用模型，agentId={}，sessionId={}，modelId={}", agentId, sessionId, selectedModelId);
 
-            String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds, allowedTools, explicitToolIds);
+            String systemPrompt = buildSystemPrompt(bindings, allowedTools, explicitToolIds);
 
             // 内置工具按 Agent 白名单动态暴露，避免普通业务反馈触发 Bash/读项目等高风险动作。
             MethodToolCallbackProvider internalTools = MethodToolCallbackProvider.builder()
@@ -447,29 +453,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         return tools.toArray();
     }
 
-    private List<String> resolveRuntimeTools(List<String> explicitlyAllowedTools, List<String> boundSkillIds, List<String> boundMcpIds) {
-        java.util.LinkedHashSet<String> tools = new java.util.LinkedHashSet<>(
-                explicitlyAllowedTools == null ? List.of() : explicitlyAllowedTools);
-        boolean hasSkills = boundSkillIds != null && !boundSkillIds.isEmpty();
-        boolean hasMcps = boundMcpIds != null && !boundMcpIds.isEmpty();
-        // Skills are read through the sandbox file tool, which is implicit for a bound Skill.
-        if (hasSkills) {
-            tools.add(ReActToolAllowlistPolicy.READ_FILE);
-        }
-        if (hasMcps) {
-            tools.add(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
-        } else {
-            tools.remove(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
-        }
-        if (tools.contains(ReActToolAllowlistPolicy.TASK)) {
-            tools.add(ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS);
-        }
-        return new java.util.ArrayList<>(tools);
-    }
-
     /** 构建动态系统提示词：soul + 授权工具说明 + 绑定 skills + 绑定 MCP（仅名+描述） */
-    private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds, List<String> allowedTools, List<String> explicitToolIds) {
+    private String buildSystemPrompt(AgentRuntimeBindingService.AgentRuntimeBindings bindings,
+                                     List<String> allowedTools,
+                                     List<String> explicitToolIds) {
         StringBuilder sb = new StringBuilder();
+        AiAgentVO agent = bindings.getAgent();
+        List<String> boundSkillIds = bindings.getSkillIds();
+        List<String> boundMcpIds = bindings.getMcpIds();
 
         if (agent.getSystemPrompt() != null && !agent.getSystemPrompt().isBlank()) {
             sb.append(agent.getSystemPrompt()).append("\n\n");
@@ -510,7 +501,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (boundSkillIds != null && !boundSkillIds.isEmpty()) {
             sb.append("\n该 Agent 绑定的 Skills（需要时直接使用 read_file 读取）：\n");
             for (String sid : boundSkillIds) {
-                var skill = skillScannerService.readSkillMetadataFromWorkDir(workDirStringForPrompt(agent), sid);
+                var skill = bindings.getSkillMetadataById().get(sid);
                 if (skill != null) {
                     sb.append("- ").append(sid).append(": ").append(skill.getSkillName())
                             .append(" - ").append(skill.getDescription()).append("\n");
@@ -522,9 +513,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             sb.append("\n该 Agent 当前没有绑定可执行 Skills。不要声称存在 demo skill、项目扫描 skill 或其他技能。\n");
         }
 
-        // MCP 工具仅列名称+描述（不挂全量 schema，防上下文膨胀）
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL) && boundMcpIds != null && !boundMcpIds.isEmpty()) {
-            var mcps = repository.queryMcpToolsByIds(boundMcpIds);
+            var mcps = bindings.getMcpTools();
             if (!mcps.isEmpty()) {
                 sb.append("\n该 Agent 绑定的 MCP 工具（可通过 call_mcp_tool 调用）：\n");
                 for (var m : mcps) {
@@ -542,9 +532,5 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         }
 
         return sb.toString();
-    }
-
-    private String workDirStringForPrompt(AiAgentVO agent) {
-        return agentWorkspaceService.resolveWorkDir(agent.getAgentId(), agent.getWorkDir(), properties.getWorkDir()).toString();
     }
 }

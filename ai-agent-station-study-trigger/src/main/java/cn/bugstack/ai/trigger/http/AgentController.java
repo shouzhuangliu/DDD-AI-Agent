@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
 import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.armory.ModelCredentialResolver;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
@@ -60,6 +61,7 @@ public class AgentController {
     @Resource private SkillCatalogService skillCatalogService;
     @Resource private AgentWorkspaceService agentWorkspaceService;
     @Resource private ReActToolAllowlistPolicy reActToolAllowlistPolicy;
+    @Resource private AgentRuntimeBindingService agentRuntimeBindingService;
 
     @Data
     public static class ModelBindingRequest {
@@ -364,16 +366,20 @@ public class AgentController {
 
     @GetMapping("/agents/{agentId}/bindings/detail")
     public Map<String, Object> getBindingDetails(@PathVariable("agentId") String agentId) {
-        AiAgent agent = aiAgentDao.queryByAgentId(agentId);
-        if (agent == null) return Map.of("success", false, "message", "Agent not found");
-        List<String> skillIds = agentRepository.queryBoundSkillIds(agentId);
-        List<String> mcpIds = agentRepository.queryBoundMcpIds(agentId);
-        List<String> toolIds = agentRepository.queryBoundToolIds(agentId);
-        List<String> effectiveToolIds = effectiveToolIds(toolIds, skillIds, mcpIds);
-        Path workspace = agentWorkspaceService.resolveWorkDir(agentId, agent.getWorkDir(), properties.getWorkDir());
+        AgentRuntimeBindingService.AgentRuntimeBindings bindings;
+        try {
+            bindings = agentRuntimeBindingService.assemble(agentId, properties.getWorkDir(), false);
+        } catch (IllegalArgumentException exception) {
+            return Map.of("success", false, "message", "Agent not found");
+        }
+        List<String> skillIds = bindings.getSkillIds();
+        List<String> mcpIds = bindings.getMcpIds();
+        List<String> toolIds = bindings.getExplicitToolIds();
+        List<String> effectiveToolIds = bindings.getEffectiveToolIds();
+        Path workspace = bindings.getWorkspace();
         List<Map<String, Object>> skills = skillIds.stream()
                 .map(skillId -> {
-                    var metadata = skillScannerService.readSkillMetadataFromWorkDir(workspace.toString(), skillId);
+                    var metadata = bindings.getSkillMetadataById().get(skillId);
                     boolean runtimeAvailable = metadata != null;
                     return Map.<String, Object>of(
                             "skillId", skillId,
@@ -412,7 +418,7 @@ public class AgentController {
                         "riskLevel", option.riskLevel(),
                         "source", impliedToolSource(option.toolId(), toolIds, skillIds, mcpIds)
                 )).toList();
-        Map<String, AiClientToolMcpVO> boundMcpMap = agentRepository.queryMcpToolsByIds(mcpIds).stream()
+        Map<String, AiClientToolMcpVO> boundMcpMap = bindings.getMcpTools().stream()
                 .filter(java.util.Objects::nonNull)
                 .filter(mcp -> mcp.getMcpId() != null && !mcp.getMcpId().isBlank())
                 .collect(java.util.stream.Collectors.toMap(
@@ -483,19 +489,8 @@ public class AgentController {
     }
 
     private List<String> effectiveToolIds(List<String> boundToolIds, List<String> skillIds, List<String> mcpIds) {
-        java.util.LinkedHashSet<String> tools = new java.util.LinkedHashSet<>(reActToolAllowlistPolicy.resolve(boundToolIds));
-        if (skillIds != null && !skillIds.isEmpty()) {
-            tools.add(ReActToolAllowlistPolicy.READ_FILE);
-        }
-        if (mcpIds != null && !mcpIds.isEmpty()) {
-            tools.add(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
-        } else {
-            tools.remove(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
-        }
-        if (tools.contains(ReActToolAllowlistPolicy.TASK)) {
-            tools.add(ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS);
-        }
-        return new java.util.ArrayList<>(tools);
+        return agentRuntimeBindingService.resolveEffectiveToolIds(
+                reActToolAllowlistPolicy.resolve(boundToolIds), skillIds, mcpIds);
     }
 
     private String impliedToolSource(String toolId, List<String> boundToolIds, List<String> skillIds, List<String> mcpIds) {

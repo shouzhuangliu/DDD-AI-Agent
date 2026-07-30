@@ -3,6 +3,7 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
 import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
@@ -31,6 +32,7 @@ class AgentControllerTest {
     private SkillScannerService skillScannerService;
     private AgentWorkspaceService agentWorkspaceService;
     private CapabilityRegistryService capabilityRegistryService;
+    private AgentRuntimeBindingService agentRuntimeBindingService;
     private AgentController controller;
 
     @BeforeEach
@@ -40,6 +42,11 @@ class AgentControllerTest {
         skillScannerService = mock(SkillScannerService.class);
         agentWorkspaceService = mock(AgentWorkspaceService.class);
         capabilityRegistryService = mock(CapabilityRegistryService.class);
+        agentRuntimeBindingService = new AgentRuntimeBindingService();
+        ReflectionTestUtils.setField(agentRuntimeBindingService, "agentRepository", agentRepository);
+        ReflectionTestUtils.setField(agentRuntimeBindingService, "agentWorkspaceService", agentWorkspaceService);
+        ReflectionTestUtils.setField(agentRuntimeBindingService, "skillScannerService", skillScannerService);
+        ReflectionTestUtils.setField(agentRuntimeBindingService, "reActToolAllowlistPolicy", new ReActToolAllowlistPolicy());
         controller = new AgentController();
         ReflectionTestUtils.setField(controller, "aiAgentDao", aiAgentDao);
         ReflectionTestUtils.setField(controller, "agentRepository", agentRepository);
@@ -47,6 +54,7 @@ class AgentControllerTest {
         ReflectionTestUtils.setField(controller, "agentWorkspaceService", agentWorkspaceService);
         ReflectionTestUtils.setField(controller, "capabilityRegistryService", capabilityRegistryService);
         ReflectionTestUtils.setField(controller, "reActToolAllowlistPolicy", new ReActToolAllowlistPolicy());
+        ReflectionTestUtils.setField(controller, "agentRuntimeBindingService", agentRuntimeBindingService);
         ReActToolProperties properties = new ReActToolProperties();
         properties.setWorkDir("D:/repo");
         ReflectionTestUtils.setField(controller, "properties", properties);
@@ -56,6 +64,11 @@ class AgentControllerTest {
     void returnsOnlyBoundRuntimeCapabilities() {
         when(aiAgentDao.queryByAgentId("cs")).thenReturn(AiAgent.builder()
                 .agentId("cs")
+                .workDir("D:/repo")
+                .build());
+        when(agentRepository.queryAgentById("cs")).thenReturn(cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO.builder()
+                .agentId("cs")
+                .agentName("CS Agent")
                 .workDir("D:/repo")
                 .build());
         when(agentRepository.queryBoundSkillIds("cs")).thenReturn(List.of("enterprise-demo-skill-1.0.0"));
@@ -106,6 +119,11 @@ class AgentControllerTest {
     void marksMissingRuntimeBindingsAsUnavailable() {
         when(aiAgentDao.queryByAgentId("ops")).thenReturn(AiAgent.builder()
                 .agentId("ops")
+                .workDir("D:/repo")
+                .build());
+        when(agentRepository.queryAgentById("ops")).thenReturn(cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO.builder()
+                .agentId("ops")
+                .agentName("OPS Agent")
                 .workDir("D:/repo")
                 .build());
         when(agentRepository.queryBoundSkillIds("ops")).thenReturn(List.of("missing-skill"));
