@@ -1,18 +1,17 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
-import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
-import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
-import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
-import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IFeedbackEvaluationJobDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.FeedbackEvaluationJob;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
+import cn.bugstack.ai.trigger.service.feedback.FeedbackAdmissionPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.Set;
 
 import static org.mockito.Mockito.*;
 
@@ -20,24 +19,19 @@ class FeedbackEvaluationWorkerTest {
 
     private IFeedbackEvaluationJobDao jobDao;
     private IAiFeedbackDao feedbackDao;
-    private IAgentRepository agentRepository;
-    private SkillScannerService skillScannerService;
-    private AgentWorkspaceService agentWorkspaceService;
+    private AgentBusinessContextService agentBusinessContextService;
     private FeedbackEvaluationWorker worker;
 
     @BeforeEach
     void setUp() {
         jobDao = mock(IFeedbackEvaluationJobDao.class);
         feedbackDao = mock(IAiFeedbackDao.class);
-        agentRepository = mock(IAgentRepository.class);
-        skillScannerService = mock(SkillScannerService.class);
-        agentWorkspaceService = mock(AgentWorkspaceService.class);
+        agentBusinessContextService = mock(AgentBusinessContextService.class);
         worker = new FeedbackEvaluationWorker();
         ReflectionTestUtils.setField(worker, "jobDao", jobDao);
         ReflectionTestUtils.setField(worker, "feedbackDao", feedbackDao);
-        ReflectionTestUtils.setField(worker, "agentRepository", agentRepository);
-        ReflectionTestUtils.setField(worker, "skillScannerService", skillScannerService);
-        ReflectionTestUtils.setField(worker, "agentWorkspaceService", agentWorkspaceService);
+        ReflectionTestUtils.setField(worker, "feedbackAdmissionPolicy", new FeedbackAdmissionPolicy());
+        ReflectionTestUtils.setField(worker, "agentBusinessContextService", agentBusinessContextService);
         ReflectionTestUtils.setField(worker, "enabled", true);
     }
 
@@ -49,6 +43,7 @@ class FeedbackEvaluationWorkerTest {
                 .id(100L).agentId("agent-cs").status("OPEN")
                 .message("你好我发现咱们业务存在一个空缺商品，具体是一个DDR5的内存，希望补货")
                 .build());
+        when(agentBusinessContextService.collectKeywords("agent-cs")).thenReturn(Set.of("商品", "补货", "内存"));
 
         worker.processNext();
 
@@ -64,6 +59,7 @@ class FeedbackEvaluationWorkerTest {
                 .id(101L).agentId("agent-cs").status("OPEN")
                 .message("你们商品好像有问题，帮我看一下")
                 .build());
+        when(agentBusinessContextService.collectKeywords("agent-cs")).thenReturn(Set.of("商品", "库存"));
 
         worker.processNext();
 
@@ -72,26 +68,15 @@ class FeedbackEvaluationWorkerTest {
     }
 
     @Test
-    void marksSkillScopedBusinessIssueAsValidWhenSkillProvidesDomainContext() {
+    void marksSkillScopedBusinessIssueAsValidWhenAgentContextMatches() {
         when(jobDao.queryClaimable()).thenReturn(job(4L, "coupon-agent", 103L));
         when(jobDao.claim(eq(4L), any(LocalDateTime.class))).thenReturn(1);
         when(feedbackDao.queryById(103L)).thenReturn(AiFeedback.builder()
                 .id(103L).agentId("coupon-agent").status("OPEN")
-                .message("券码核销失败，批次ZX-12用户无法使用")
+                .message("券码核销失败，批次HX-12用户无法使用")
                 .build());
-        when(agentRepository.queryAgentById("coupon-agent")).thenReturn(AiAgentVO.builder()
-                .agentId("coupon-agent").agentName("券码助手").description("负责券码核销与活动批次问题")
-                .workDir("D:\\repo").build());
-        when(agentRepository.queryBoundSkillIds("coupon-agent")).thenReturn(java.util.List.of("coupon-skill"));
-        when(agentWorkspaceService.resolveWorkDir("coupon-agent", "D:\\repo", System.getProperty("user.dir")))
-                .thenReturn(java.nio.file.Path.of("D:\\repo\\.ma\\workspaces\\coupon-agent"));
-        when(skillScannerService.readSkillMetadataFromWorkDir("D:\\repo\\.ma\\workspaces\\coupon-agent", "coupon-skill"))
-                .thenReturn(SkillScannerService.SkillInfo.builder()
-                        .skillId("coupon-skill")
-                        .skillName("券码核销技能")
-                        .description("处理券码核销、活动批次、兑换失败等业务反馈")
-                        .content("")
-                        .build());
+        when(agentBusinessContextService.collectKeywords("coupon-agent"))
+                .thenReturn(Set.of("券码", "核销", "批次", "兑换"));
 
         worker.processNext();
 
@@ -107,6 +92,7 @@ class FeedbackEvaluationWorkerTest {
                 .id(102L).agentId("agent-cs").status("OPEN")
                 .message("谢谢，收到啦")
                 .build());
+        when(agentBusinessContextService.collectKeywords("agent-cs")).thenReturn(Set.of("商品", "库存"));
 
         worker.processNext();
 

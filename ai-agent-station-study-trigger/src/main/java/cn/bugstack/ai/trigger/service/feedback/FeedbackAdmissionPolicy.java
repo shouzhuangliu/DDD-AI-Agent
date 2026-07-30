@@ -7,10 +7,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * 自动 Feedback 采集准入策略。
- * <p>
- * 仪表盘追求“少而准”，所以自动采集宁可漏掉模糊输入，
- * 也不能把测试输入、问候语或无业务对象的噪声沉淀成真实业务反馈。
+ * Automatic feedback admission should be strict: prefer missing vague signals
+ * over polluting the business feedback pipeline with noise.
  */
 @Component
 public class FeedbackAdmissionPolicy {
@@ -35,19 +33,34 @@ public class FeedbackAdmissionPolicy {
     };
 
     public boolean shouldCapture(String message) {
-        return shouldCapture(message, Set.of());
+        return analyze(message, Set.of()).capturable();
     }
 
     public boolean shouldCapture(String message, Set<String> agentBusinessKeywords) {
+        return analyze(message, agentBusinessKeywords).capturable();
+    }
+
+    public FeedbackSignal analyze(String message, Set<String> agentBusinessKeywords) {
         String text = normalize(message);
-        if (text.length() < 12) return false;
-        if (TINY_OR_TEST.matcher(text).matches()) return false;
-        if (!HAS_MEANINGFUL_TOKEN.matcher(text).find()) return false;
+        if (text.length() < 12) return FeedbackSignal.noise(text);
+        if (TINY_OR_TEST.matcher(text).matches()) return FeedbackSignal.noise(text);
+        if (!HAS_MEANINGFUL_TOKEN.matcher(text).find()) return FeedbackSignal.noise(text);
+
         boolean hasProblem = containsAny(text, PROBLEM_WORDS);
         boolean hasBusiness = containsAny(text, BUSINESS_WORDS);
         boolean matchesAgentBusiness = containsAny(text, agentBusinessKeywords);
         boolean hasEvidence = containsAny(text, EVIDENCE_WORDS) || text.matches(".*\\d{2,}.*");
-        return hasProblem && (hasBusiness || hasEvidence || matchesAgentBusiness);
+        boolean capturable = hasProblem && (hasBusiness || hasEvidence || matchesAgentBusiness);
+        return new FeedbackSignal(text, hasProblem, hasBusiness, hasEvidence, matchesAgentBusiness, false, capturable);
+    }
+
+    public String categoryOf(String message) {
+        String text = normalize(message);
+        if (containsAny(text, new String[]{"缺货", "补货", "空缺商品", "没货", "上架"})) return "SUPPLY_GAP";
+        if (containsAny(text, new String[]{"缓存", "不一致", "对不上", "显示"})) return "DATA_INCONSISTENCY";
+        if (containsAny(text, new String[]{"支付", "退款"})) return "PAYMENT";
+        if (containsAny(text, new String[]{"超时", "卡", "很慢"})) return "PERFORMANCE";
+        return "ISSUE_REPORT";
     }
 
     private static boolean containsAny(String text, String[] words) {
@@ -72,5 +85,26 @@ public class FeedbackAdmissionPolicy {
     private static String normalize(String value) {
         if (value == null) return "";
         return value.replaceAll("\\s+", " ").trim();
+    }
+
+    public record FeedbackSignal(String normalizedText,
+                                 boolean hasProblem,
+                                 boolean hasBusinessObject,
+                                 boolean hasEvidence,
+                                 boolean matchesAgentBusiness,
+                                 boolean noise,
+                                 boolean capturable) {
+
+        static FeedbackSignal noise(String normalizedText) {
+            return new FeedbackSignal(normalizedText, false, false, false, false, true, false);
+        }
+
+        public boolean likelyBusinessIssue() {
+            return hasProblem && (hasBusinessObject || matchesAgentBusiness);
+        }
+
+        public boolean concreteEnough() {
+            return likelyBusinessIssue() && hasEvidence;
+        }
     }
 }
