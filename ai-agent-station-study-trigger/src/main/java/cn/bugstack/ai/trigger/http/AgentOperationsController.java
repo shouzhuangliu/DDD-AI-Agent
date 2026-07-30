@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.http;
 
 import cn.bugstack.ai.api.dto.operations.ExplicitFeedbackRequest;
 import cn.bugstack.ai.api.dto.operations.ManualFeedbackRequest;
+import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
@@ -23,6 +24,7 @@ import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.ConversationQualificationPolicy;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
+import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,6 +57,8 @@ public class AgentOperationsController {
     @Resource private AgentMemoryProfileService agentMemoryProfileService;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
     @Resource private LongTermMemoryRecallService longTermMemoryRecallService;
+    @Resource private LongTermMemoryPort longTermMemoryPort;
+    @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
     private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
@@ -360,6 +365,48 @@ public class AgentOperationsController {
         return queue;
     }
 
+    @GetMapping("/workspace/memory-governance")
+    public Map<String, Object> memoryGovernance(@PathVariable("agentId") String agentId,
+                                                @RequestParam(value = "query", defaultValue = "") String query,
+                                                @RequestParam(value = "limit", defaultValue = "5") int limit) {
+        int boundedLimit = bounded(limit);
+        var profile = agentMemoryProfileService.latest(agentId);
+        List<cn.bugstack.ai.infrastructure.dao.po.MemorySummary> summaries = memorySummaryDao.queryByAgent(agentId, boundedLimit);
+        List<Map<String, Object>> summaryReadiness = summaries.stream()
+                .map(summary -> memorySummaryReadiness(summary))
+                .toList();
+        long eligibleSummaryCount = summaryReadiness.stream()
+                .filter(item -> Boolean.TRUE.equals(item.get("eligibleForLongTerm")))
+                .count();
+
+        MemoryQueryAdmissionPolicy.AdmissionDecision queryDecision = memoryQueryAdmissionPolicy.inspectRecallQuery(query);
+        List<LongTermMemoryRecallService.MemoryRecallItem> recallPreview = queryDecision.allowed()
+                ? longTermMemoryRecallService.recall(agentId, query, boundedLimit)
+                : List.of();
+
+        Map<String, Object> profileView = new LinkedHashMap<>();
+        if (profile != null) {
+            profileView.put("agentId", safe(profile.getAgentId()));
+            profileView.put("version", profile.getVersion() == null ? 0 : profile.getVersion());
+            profileView.put("sourceCaseCount", countCsv(profile.getSourceCaseIds()));
+            profileView.put("updatedAt", profile.getUpdatedAt());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("provider", longTermMemoryProvider());
+        result.put("readiness", memoryReadiness(profile != null, eligibleSummaryCount, queryDecision.allowed()));
+        result.put("policy", Map.of(
+                "recall", queryDecisionView(queryDecision),
+                "summaryStorageThreshold", Map.of("minLength", 20, "minInformativeTokens", 2)
+        ));
+        result.put("profile", profileView);
+        result.put("recentSummaryReadiness", summaryReadiness);
+        result.put("recallPreview", recallPreview);
+        result.put("generatedAt", LocalDateTime.now());
+        return result;
+    }
+
     @GetMapping("/sessions/{sessionId}/messages")
     public List<ChatMessage> messages(@PathVariable("agentId") String agentId, @PathVariable("sessionId") String sessionId) {
         return chatMessageDao.queryBySessionId(sessionId).stream()
@@ -379,6 +426,65 @@ public class AgentOperationsController {
     }
 
     private int bounded(int limit) { return Math.max(1, Math.min(200, limit)); }
+
+    private Map<String, Object> memorySummaryReadiness(cn.bugstack.ai.infrastructure.dao.po.MemorySummary summary) {
+        MemoryQueryAdmissionPolicy.AdmissionDecision decision =
+                memoryQueryAdmissionPolicy.inspectSummary(summary == null ? "" : summary.getSummary());
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("sessionId", summary == null ? "" : safe(summary.getSessionId()));
+        item.put("version", summary == null || summary.getVersion() == null ? 0 : summary.getVersion());
+        item.put("status", summary == null ? "" : safe(summary.getStatus()));
+        item.put("modelId", summary == null ? "" : safe(summary.getModelId()));
+        item.put("summary", summary == null ? "" : safe(summary.getSummary()));
+        item.put("createdAt", summary == null ? null : summary.getCreatedAt());
+        item.put("eligibleForLongTerm", decision.allowed());
+        item.put("decision", admissionDecisionView(decision));
+        return item;
+    }
+
+    private Map<String, Object> queryDecisionView(MemoryQueryAdmissionPolicy.AdmissionDecision decision) {
+        Map<String, Object> item = new LinkedHashMap<>(admissionDecisionView(decision));
+        item.put("query", decision.normalizedText());
+        return item;
+    }
+
+    private Map<String, Object> admissionDecisionView(MemoryQueryAdmissionPolicy.AdmissionDecision decision) {
+        return Map.of(
+                "allowed", decision.allowed(),
+                "reasonCode", decision.reasonCode(),
+                "informativeTokenCount", decision.informativeTokenCount(),
+                "requiredInformativeTokenCount", decision.requiredInformativeTokenCount(),
+                "length", decision.length()
+        );
+    }
+
+    private String longTermMemoryProvider() {
+        if (longTermMemoryPort == null) return "UNKNOWN";
+        String beanName = safe(longTermMemoryPort.getClass().getSimpleName());
+        if (beanName.isBlank() && longTermMemoryPort.getClass().getInterfaces().length > 0) {
+            beanName = safe(longTermMemoryPort.getClass().getInterfaces()[0].getSimpleName());
+        }
+        String normalized = beanName.toLowerCase();
+        if (normalized.contains("mem0")) return "MEM0";
+        if (normalized.contains("pgvector")) return "PGVECTOR";
+        if (normalized.contains("noop")) return "DISABLED";
+        return beanName.isBlank() ? "UNKNOWN" : beanName;
+    }
+
+    private String memoryReadiness(boolean hasProfile, long eligibleSummaryCount, boolean recallEligible) {
+        boolean enabled = !"DISABLED".equals(longTermMemoryProvider());
+        if (enabled && (hasProfile || eligibleSummaryCount > 0)) return recallEligible ? "READY" : "WARMING_UP";
+        if (hasProfile || eligibleSummaryCount > 0) return "PARTIAL";
+        return "BOOTSTRAPPING";
+    }
+
+    private int countCsv(String value) {
+        if (blank(value)) return 0;
+        return (int) java.util.Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .count();
+    }
 
     private void ensureFeedbackEligibleForPromotion(AiFeedback feedback, String reason) {
         String status = safe(feedback.getStatus()).toUpperCase();

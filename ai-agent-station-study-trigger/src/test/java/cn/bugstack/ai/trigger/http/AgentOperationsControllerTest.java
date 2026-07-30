@@ -1,5 +1,6 @@
 package cn.bugstack.ai.trigger.http;
 
+import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
@@ -19,6 +20,7 @@ import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
+import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -43,6 +45,7 @@ class AgentOperationsControllerTest {
     private AgentMemoryProfileService agentMemoryProfileService;
     private IMemorySummaryDao memorySummaryDao;
     private IAiSessionDao sessionDao;
+    private LongTermMemoryPort longTermMemoryPort;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -53,6 +56,7 @@ class AgentOperationsControllerTest {
         agentMemoryProfileService = mock(AgentMemoryProfileService.class);
         memorySummaryDao = mock(IMemorySummaryDao.class);
         sessionDao = mock(IAiSessionDao.class);
+        longTermMemoryPort = mock(LongTermMemoryPort.class);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
@@ -68,6 +72,8 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "agentMemoryProfileService", agentMemoryProfileService);
         ReflectionTestUtils.setField(controller, "feedbackEvaluationJobQueue", mock(FeedbackEvaluationJobQueue.class));
         ReflectionTestUtils.setField(controller, "longTermMemoryRecallService", mock(LongTermMemoryRecallService.class));
+        ReflectionTestUtils.setField(controller, "longTermMemoryPort", longTermMemoryPort);
+        ReflectionTestUtils.setField(controller, "memoryQueryAdmissionPolicy", new MemoryQueryAdmissionPolicy());
     }
 
     @Test
@@ -345,5 +351,57 @@ class AgentOperationsControllerTest {
         List<Map<String, Object>> recentSessions = (List<Map<String, Object>>) queue.get("recentSessions");
         assertEquals(1, recentSessions.size());
         assertEquals("补货对话", recentSessions.getFirst().get("title"));
+    }
+
+    @Test
+    void memoryGovernanceExplainsReadinessAndSummaryAdmission() {
+        when(agentMemoryProfileService.latest("cs")).thenReturn(AgentMemoryProfile.builder()
+                .agentId("cs").version(3).sourceCaseIds("case-1,case-2").build());
+        when(memorySummaryDao.queryByAgent("cs", 3)).thenReturn(List.of(
+                MemorySummary.builder().agentId("cs").sessionId("sess-1").version(1)
+                        .summary("用户反馈 DDR5 商品长期缺货，希望补货并排查供应规则。").status("ACTIVE").build(),
+                MemorySummary.builder().agentId("cs").sessionId("sess-2").version(1)
+                        .summary("好的").status("ACTIVE").build()
+        ));
+        LongTermMemoryRecallService recallService = mock(LongTermMemoryRecallService.class);
+        when(recallService.recall("cs", "DDR5 补货", 3)).thenReturn(List.of(
+                new LongTermMemoryRecallService.MemoryRecallItem("cs", "SESSION_SUMMARY", "sess-1", "短期折叠摘要",
+                        "用户反馈 DDR5 商品长期缺货，希望补货并排查供应规则。", 82d, "sess-1", "", 1, null, Map.of())
+        ));
+        ReflectionTestUtils.setField(controller, "longTermMemoryRecallService", recallService);
+        ReflectionTestUtils.setField(controller, "longTermMemoryPort", new LongTermMemoryPort() {
+            @Override
+            public void store(MemoryFact fact) {
+            }
+
+            @Override
+            public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) {
+                return List.of();
+            }
+        });
+
+        Map<String, Object> governance = controller.memoryGovernance("cs", "DDR5 补货", 3);
+
+        assertEquals("cs", governance.get("agentId"));
+        assertEquals("LongTermMemoryPort", governance.get("provider"));
+        assertEquals("READY", governance.get("readiness"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> policy = (Map<String, Object>) governance.get("policy");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> recall = (Map<String, Object>) policy.get("recall");
+        assertEquals(true, recall.get("allowed"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> profile = (Map<String, Object>) governance.get("profile");
+        assertEquals(2, profile.get("sourceCaseCount"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recentSummaryReadiness =
+                (List<Map<String, Object>>) governance.get("recentSummaryReadiness");
+        assertEquals(2, recentSummaryReadiness.size());
+        assertEquals(true, recentSummaryReadiness.getFirst().get("eligibleForLongTerm"));
+        assertEquals(false, recentSummaryReadiness.get(1).get("eligibleForLongTerm"));
+        @SuppressWarnings("unchecked")
+        List<LongTermMemoryRecallService.MemoryRecallItem> recallPreview =
+                (List<LongTermMemoryRecallService.MemoryRecallItem>) governance.get("recallPreview");
+        assertEquals(1, recallPreview.size());
     }
 }
