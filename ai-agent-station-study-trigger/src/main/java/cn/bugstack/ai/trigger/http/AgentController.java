@@ -455,10 +455,23 @@ public class AgentController {
         List<String> toolIds = reActToolAllowlistPolicy.resolve(body.getOrDefault("toolIds", List.of()));
         try {
             capabilityRegistryService.requireReleasedRuntimeBindings(skillIds, mcpIds);
+            AiAgent agent = aiAgentDao.queryByAgentId(agentId);
+            if (agent == null) {
+                return Map.of("success", false, "message", "Agent not found");
+            }
+            Path workspace = agentWorkspaceService.syncSkills(agentId, agent.getWorkDir(), properties.getWorkDir(), skillIds);
             agentRepository.bindSkills(agentId, skillIds);
             agentRepository.bindMcps(agentId, mcpIds);
             agentRepository.bindTools(agentId, toolIds);
-            return Map.of("success", true, "message", "bindings saved");
+            return Map.of(
+                    "success", true,
+                    "message", "bindings saved",
+                    "agentId", agentId,
+                    "workspace", workspace.toString(),
+                    "skillIds", skillIds,
+                    "mcpIds", mcpIds,
+                    "toolIds", toolIds
+            );
         } catch (IllegalStateException e) {
             return Map.of("success", false, "message", e.getMessage());
         }

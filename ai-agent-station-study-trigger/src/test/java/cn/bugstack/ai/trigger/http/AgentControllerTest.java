@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolic
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
 import cn.bugstack.ai.domain.agent.service.workspace.AgentWorkspaceService;
+import cn.bugstack.ai.trigger.service.capability.CapabilityRegistryService;
 import cn.bugstack.ai.infrastructure.dao.IAiAgentDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiAgent;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentControllerTest {
@@ -28,6 +30,7 @@ class AgentControllerTest {
     private IAgentRepository agentRepository;
     private SkillScannerService skillScannerService;
     private AgentWorkspaceService agentWorkspaceService;
+    private CapabilityRegistryService capabilityRegistryService;
     private AgentController controller;
 
     @BeforeEach
@@ -36,11 +39,13 @@ class AgentControllerTest {
         agentRepository = mock(IAgentRepository.class);
         skillScannerService = mock(SkillScannerService.class);
         agentWorkspaceService = mock(AgentWorkspaceService.class);
+        capabilityRegistryService = mock(CapabilityRegistryService.class);
         controller = new AgentController();
         ReflectionTestUtils.setField(controller, "aiAgentDao", aiAgentDao);
         ReflectionTestUtils.setField(controller, "agentRepository", agentRepository);
         ReflectionTestUtils.setField(controller, "skillScannerService", skillScannerService);
         ReflectionTestUtils.setField(controller, "agentWorkspaceService", agentWorkspaceService);
+        ReflectionTestUtils.setField(controller, "capabilityRegistryService", capabilityRegistryService);
         ReflectionTestUtils.setField(controller, "reActToolAllowlistPolicy", new ReActToolAllowlistPolicy());
         ReActToolProperties properties = new ReActToolProperties();
         properties.setWorkDir("D:/repo");
@@ -168,6 +173,30 @@ class AgentControllerTest {
 
         assertEquals(false, result.get("success"));
         assertEquals("Skill not bound to Agent", result.get("message"));
+    }
+
+    @Test
+    void updateBindingsSyncsBoundSkillsToRuntimeWorkspace() {
+        when(aiAgentDao.queryByAgentId("cs")).thenReturn(AiAgent.builder()
+                .agentId("cs")
+                .workDir("D:/repo")
+                .build());
+        when(agentWorkspaceService.syncSkills("cs", "D:/repo", "D:/repo", List.of("enterprise-demo-skill-1.0.0")))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/cs"));
+
+        Map<String, Object> result = controller.updateBindings("cs", Map.of(
+                "skillIds", List.of("enterprise-demo-skill-1.0.0"),
+                "mcpIds", List.of(),
+                "toolIds", List.of("read_file")
+        ));
+
+        assertEquals(true, result.get("success"));
+        assertEquals(Path.of("D:/repo/.ma/workspaces/cs").toString(), result.get("workspace"));
+        verify(capabilityRegistryService).requireReleasedRuntimeBindings(List.of("enterprise-demo-skill-1.0.0"), List.of());
+        verify(agentRepository).bindSkills("cs", List.of("enterprise-demo-skill-1.0.0"));
+        verify(agentRepository).bindMcps("cs", List.of());
+        verify(agentRepository).bindTools("cs", List.of("read_file"));
+        verify(agentWorkspaceService).syncSkills("cs", "D:/repo", "D:/repo", List.of("enterprise-demo-skill-1.0.0"));
     }
 
     @SuppressWarnings("unchecked")
