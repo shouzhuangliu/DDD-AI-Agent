@@ -9,17 +9,20 @@ import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
+import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,6 +38,8 @@ class AgentOperationsControllerTest {
     private IAiFeedbackDao feedbackDao;
     private IAiCaseDao caseDao;
     private ICaseEvidenceDao caseEvidenceDao;
+    private AgentMemoryProfileService agentMemoryProfileService;
+    private IMemorySummaryDao memorySummaryDao;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -42,19 +47,22 @@ class AgentOperationsControllerTest {
         feedbackDao = mock(IAiFeedbackDao.class);
         caseDao = mock(IAiCaseDao.class);
         caseEvidenceDao = mock(ICaseEvidenceDao.class);
+        agentMemoryProfileService = mock(AgentMemoryProfileService.class);
+        memorySummaryDao = mock(IMemorySummaryDao.class);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
         ReflectionTestUtils.setField(controller, "chatMessageDao", mock(IChatMessageDao.class));
         ReflectionTestUtils.setField(controller, "signalDao", mock(IAiSignalDao.class));
-        ReflectionTestUtils.setField(controller, "memorySummaryDao", mock(IMemorySummaryDao.class));
+        ReflectionTestUtils.setField(controller, "memorySummaryDao", memorySummaryDao);
         ReflectionTestUtils.setField(controller, "memoryStateDao", mock(IMemoryStateDao.class));
         ReflectionTestUtils.setField(controller, "memoryToolResultDao", mock(IMemoryToolResultDao.class));
         ReflectionTestUtils.setField(controller, "caseEvidenceDao", caseEvidenceDao);
         ReflectionTestUtils.setField(controller, "caseAuditDao", mock(IAiCaseAuditDao.class));
         ReflectionTestUtils.setField(controller, "caseMemoryPublisher", mock(CaseMemoryPublisher.class));
-        ReflectionTestUtils.setField(controller, "agentMemoryProfileService", mock(AgentMemoryProfileService.class));
+        ReflectionTestUtils.setField(controller, "agentMemoryProfileService", agentMemoryProfileService);
         ReflectionTestUtils.setField(controller, "feedbackEvaluationJobQueue", mock(FeedbackEvaluationJobQueue.class));
+        ReflectionTestUtils.setField(controller, "longTermMemoryRecallService", mock(LongTermMemoryRecallService.class));
     }
 
     @Test
@@ -232,5 +240,60 @@ class AgentOperationsControllerTest {
         assertEquals("候选问题", first.get("statusLabel"));
         assertEquals("合并到其他 Case", actions.get(2).get("label"));
         assertEquals("MERGE", actions.get(2).get("operation"));
+    }
+
+    @Test
+    void workspaceOverviewAggregatesStatsFeedbackCasesAndMemory() {
+        when(feedbackDao.countExplicitByAgentId("cs")).thenReturn(4L);
+        when(feedbackDao.countExplicitTodayByAgentId("cs")).thenReturn(2L);
+        when(feedbackDao.countNegativeByAgentId("cs")).thenReturn(1L);
+        when(feedbackDao.countAiObservedByAgentId("cs")).thenReturn(3L);
+        when(feedbackDao.countReadyForCaseByAgentId("cs")).thenReturn(1L);
+        when(caseDao.countByAgent("cs")).thenReturn(2L);
+        when(caseDao.countByAgentAndStatus("cs", "CANDIDATE")).thenReturn(1L);
+        when(caseDao.countByAgentAndStatus("cs", "PENDING_REVIEW")).thenReturn(0L);
+        when(caseDao.countByAgentAndStatus("cs", "IN_PROGRESS")).thenReturn(1L);
+        when(caseDao.countByAgentAndStatus("cs", "RESOLVED")).thenReturn(0L);
+        when(feedbackDao.queryWorkspaceByAgentId("cs", 5)).thenReturn(List.of(
+                AiFeedback.builder()
+                        .id(301L)
+                        .agentId("cs")
+                        .status("VALID")
+                        .sourceType("USER")
+                        .feedbackType("ISSUE_REPORT")
+                        .message("DDR5 商品缺货，希望补货")
+                        .build()
+        ));
+        when(caseDao.queryTopByAgent("cs", 5)).thenReturn(List.of(
+                AiCase.builder().caseId("case-1").agentId("cs").title("DDR5 补货").status("CANDIDATE").build()
+        ));
+        when(caseDao.queryByAgentAndStatus("cs", "CANDIDATE", 5)).thenReturn(List.of(
+                AiCase.builder().caseId("case-1").agentId("cs").title("DDR5 补货").status("CANDIDATE").build()
+        ));
+        when(agentMemoryProfileService.latest("cs")).thenReturn(AgentMemoryProfile.builder()
+                .agentId("cs").version(2).profileJson("{\"preferences\":[]}").build());
+        when(memorySummaryDao.queryByAgent("cs", 3)).thenReturn(List.of(
+                MemorySummary.builder().agentId("cs").sessionId("sess-1").summary("用户反馈 DDR5 商品缺货").build()
+        ));
+
+        Map<String, Object> overview = controller.workspaceOverview("cs", 5, 5, 3);
+
+        assertEquals("cs", overview.get("agentId"));
+        assertTrue(overview.containsKey("generatedAt"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stats = (Map<String, Object>) overview.get("stats");
+        assertEquals(4L, stats.get("businessFeedback"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recentFeedback = (List<Map<String, Object>>) overview.get("recentFeedback");
+        assertEquals(1, recentFeedback.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> topCases = (List<Map<String, Object>>) overview.get("topCases");
+        assertEquals(1, topCases.size());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> memoryProfile = (Map<String, Object>) overview.get("memoryProfile");
+        assertEquals("cs", memoryProfile.get("agentId"));
+        @SuppressWarnings("unchecked")
+        List<MemorySummary> recentMemorySummaries = (List<MemorySummary>) overview.get("recentMemorySummaries");
+        assertEquals(1, recentMemorySummaries.size());
     }
 }

@@ -311,6 +311,23 @@ public class AgentOperationsController {
         return result;
     }
 
+    @GetMapping("/workspace/overview")
+    public Map<String, Object> workspaceOverview(@PathVariable("agentId") String agentId,
+                                                 @RequestParam(value = "feedbackLimit", defaultValue = "5") int feedbackLimit,
+                                                 @RequestParam(value = "caseLimit", defaultValue = "5") int caseLimit,
+                                                 @RequestParam(value = "memoryLimit", defaultValue = "3") int memoryLimit) {
+        Map<String, Object> overview = new java.util.LinkedHashMap<>();
+        overview.put("agentId", agentId);
+        overview.put("stats", stats(agentId));
+        overview.put("recentFeedback", feedback(agentId, bounded(feedbackLimit)));
+        overview.put("topCases", topCases(agentId, bounded(caseLimit)));
+        overview.put("candidateCases", cases(agentId, "CANDIDATE", bounded(caseLimit)));
+        overview.put("memoryProfile", memoryProfile(agentId));
+        overview.put("recentMemorySummaries", memory(agentId, bounded(memoryLimit)));
+        overview.put("generatedAt", LocalDateTime.now());
+        return overview;
+    }
+
     @GetMapping("/sessions/{sessionId}/messages")
     public List<ChatMessage> messages(@PathVariable("agentId") String agentId, @PathVariable("sessionId") String sessionId) {
         return chatMessageDao.queryBySessionId(sessionId).stream()
