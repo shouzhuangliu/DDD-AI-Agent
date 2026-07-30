@@ -15,10 +15,12 @@ import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
 import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
+import cn.bugstack.ai.infrastructure.dao.ICaseScoreSnapshotDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSessionDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.AiLlmLog;
+import cn.bugstack.ai.infrastructure.dao.po.CaseScoreSnapshot;
 import cn.bugstack.ai.infrastructure.dao.po.CaseEvidence;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.infrastructure.dao.po.AiSession;
@@ -59,6 +61,7 @@ public class AgentOperationsController {
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private ICaseEvidenceDao caseEvidenceDao;
     @Resource private IAiCaseAuditDao caseAuditDao;
+    @Resource private ICaseScoreSnapshotDao caseScoreSnapshotDao;
     @Resource private IAiSessionDao sessionDao;
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
     @Resource private AgentMemoryProfileService agentMemoryProfileService;
@@ -167,6 +170,32 @@ public class AgentOperationsController {
     @GetMapping("/sources/{messageId}")
     public Map<String, Object> source(@PathVariable("agentId") String agentId, @PathVariable Long messageId) {
         return sourceOf(agentId, messageId);
+    }
+
+    @GetMapping("/feedback/{feedbackId}/promotion-audit")
+    public Map<String, Object> feedbackPromotionAudit(@PathVariable("agentId") String agentId,
+                                                      @PathVariable("feedbackId") long feedbackId) {
+        AiFeedback feedback = feedbackDao.queryById(feedbackId);
+        if (feedback == null || !agentId.equals(feedback.getAgentId())) {
+            throw new IllegalArgumentException("Feedback does not belong to this Agent");
+        }
+        PromotionReadiness readiness = promotionReadiness(feedback);
+        String caseId = safe(feedback.getMatchedCaseId());
+        Map<String, Object> linkedCase = caseId.isBlank() ? Map.of() : caseView(caseDao.queryByAgentAndCaseId(agentId, caseId));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("agentId", agentId);
+        result.put("feedback", feedbackView(feedback));
+        result.put("readiness", Map.of(
+                "eligible", readiness.eligible(),
+                "label", readiness.label(),
+                "reason", readiness.reason()
+        ));
+        result.put("scoreBreakdown", promotionScoreBreakdown(feedback, ""));
+        result.put("linkedCase", linkedCase);
+        result.put("scoreSnapshots", caseId.isBlank() ? List.of() : caseAuditDao.queryScoreSnapshots(agentId, caseId));
+        result.put("reviews", caseId.isBlank() ? List.of() : caseAuditDao.queryReviews(agentId, caseId));
+        result.put("generatedAt", LocalDateTime.now());
+        return result;
     }
 
     @GetMapping("/signals")
@@ -635,6 +664,24 @@ public class AgentOperationsController {
         return blank(first) ? safe(fallback) : safe(first);
     }
 
+    private double numberValue(Object value) {
+        if (value instanceof Number number) return number.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0d;
+        }
+    }
+
+    private boolean boolValue(Object value) {
+        if (value instanceof Boolean bool) return bool;
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private double round2(double value) {
+        return Math.round(value * 100d) / 100d;
+    }
+
     private String impliedToolSource(String toolId, List<String> explicitToolIds, List<String> skillIds, List<String> mcpIds) {
         String normalized = firstNonBlank(toolId, "").trim().toLowerCase();
         if ((explicitToolIds == null ? List.<String>of() : explicitToolIds).contains(normalized)) return "agent_binding";
@@ -773,7 +820,32 @@ public class AgentOperationsController {
                 .excerpt(summary.substring(0, Math.min(summary.length(), 500)))
                 .createdAt(now)
                 .build());
+        persistPromotionSnapshot(caseId, agentId, feedback, reason, now);
+        caseAuditDao.insertReview(caseId, agentId,
+                existing == null ? "NEW" : safe(existing.getStatus()),
+                "PROMOTED",
+                firstNonBlank(safe(feedback.getSubmittedBy()), "system"),
+                buildPromotionReviewReason(feedback, reason));
         return caseId;
+    }
+
+    private void persistPromotionSnapshot(String caseId, String agentId, AiFeedback feedback, String reason, LocalDateTime now) {
+        Map<String, Object> breakdown = promotionScoreBreakdown(feedback, reason);
+        caseScoreSnapshotDao.insert(CaseScoreSnapshot.builder()
+                .caseId(caseId)
+                .agentId(agentId)
+                .totalScore(numberValue(breakdown.get("totalScore")))
+                .severityScore(numberValue(breakdown.get("severityScore")))
+                .negativeFeedbackScore(numberValue(breakdown.get("negativeFeedbackScore")))
+                .frequencyScore(numberValue(breakdown.get("frequencyScore")))
+                .importanceScore(numberValue(breakdown.get("importanceScore")))
+                .recencyScore(numberValue(breakdown.get("recencyScore")))
+                .unresolvedAgeScore(numberValue(breakdown.get("unresolvedAgeScore")))
+                .confidenceScore(numberValue(breakdown.get("confidenceScore")))
+                .priorityFloorApplied(boolValue(breakdown.get("priorityFloorApplied")) ? 1 : 0)
+                .rationale(safe((String) breakdown.get("rationale")))
+                .createdAt(now)
+                .build());
     }
 
     private String buildCaseTitle(String message, String feedbackType) {
@@ -790,10 +862,71 @@ public class AgentOperationsController {
         return Set.of("THUMBS_DOWN", "NEGATIVE", "ISSUE_REPORT").contains(safe(feedback.getFeedbackType()).toUpperCase()) ? 1 : 0;
     }
 
+    private String buildPromotionReviewReason(AiFeedback feedback, String reason) {
+        String normalizedReason = safe(reason);
+        if (!normalizedReason.isBlank()) return normalizedReason;
+        return "Feedback 晋升为 Case；readiness=" + promotionReadiness(feedback).label()
+                + "；依据=" + safe(feedback.getMessage());
+    }
+
     private double promotionConfidence(boolean statusQualified, boolean explicitSource) {
         if (statusQualified) return 85d;
         if (explicitSource) return 78d;
         return 60d;
+    }
+
+    private Map<String, Object> promotionScoreBreakdown(AiFeedback feedback, String reason) {
+        String status = safe(feedback.getStatus()).toUpperCase();
+        boolean qualifiedStatus = Set.of("VALID", "CLUSTERED").contains(status);
+        boolean explicitSource = isExplicitSource(feedback);
+        double confidenceScore = promotionConfidence(qualifiedStatus, explicitSource);
+        double negativeFeedbackScore = explicitNegativeFeedback(feedback) == 1 ? 90d : 35d;
+        double importanceScore = businessRelevanceScore(feedback);
+        double severityScore = severityScore(feedback);
+        double frequencyScore = frequencyScore(feedback);
+        double recencyScore = 80d;
+        double unresolvedAgeScore = 60d;
+        boolean priorityFloorApplied = qualifiedStatus && explicitSource;
+        double totalScore = (severityScore * 0.16d)
+                + (negativeFeedbackScore * 0.18d)
+                + (frequencyScore * 0.12d)
+                + (importanceScore * 0.18d)
+                + (recencyScore * 0.08d)
+                + (unresolvedAgeScore * 0.08d)
+                + (confidenceScore * 0.20d);
+        if (priorityFloorApplied) totalScore = Math.max(totalScore, 72d);
+        String rationale = "状态=" + status
+                + "，来源=" + safe(feedback.getSourceType())
+                + "，业务相关度=" + (int) importanceScore
+                + "，证据强度=" + (int) evidenceScore(feedback, reason)
+                + "，置信度=" + (int) confidenceScore
+                + (blank(reason) ? "" : "，晋升说明=" + safe(reason));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalScore", round2(totalScore));
+        result.put("severityScore", round2(severityScore));
+        result.put("negativeFeedbackScore", round2(negativeFeedbackScore));
+        result.put("frequencyScore", round2(frequencyScore));
+        result.put("importanceScore", round2(importanceScore));
+        result.put("recencyScore", round2(recencyScore));
+        result.put("unresolvedAgeScore", round2(unresolvedAgeScore));
+        result.put("confidenceScore", round2(confidenceScore));
+        result.put("priorityFloorApplied", priorityFloorApplied);
+        result.put("rationale", rationale);
+        result.put("evidenceScore", round2(evidenceScore(feedback, reason)));
+        return result;
+    }
+
+    private double severityScore(AiFeedback feedback) {
+        String text = (safe(feedback.getMessage()) + " " + safe(feedback.getCorrection())).toLowerCase();
+        if (containsAny(text, "无法下单", "支付失败", "订单丢失", "库存不一致", "缓存不一致", "数据错误")) return 88d;
+        if (containsAny(text, "缺货", "补货", "查不到", "异常", "错误")) return 72d;
+        return 55d;
+    }
+
+    private double frequencyScore(AiFeedback feedback) {
+        String text = (safe(feedback.getMessage()) + " " + safe(feedback.getCorrection())).toLowerCase();
+        if (containsAny(text, "一直", "经常", "反复", "每次", "总是", "长期")) return 78d;
+        return 48d;
     }
 
     private double businessRelevanceScore(AiFeedback feedback) {

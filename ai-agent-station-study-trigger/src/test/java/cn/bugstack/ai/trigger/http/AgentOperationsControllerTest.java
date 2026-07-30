@@ -11,6 +11,7 @@ import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IAiLlmLogDao;
 import cn.bugstack.ai.infrastructure.dao.IAiSignalDao;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
+import cn.bugstack.ai.infrastructure.dao.ICaseScoreSnapshotDao;
 import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
@@ -49,6 +50,8 @@ class AgentOperationsControllerTest {
 
     private IAiFeedbackDao feedbackDao;
     private IAiCaseDao caseDao;
+    private IAiCaseAuditDao caseAuditDao;
+    private ICaseScoreSnapshotDao caseScoreSnapshotDao;
     private ICaseEvidenceDao caseEvidenceDao;
     private IAiLlmLogDao llmLogDao;
     private AgentMemoryProfileService agentMemoryProfileService;
@@ -64,6 +67,8 @@ class AgentOperationsControllerTest {
     void setUp() {
         feedbackDao = mock(IAiFeedbackDao.class);
         caseDao = mock(IAiCaseDao.class);
+        caseAuditDao = mock(IAiCaseAuditDao.class);
+        caseScoreSnapshotDao = mock(ICaseScoreSnapshotDao.class);
         caseEvidenceDao = mock(ICaseEvidenceDao.class);
         llmLogDao = mock(IAiLlmLogDao.class);
         agentMemoryProfileService = mock(AgentMemoryProfileService.class);
@@ -83,7 +88,8 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "memoryStateDao", mock(IMemoryStateDao.class));
         ReflectionTestUtils.setField(controller, "memoryToolResultDao", mock(IMemoryToolResultDao.class));
         ReflectionTestUtils.setField(controller, "caseEvidenceDao", caseEvidenceDao);
-        ReflectionTestUtils.setField(controller, "caseAuditDao", mock(IAiCaseAuditDao.class));
+        ReflectionTestUtils.setField(controller, "caseAuditDao", caseAuditDao);
+        ReflectionTestUtils.setField(controller, "caseScoreSnapshotDao", caseScoreSnapshotDao);
         ReflectionTestUtils.setField(controller, "sessionDao", sessionDao);
         ReflectionTestUtils.setField(controller, "caseMemoryPublisher", mock(CaseMemoryPublisher.class));
         ReflectionTestUtils.setField(controller, "agentMemoryProfileService", agentMemoryProfileService);
@@ -172,6 +178,8 @@ class AgentOperationsControllerTest {
         assertEquals("case-feedback-101", result.get("caseId"));
         verify(caseDao).insert(any());
         verify(caseEvidenceDao).insertIgnore(any());
+        verify(caseScoreSnapshotDao).insert(any());
+        verify(caseAuditDao).insertReview("case-feedback-101", "cs", "NEW", "PROMOTED", "system", "跨会话重复出现，影响下单");
     }
 
     @Test
@@ -549,5 +557,48 @@ class AgentOperationsControllerTest {
         List<Map<String, Object>> recentLlmCalls = (List<Map<String, Object>>) audit.get("recentLlmCalls");
         assertEquals(1, recentLlmCalls.size());
         assertEquals(1280, recentLlmCalls.getFirst().get("totalTokens"));
+    }
+
+    @Test
+    void feedbackPromotionAuditReturnsReadinessBreakdownAndLinkedCaseAudit() {
+        AiFeedback feedback = AiFeedback.builder()
+                .id(501L)
+                .agentId("cs")
+                .status("PROMOTED")
+                .sourceType("USER")
+                .feedbackType("ISSUE_REPORT")
+                .rating(1)
+                .message("DDR5 商品长期缺货，希望尽快补货")
+                .matchedCaseId("case-feedback-501")
+                .build();
+        when(feedbackDao.queryById(501L)).thenReturn(feedback);
+        when(caseDao.queryByAgentAndCaseId("cs", "case-feedback-501")).thenReturn(
+                AiCase.builder().caseId("case-feedback-501").agentId("cs").title("DDR5 缺货").status("CANDIDATE").build()
+        );
+        when(caseAuditDao.queryScoreSnapshots("cs", "case-feedback-501")).thenReturn(List.of(
+                Map.of("case_id", "case-feedback-501", "total_score", 74.2d)
+        ));
+        when(caseAuditDao.queryReviews("cs", "case-feedback-501")).thenReturn(List.of(
+                Map.of("case_id", "case-feedback-501", "to_status", "PROMOTED", "actor", "tester")
+        ));
+
+        Map<String, Object> result = controller.feedbackPromotionAudit("cs", 501L);
+
+        assertEquals("cs", result.get("agentId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> readiness = (Map<String, Object>) result.get("readiness");
+        assertEquals(false, readiness.get("eligible"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> scoreBreakdown = (Map<String, Object>) result.get("scoreBreakdown");
+        assertTrue(((Number) scoreBreakdown.get("totalScore")).doubleValue() > 0d);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> linkedCase = (Map<String, Object>) result.get("linkedCase");
+        assertEquals("case-feedback-501", linkedCase.get("caseId"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> scoreSnapshots = (List<Map<String, Object>>) result.get("scoreSnapshots");
+        assertEquals(1, scoreSnapshots.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> reviews = (List<Map<String, Object>>) result.get("reviews");
+        assertEquals(1, reviews.size());
     }
 }
