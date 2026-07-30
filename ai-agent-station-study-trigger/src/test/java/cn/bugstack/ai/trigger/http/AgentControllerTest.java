@@ -130,6 +130,7 @@ class AgentControllerTest {
                 .agentId("cs")
                 .workDir("D:/repo")
                 .build());
+        when(agentRepository.queryBoundSkillIds("cs")).thenReturn(List.of("enterprise-demo-skill-1.0.0"));
         when(agentWorkspaceService.resolveWorkDir("cs", "D:/repo", "D:/repo"))
                 .thenReturn(Path.of("D:/repo/.ma/workspaces/cs"));
         when(skillScannerService.readSkillFromWorkDir("D:\\repo\\.ma\\workspaces\\cs", "enterprise-demo-skill-1.0.0"))
@@ -145,6 +146,28 @@ class AgentControllerTest {
         assertEquals(true, result.get("success"));
         SkillScannerService.SkillInfo skill = (SkillScannerService.SkillInfo) result.get("skill");
         assertEquals("Enterprise Runtime Skill", skill.getSkillName());
+    }
+
+    @Test
+    void doesNotFallbackToGlobalSkillWhenAgentHasNotBoundIt() {
+        when(aiAgentDao.queryByAgentId("cs")).thenReturn(AiAgent.builder()
+                .agentId("cs")
+                .workDir("D:/repo")
+                .build());
+        when(agentRepository.queryBoundSkillIds("cs")).thenReturn(List.of("bound-skill"));
+        when(agentWorkspaceService.resolveWorkDir("cs", "D:/repo", "D:/repo"))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/cs"));
+        when(skillScannerService.readSkillFromWorkDir("D:/repo", "unbound-skill"))
+                .thenReturn(SkillScannerService.SkillInfo.builder()
+                        .skillId("unbound-skill")
+                        .skillName("Global Skill")
+                        .content("# global")
+                        .build());
+
+        Map<String, Object> result = controller.getSkill("unbound-skill", "cs");
+
+        assertEquals(false, result.get("success"));
+        assertEquals("Skill not bound to Agent", result.get("message"));
     }
 
     @SuppressWarnings("unchecked")
