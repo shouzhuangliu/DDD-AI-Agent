@@ -3,6 +3,7 @@ package cn.bugstack.ai.trigger.service.feedback;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -34,20 +35,36 @@ public class FeedbackAdmissionPolicy {
     };
 
     public boolean shouldCapture(String message) {
+        return shouldCapture(message, Set.of());
+    }
+
+    public boolean shouldCapture(String message, Set<String> agentBusinessKeywords) {
         String text = normalize(message);
         if (text.length() < 12) return false;
         if (TINY_OR_TEST.matcher(text).matches()) return false;
         if (!HAS_MEANINGFUL_TOKEN.matcher(text).find()) return false;
         boolean hasProblem = containsAny(text, PROBLEM_WORDS);
         boolean hasBusiness = containsAny(text, BUSINESS_WORDS);
+        boolean matchesAgentBusiness = containsAny(text, agentBusinessKeywords);
         boolean hasEvidence = containsAny(text, EVIDENCE_WORDS) || text.matches(".*\\d{2,}.*");
-        return hasProblem && (hasBusiness || hasEvidence);
+        return hasProblem && (hasBusiness || hasEvidence || matchesAgentBusiness);
     }
 
     private static boolean containsAny(String text, String[] words) {
         String lower = text.toLowerCase(Locale.ROOT);
         for (String word : words) {
             if (lower.contains(word.toLowerCase(Locale.ROOT))) return true;
+        }
+        return false;
+    }
+
+    private static boolean containsAny(String text, Set<String> words) {
+        if (words == null || words.isEmpty()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        for (String word : words) {
+            if (word == null || word.isBlank()) continue;
+            String normalized = word.toLowerCase(Locale.ROOT).trim();
+            if (normalized.length() >= 2 && lower.contains(normalized)) return true;
         }
         return false;
     }

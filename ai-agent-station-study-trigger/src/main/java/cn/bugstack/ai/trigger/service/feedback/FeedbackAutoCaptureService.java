@@ -3,6 +3,7 @@ package cn.bugstack.ai.trigger.service.feedback;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,11 +23,14 @@ public class FeedbackAutoCaptureService {
     @Resource
     private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
 
+    @Resource
+    private AgentBusinessContextService agentBusinessContextService;
+
     public Long captureUserIssue(String agentId, String sessionId, String message) {
         if (agentId == null || agentId.isBlank() || message == null || message.isBlank()) {
             return null;
         }
-        if (!feedbackAdmissionPolicy.shouldCapture(message)) {
+        if (!feedbackAdmissionPolicy.shouldCapture(message, agentBusinessContextService.collectKeywords(agentId))) {
             log.info("自动 Feedback 采集已跳过：输入未达到业务反馈准入阈值 agentId={}, sessionId={}", agentId, sessionId);
             return null;
         }

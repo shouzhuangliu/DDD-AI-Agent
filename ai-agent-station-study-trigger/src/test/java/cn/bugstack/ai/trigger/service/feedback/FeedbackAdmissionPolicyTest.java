@@ -2,6 +2,8 @@ package cn.bugstack.ai.trigger.service.feedback;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class FeedbackAdmissionPolicyTest {
@@ -31,5 +33,11 @@ class FeedbackAdmissionPolicyTest {
     void rejectsVagueRepairWishWithoutBusinessObjectOrEvidence() {
         assertFalse(policy.shouldCapture("我这边遇到问题了，希望尽快修复一下"));
         assertFalse(policy.shouldCapture("其余我忘记了，希望补货哈"));
+    }
+
+    @Test
+    void usesBoundSkillBusinessKeywordsAsAdmissionContext() {
+        assertTrue(policy.shouldCapture("发票开具一直失败，麻烦你们帮忙处理一下", Set.of("电子发票", "发票开具")));
+        assertFalse(policy.shouldCapture("发票开具", Set.of("电子发票", "发票开具")));
     }
 }

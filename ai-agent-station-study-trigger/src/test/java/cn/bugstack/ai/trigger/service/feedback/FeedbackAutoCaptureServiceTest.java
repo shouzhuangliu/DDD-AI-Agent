@@ -3,10 +3,13 @@ package cn.bugstack.ai.trigger.service.feedback;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -19,6 +22,7 @@ class FeedbackAutoCaptureServiceTest {
     private IAiFeedbackDao feedbackDao;
     private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
     private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
+    private AgentBusinessContextService agentBusinessContextService;
     private FeedbackAutoCaptureService service;
 
     @BeforeEach
@@ -26,10 +30,13 @@ class FeedbackAutoCaptureServiceTest {
         feedbackDao = mock(IAiFeedbackDao.class);
         feedbackEvaluationJobQueue = mock(FeedbackEvaluationJobQueue.class);
         feedbackAdmissionPolicy = new FeedbackAdmissionPolicy();
+        agentBusinessContextService = mock(AgentBusinessContextService.class);
         service = new FeedbackAutoCaptureService();
         ReflectionTestUtils.setField(service, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(service, "feedbackEvaluationJobQueue", feedbackEvaluationJobQueue);
         ReflectionTestUtils.setField(service, "feedbackAdmissionPolicy", feedbackAdmissionPolicy);
+        ReflectionTestUtils.setField(service, "agentBusinessContextService", agentBusinessContextService);
+        when(agentBusinessContextService.collectKeywords("cs")).thenReturn(Set.of());
         doAnswer(invocation -> {
             AiFeedback feedback = invocation.getArgument(0);
             feedback.setId(101L);
@@ -60,5 +67,17 @@ class FeedbackAutoCaptureServiceTest {
         assertNull(feedbackId);
         verify(feedbackDao, never()).insert(any());
         verify(feedbackEvaluationJobQueue, never()).enqueue(anyString(), anyLong());
+    }
+
+    @Test
+    void capturesIssueWhenMessageMatchesBoundSkillBusinessContext() {
+        when(agentBusinessContextService.collectKeywords("cs")).thenReturn(Set.of("电子发票", "发票开具"));
+
+        Long feedbackId = service.captureUserIssue("cs", "sess-1",
+                "发票开具一直失败，麻烦你们帮忙处理一下");
+
+        assertEquals(101L, feedbackId);
+        verify(feedbackDao).insert(any(AiFeedback.class));
+        verify(feedbackEvaluationJobQueue).enqueue("cs", 101L);
     }
 }
