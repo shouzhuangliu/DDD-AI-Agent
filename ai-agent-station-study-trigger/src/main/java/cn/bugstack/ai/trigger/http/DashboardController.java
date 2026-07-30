@@ -7,6 +7,7 @@ import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.AiLlmLog;
+import cn.bugstack.ai.trigger.service.observability.ConversationTraceService;
 import cn.bugstack.ai.trigger.service.observability.LlmLogObservationAssembler;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class DashboardController {
     @Resource private IAiCaseDao caseDao;
     @Resource private IAiLlmLogDao llmLogDao;
     @Resource private IChatMessageDao chatMessageDao;
+    @Resource private ConversationTraceService conversationTraceService;
     private final LlmLogObservationAssembler llmLogObservationAssembler = new LlmLogObservationAssembler();
 
     @GetMapping("/dashboard/stats")
@@ -96,6 +98,12 @@ public class DashboardController {
     public List<AiLlmLog> listBySession(@PathVariable("sessionId") String sessionId,
                                          @RequestParam(value = "limit", defaultValue = "20") int limit) {
         return llmLogDao.queryBySessionId(sessionId, limit);
+    }
+
+    @GetMapping("/agents/{agentId}/sessions/{sessionId}/trace")
+    public ConversationTraceService.ConversationTrace conversationTrace(@PathVariable("agentId") String agentId,
+                                                                        @PathVariable("sessionId") String sessionId) {
+        return conversationTraceService.trace(agentId, sessionId);
     }
 
     private int bounded(int limit) {
