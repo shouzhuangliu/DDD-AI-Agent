@@ -164,6 +164,9 @@ public class SkillScannerService {
     private List<Path> candidateRuntimeSkillsRoots(String workDir) {
         Set<Path> roots = new LinkedHashSet<>();
         addRuntimeWorkspaceSkillsRoots(roots, workDir);
+        addWorkspaceSkillsRoots(roots, workDir);
+        addWorkspaceSkillsRoots(roots, System.getProperty("user.dir"));
+        addConfiguredSkillsRoot(roots, configuredSkillsDir);
         return roots.stream().toList();
     }
 

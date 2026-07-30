@@ -50,4 +50,36 @@ class SkillScannerRuntimePreferenceTest {
             }
         }
     }
+
+    @Test
+    void fallsBackToProjectSkillsDirectoryWhenRuntimeWorkspaceSkillIsMissing() throws Exception {
+        Path root = Files.createTempDirectory("skill-runtime-fallback");
+        try {
+            Path appModule = Files.createDirectories(root.resolve("ai-agent-station-study-app"));
+            Path globalSkill = Files.createDirectories(root.resolve("skills").resolve("enterprise-demo-skill-1.0.0"));
+            Files.writeString(globalSkill.resolve("SKILL.md"), """
+                    ---
+                    name: global-demo-skill
+                    description: global fallback skill
+                    ---
+                    # Global Demo Skill
+                    """);
+
+            SkillScannerService service = new SkillScannerService();
+            SkillScannerService.SkillInfo skill = service.readSkillFromWorkDir(appModule.toString(), "enterprise-demo-skill-1.0.0");
+
+            assertNotNull(skill);
+            assertEquals("global-demo-skill", skill.getSkillName());
+        } finally {
+            try (var paths = Files.walk(root)) {
+                paths.sorted((left, right) -> right.getNameCount() - left.getNameCount())
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (Exception ignored) {
+                            }
+                        });
+            }
+        }
+    }
 }
