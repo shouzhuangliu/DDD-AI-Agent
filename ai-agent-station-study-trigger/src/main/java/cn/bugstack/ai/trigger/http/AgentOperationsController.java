@@ -11,10 +11,12 @@ import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
 import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseAuditDao;
+import cn.bugstack.ai.infrastructure.dao.IAiSessionDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
 import cn.bugstack.ai.infrastructure.dao.po.CaseEvidence;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
+import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
@@ -47,6 +49,7 @@ public class AgentOperationsController {
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private ICaseEvidenceDao caseEvidenceDao;
     @Resource private IAiCaseAuditDao caseAuditDao;
+    @Resource private IAiSessionDao sessionDao;
     @Resource private CaseMemoryPublisher caseMemoryPublisher;
     @Resource private AgentMemoryProfileService agentMemoryProfileService;
     @Resource private FeedbackEvaluationJobQueue feedbackEvaluationJobQueue;
@@ -328,6 +331,35 @@ public class AgentOperationsController {
         return overview;
     }
 
+    @GetMapping("/workspace/review-queue")
+    public Map<String, Object> reviewQueue(@PathVariable("agentId") String agentId,
+                                           @RequestParam(value = "limit", defaultValue = "5") int limit) {
+        int boundedLimit = bounded(limit);
+        List<Map<String, Object>> feedbackItems = feedback(agentId, boundedLimit).stream()
+                .filter(item -> {
+                    String status = safe((String) item.get("status")).toUpperCase();
+                    return Set.of("OPEN", "AI_EVALUATING", "NEED_MORE_INFO", "VALID", "CLUSTERED").contains(status);
+                })
+                .limit(boundedLimit)
+                .toList();
+        List<Map<String, Object>> candidateCaseItems = cases(agentId, "CANDIDATE", boundedLimit);
+        List<Map<String, Object>> pendingCaseItems = cases(agentId, "PENDING_REVIEW", boundedLimit);
+        List<Map<String, Object>> inProgressCaseItems = cases(agentId, "IN_PROGRESS", boundedLimit);
+        List<Map<String, Object>> recentSessions = sessionDao.queryByAgentId(agentId, boundedLimit).stream()
+                .map(this::sessionQueueView)
+                .toList();
+
+        Map<String, Object> queue = new java.util.LinkedHashMap<>();
+        queue.put("agentId", agentId);
+        queue.put("feedbackQueue", feedbackItems);
+        queue.put("candidateCases", candidateCaseItems);
+        queue.put("pendingReviewCases", pendingCaseItems);
+        queue.put("inProgressCases", inProgressCaseItems);
+        queue.put("recentSessions", recentSessions);
+        queue.put("generatedAt", LocalDateTime.now());
+        return queue;
+    }
+
     @GetMapping("/sessions/{sessionId}/messages")
     public List<ChatMessage> messages(@PathVariable("agentId") String agentId, @PathVariable("sessionId") String sessionId) {
         return chatMessageDao.queryBySessionId(sessionId).stream()
@@ -495,6 +527,22 @@ public class AgentOperationsController {
         view.put("createdAt", item.getCreatedAt());
         view.put("updatedAt", item.getUpdatedAt());
         view.put("availableActions", caseAvailableActions(status));
+        return view;
+    }
+
+    private Map<String, Object> sessionQueueView(AiSession item) {
+        if (item == null) return Map.of();
+        Map<String, Object> view = new java.util.LinkedHashMap<>();
+        view.put("sessionId", safe(item.getSessionId()));
+        view.put("agentId", safe(item.getAgentId()));
+        view.put("title", safe(item.getTitle()));
+        view.put("preview", safe(item.getPreview()));
+        view.put("modelId", safe(item.getModelId()));
+        view.put("messageCount", item.getMessageCount() == null ? 0 : item.getMessageCount());
+        view.put("status", item.getStatus() == null || item.getStatus() == 1 ? "ACTIVE" : "DELETED");
+        view.put("createdAt", item.getCreatedAt());
+        view.put("updatedAt", item.getUpdatedAt());
+        view.put("lastMessageAt", item.getLastMessageAt());
         return view;
     }
 

@@ -9,9 +9,11 @@ import cn.bugstack.ai.infrastructure.dao.ICaseEvidenceDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryStateDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.IMemoryToolResultDao;
+import cn.bugstack.ai.infrastructure.dao.IAiSessionDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
 import cn.bugstack.ai.infrastructure.dao.po.AiFeedback;
+import cn.bugstack.ai.infrastructure.dao.po.AiSession;
 import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
@@ -40,6 +42,7 @@ class AgentOperationsControllerTest {
     private ICaseEvidenceDao caseEvidenceDao;
     private AgentMemoryProfileService agentMemoryProfileService;
     private IMemorySummaryDao memorySummaryDao;
+    private IAiSessionDao sessionDao;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -49,6 +52,7 @@ class AgentOperationsControllerTest {
         caseEvidenceDao = mock(ICaseEvidenceDao.class);
         agentMemoryProfileService = mock(AgentMemoryProfileService.class);
         memorySummaryDao = mock(IMemorySummaryDao.class);
+        sessionDao = mock(IAiSessionDao.class);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
@@ -59,6 +63,7 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "memoryToolResultDao", mock(IMemoryToolResultDao.class));
         ReflectionTestUtils.setField(controller, "caseEvidenceDao", caseEvidenceDao);
         ReflectionTestUtils.setField(controller, "caseAuditDao", mock(IAiCaseAuditDao.class));
+        ReflectionTestUtils.setField(controller, "sessionDao", sessionDao);
         ReflectionTestUtils.setField(controller, "caseMemoryPublisher", mock(CaseMemoryPublisher.class));
         ReflectionTestUtils.setField(controller, "agentMemoryProfileService", agentMemoryProfileService);
         ReflectionTestUtils.setField(controller, "feedbackEvaluationJobQueue", mock(FeedbackEvaluationJobQueue.class));
@@ -295,5 +300,50 @@ class AgentOperationsControllerTest {
         @SuppressWarnings("unchecked")
         List<MemorySummary> recentMemorySummaries = (List<MemorySummary>) overview.get("recentMemorySummaries");
         assertEquals(1, recentMemorySummaries.size());
+    }
+
+    @Test
+    void reviewQueueAggregatesFeedbackCasesAndRecentSessions() {
+        when(feedbackDao.queryWorkspaceByAgentId("cs", 3)).thenReturn(List.of(
+                AiFeedback.builder().id(401L).agentId("cs").status("OPEN").sourceType("USER")
+                        .feedbackType("ISSUE_REPORT").message("DDR5 商品缺货").build(),
+                AiFeedback.builder().id(402L).agentId("cs").status("PROMOTED").sourceType("USER")
+                        .feedbackType("ISSUE_REPORT").message("已升级成 Case").build()
+        ));
+        when(caseDao.queryByAgentAndStatus("cs", "CANDIDATE", 3)).thenReturn(List.of(
+                AiCase.builder().caseId("case-a").agentId("cs").title("候选问题").status("CANDIDATE").build()
+        ));
+        when(caseDao.queryByAgentAndStatus("cs", "PENDING_REVIEW", 3)).thenReturn(List.of(
+                AiCase.builder().caseId("case-b").agentId("cs").title("待审核问题").status("PENDING_REVIEW").build()
+        ));
+        when(caseDao.queryByAgentAndStatus("cs", "IN_PROGRESS", 3)).thenReturn(List.of(
+                AiCase.builder().caseId("case-c").agentId("cs").title("处理中问题").status("IN_PROGRESS").build()
+        ));
+        when(sessionDao.queryByAgentId("cs", 3)).thenReturn(List.of(
+                AiSession.builder().sessionId("sess-1").agentId("cs").title("补货对话")
+                        .preview("用户反馈 DDR5 商品缺货").messageCount(6).modelId("deepseek-v4")
+                        .status(1).build()
+        ));
+
+        Map<String, Object> queue = controller.reviewQueue("cs", 3);
+
+        assertEquals("cs", queue.get("agentId"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> feedbackQueue = (List<Map<String, Object>>) queue.get("feedbackQueue");
+        assertEquals(1, feedbackQueue.size());
+        assertEquals("OPEN", feedbackQueue.getFirst().get("status"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> candidateCases = (List<Map<String, Object>>) queue.get("candidateCases");
+        assertEquals(1, candidateCases.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> pendingReviewCases = (List<Map<String, Object>>) queue.get("pendingReviewCases");
+        assertEquals(1, pendingReviewCases.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> inProgressCases = (List<Map<String, Object>>) queue.get("inProgressCases");
+        assertEquals(1, inProgressCases.size());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recentSessions = (List<Map<String, Object>>) queue.get("recentSessions");
+        assertEquals(1, recentSessions.size());
+        assertEquals("补货对话", recentSessions.getFirst().get("title"));
     }
 }
