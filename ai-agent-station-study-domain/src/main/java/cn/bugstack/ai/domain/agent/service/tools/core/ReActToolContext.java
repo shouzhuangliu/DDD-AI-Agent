@@ -48,6 +48,9 @@ public class ReActToolContext {
     /** 本次执行授权的工具白名单（工具 id）。子 Agent 据此镜像父工具集（剔除 task/dispatch_subagents）。 */
     private List<String> allowedTools;
 
+    /** Agent 配置页显式勾选的工具。隐式工具（如 Skill 自动带 read_file）不在这里。 */
+    private List<String> explicitToolIds;
+
     /** 本次执行的持久化状态 ID。 */
     private String executionId;
 

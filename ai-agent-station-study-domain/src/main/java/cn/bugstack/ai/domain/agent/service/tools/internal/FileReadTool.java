@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * ReAct 内部工具：读取沙箱目录下的文件内容。
@@ -24,6 +25,12 @@ public class FileReadTool extends AbstractReActTool {
     public String readFile(@ToolParam(description = "相对工作目录的文件路径") String relativePath) {
         String toolName = "read_file";
         emitAction(toolName, "读取文件: " + relativePath);
+
+        String authorizationError = authorizeRead(relativePath);
+        if (authorizationError != null) {
+            emitObservation(toolName, authorizationError);
+            return authorizationError;
+        }
 
         Path target = resolveInWorkDir(relativePath);
         if (target == null) {
@@ -55,5 +62,29 @@ public class FileReadTool extends AbstractReActTool {
             emitObservation(toolName, msg);
             return msg;
         }
+    }
+
+    private String authorizeRead(String relativePath) {
+        ReActToolContext ctx = ReActToolContextHolder.get();
+        if (ctx == null) return null;
+        List<String> explicitToolIds = ctx.getExplicitToolIds() == null ? List.of() : ctx.getExplicitToolIds();
+        if (explicitToolIds.contains("read_file")) {
+            return null;
+        }
+        String normalized = (relativePath == null ? "" : relativePath.trim()).replace('\\', '/');
+        if (normalized.startsWith("/") || normalized.contains(":") || normalized.contains("..")) {
+            return "未授权读取路径: " + relativePath + "。仅允许读取已绑定 Skill 的虚拟路径 .ma/skills/{skillId}/...";
+        }
+        if (!normalized.startsWith(".ma/skills/")) {
+            return "未授权读取路径: " + relativePath + "。当前 read_file 仅由 Skill 隐式启用，只允许读取已绑定 Skill 的虚拟路径。";
+        }
+        String rest = normalized.substring(".ma/skills/".length());
+        int slash = rest.indexOf('/');
+        String skillId = slash < 0 ? rest : rest.substring(0, slash);
+        List<String> boundSkillIds = ctx.getBoundSkillIds() == null ? List.of() : ctx.getBoundSkillIds();
+        if (skillId.isBlank() || !boundSkillIds.contains(skillId)) {
+            return "未授权读取 Skill: " + skillId + "。该 Agent 未绑定此 Skill。";
+        }
+        return null;
     }
 }

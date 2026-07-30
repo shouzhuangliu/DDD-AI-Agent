@@ -350,6 +350,7 @@ public class SubagentExecutionService {
                 .boundSkillIds(parent.getBoundSkillIds())
                 .boundMcpIds(parent.getBoundMcpIds())
                 .allowedTools(parent.getAllowedTools())
+                .explicitToolIds(parent.getExplicitToolIds())
                 .executionId(parent.getExecutionId())
                 .modelId(parent.getModelId())
                 .maxSteps(parent.getMaxSteps())

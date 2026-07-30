@@ -175,13 +175,13 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     .content(requestParameter.getMessage()).status("IN_PROGRESS").owner("REACT")
                     .position(0).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
             sendTodoEvent(emitter, executionId, sessionId, todos);
-            List<String> allowedTools = resolveRuntimeTools(
-                    toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId)), skillIds, mcpIds);
+            List<String> explicitToolIds = toolAllowlistPolicy.resolve(repository.queryBoundToolIds(agentId));
+            List<String> allowedTools = resolveRuntimeTools(explicitToolIds, skillIds, mcpIds);
             String currentExecutionId = executionId;
             ReActToolContextHolder.set(ReActToolContext.builder()
                     .sessionId(sessionId).agentId(agentId).emitter(emitter).workDir(workDir)
                     .boundSkillIds(skillIds).boundMcpIds(mcpIds)
-                    .allowedTools(allowedTools)
+                    .allowedTools(allowedTools).explicitToolIds(explicitToolIds)
                     .executionId(executionId).modelId(selectedModelId).maxSteps(maxSteps)
                     .cancellationCheck(() -> cancellationRegistry.isCancelled(currentExecutionId)).build());
             sendStateEvent(emitter, executionId, sessionId, 0, 0, "RUNNING");
@@ -189,7 +189,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             OpenAiChatModel chatModel = applicationContext.getBean(modelBeanName, OpenAiChatModel.class);
             log.info("ReAct 使用模型，agentId={}，sessionId={}，modelId={}", agentId, sessionId, selectedModelId);
 
-            String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds, allowedTools);
+            String systemPrompt = buildSystemPrompt(agent, skillIds, mcpIds, allowedTools, explicitToolIds);
 
             // 内置工具按 Agent 白名单动态暴露，避免普通业务反馈触发 Bash/读项目等高风险动作。
             MethodToolCallbackProvider internalTools = MethodToolCallbackProvider.builder()
@@ -468,7 +468,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     }
 
     /** 构建动态系统提示词：soul + 授权工具说明 + 绑定 skills + 绑定 MCP（仅名+描述） */
-    private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds, List<String> allowedTools) {
+    private String buildSystemPrompt(AiAgentVO agent, List<String> boundSkillIds, List<String> boundMcpIds, List<String> allowedTools, List<String> explicitToolIds) {
         StringBuilder sb = new StringBuilder();
 
         if (agent.getSystemPrompt() != null && !agent.getSystemPrompt().isBlank()) {
@@ -487,7 +487,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools == null || allowedTools.isEmpty()) {
             sb.append("- 无。当前 Agent 没有绑定任何可调用工具；如果用户询问工具/技能，请如实说明当前没有可调用配置。\n");
         }
-        if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) sb.append("- read_file(relativePath): 读取工作目录下指定相对路径的文本文件\n");
+        boolean explicitReadFile = explicitToolIds != null && explicitToolIds.contains(ReActToolAllowlistPolicy.READ_FILE);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) {
+            if (explicitReadFile) {
+                sb.append("- read_file(relativePath): 读取工作目录下指定相对路径的文本文件\n");
+            } else {
+                sb.append("- read_file(relativePath): 仅可读取已绑定 Skill 的虚拟路径 .ma/skills/{skillId}/...，不可读取项目代码或其他目录\n");
+            }
+        }
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) sb.append("- write_file(relativePath, content): 在工作目录下写入或覆盖文本文件\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) sb.append("- run_bash(command): 在工作目录内执行一条白名单内的 shell 命令\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(mcpId, toolName, args): 调用一个绑定的 MCP 工具\n");
