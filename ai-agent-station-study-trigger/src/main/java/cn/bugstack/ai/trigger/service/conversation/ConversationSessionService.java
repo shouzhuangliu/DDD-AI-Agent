@@ -182,12 +182,12 @@ public class ConversationSessionService {
         result.put("openFeedbackCount", openFeedbackCount);
         result.put("readyForCaseFeedbackCount", readyForCaseFeedbackCount);
         result.put("promotedFeedbackCount", promotedFeedbackCount);
-        AiFeedback latestFeedback = feedback.isEmpty() ? null : feedback.getFirst();
+        AiFeedback latestFeedback = feedback.isEmpty() ? null : feedback.get(0);
         result.put("latestFeedbackStatus", latestFeedback == null ? "" : safe(latestFeedback.getStatus()));
         result.put("latestFeedbackSourceType", latestFeedback == null ? "" : safe(latestFeedback.getSourceType()));
         result.put("latestMatchedCaseId", latestFeedback == null ? "" : safe(latestFeedback.getMatchedCaseId()));
         result.put("caseCount", cases.size());
-        AiCase latestCase = cases.isEmpty() ? null : cases.getFirst();
+        AiCase latestCase = cases.isEmpty() ? null : cases.get(0);
         result.put("latestCaseId", latestCase == null ? "" : safe(latestCase.getCaseId()));
         result.put("latestCaseStatus", latestCase == null ? "" : safe(latestCase.getStatus()));
         result.put("hasMemorySummary", summary != null && safe(summary.getSummary()).length() >= 20);

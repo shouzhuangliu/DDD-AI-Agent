@@ -1,0 +1,17 @@
+{
+  "name": "inventory-feedback-agent",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "category": "inventory-operations",
+  "permissions": [
+    "inventory.feedback.read",
+    "inventory.feedback.triage.write"
+  ],
+  "references": [
+    "references/01-feedback-intake.md",
+    "references/02-inventory-classification.md",
+    "references/03-urgency-evaluation.md",
+    "references/04-case-promotion.md",
+    "references/05-daily-summary.md"
+  ]
+}

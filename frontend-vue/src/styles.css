@@ -474,6 +474,66 @@ button, input, select, textarea {
   overflow: auto;
   padding-right: 4px;
 }
+
+.conversation-detail > .panel-title {
+  order: 0;
+  flex: 0 0 auto;
+}
+
+.conversation-detail .conversation-messages {
+  order: 3;
+  flex: 1 1 320px;
+  height: auto;
+  min-height: 220px;
+  margin-bottom: 10px;
+}
+
+.conversation-detail > .toolbar {
+  order: 4;
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  padding-top: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.78), #fff 35%);
+}
+
+.conversation-detail > .toolbar .textarea {
+  min-height: 72px;
+}
+
+.conversation-detail > .muted {
+  order: 5;
+  flex: 0 0 auto;
+}
+
+.conversation-detail .execution-progress {
+  order: 2;
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+
+.conversation-detail .conversation-overview {
+  order: 1;
+  flex: 0 0 auto;
+  max-height: 210px;
+  overflow: auto;
+  margin-bottom: 10px;
+  padding-right: 4px;
+}
+
+.conversation-detail .conversation-summary-grid {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.conversation-detail .conversation-overview .panel.subtle {
+  margin-top: 10px !important;
+}
+
+.conversation-detail .conversation-side-grid {
+  display: none;
+}
 .session-name {
   max-width: 210px;
   overflow: hidden;

@@ -1,3 +1,8 @@
+---
+name: enterprise-demo-skill
+description: Enterprise demo skill for validating the local Skill ZIP governance pipeline.
+---
+
 # Enterprise Demo Skill
 
 ## Purpose

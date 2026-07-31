@@ -172,6 +172,32 @@ class AgentControllerTest {
     }
 
     @Test
+    void fallsBackToGlobalSkillWhenBoundSkillNotYetSyncedIntoRuntimeWorkspace() {
+        when(aiAgentDao.queryByAgentId("inventory")).thenReturn(AiAgent.builder()
+                .agentId("inventory")
+                .workDir("D:/repo")
+                .build());
+        when(agentRepository.queryBoundSkillIds("inventory")).thenReturn(List.of("inventory-feedback-agent"));
+        when(agentWorkspaceService.resolveWorkDir("inventory", "D:/repo", "D:/repo"))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/inventory"));
+        when(skillScannerService.readSkillFromWorkDir("D:\\repo\\.ma\\workspaces\\inventory", "inventory-feedback-agent"))
+                .thenReturn(null);
+        when(skillScannerService.readSkillFromWorkDir("D:/repo", "inventory-feedback-agent"))
+                .thenReturn(SkillScannerService.SkillInfo.builder()
+                        .skillId("inventory-feedback-agent")
+                        .skillName("Inventory Feedback Agent")
+                        .description("库存反馈技能")
+                        .content("# skill")
+                        .build());
+
+        Map<String, Object> result = controller.getSkill("inventory-feedback-agent", "inventory");
+
+        assertEquals(true, result.get("success"));
+        SkillScannerService.SkillInfo skill = (SkillScannerService.SkillInfo) result.get("skill");
+        assertEquals("Inventory Feedback Agent", skill.getSkillName());
+    }
+
+    @Test
     void doesNotFallbackToGlobalSkillWhenAgentHasNotBoundIt() {
         when(aiAgentDao.queryByAgentId("cs")).thenReturn(AiAgent.builder()
                 .agentId("cs")

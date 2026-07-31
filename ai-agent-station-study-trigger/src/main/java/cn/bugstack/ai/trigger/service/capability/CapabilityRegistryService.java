@@ -5,6 +5,7 @@ import cn.bugstack.ai.domain.agent.service.operations.WorkflowTransitionPolicy;
 import cn.bugstack.ai.trigger.service.capability.skill.SafeSkillArchiveValidator;
 import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,12 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.sql.DataSource;
+import java.io.*;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.*;
 
 @Service
 public class CapabilityRegistryService {
@@ -77,19 +80,33 @@ public class CapabilityRegistryService {
     public long createMcpVersion(long serverId, Map<String, Object> body, String actor) {
         String version = required(body, "version"), transport = required(body, "transportType").toLowerCase(Locale.ROOT);
         if (!Set.of("sse", "stdio", "streamable-http").contains(transport)) throw new IllegalArgumentException("Unsupported MCP transport");
-        jdbc.update("INSERT INTO mcp_version (server_id,version,transport_type,endpoint_config,credential_ref,timeout_seconds,retry_count,concurrency_limit,status,submitted_by) VALUES (?,?,?,?,?,?,?,?, 'DRAFT',?)",
-                serverId, version, transport, required(body, "endpointConfig"), text(body, "credentialRef"),
+        String endpointConfig = required(body, "endpointConfig");
+        jdbc.update("""
+                        INSERT INTO mcp_version
+                            (server_id,version,transport_type,endpoint_config,credential_ref,timeout_seconds,retry_count,concurrency_limit,status,submitted_by)
+                        VALUES (?,?,?,?,?,?,?,?, 'DRAFT',?)
+                        ON DUPLICATE KEY UPDATE
+                            transport_type=VALUES(transport_type),
+                            endpoint_config=VALUES(endpoint_config),
+                            credential_ref=VALUES(credential_ref),
+                            timeout_seconds=VALUES(timeout_seconds),
+                            retry_count=VALUES(retry_count),
+                            concurrency_limit=VALUES(concurrency_limit),
+                            submitted_by=VALUES(submitted_by)
+                        """,
+                serverId, version, transport, endpointConfig, text(body, "credentialRef"),
                 number(body, "timeoutSeconds", 60), number(body, "retryCount", 2), number(body, "concurrencyLimit", 10), actor);
         long id = jdbc.queryForObject("SELECT id FROM mcp_version WHERE server_id=? AND version=?", Long.class, serverId, version);
-        audit("MCP_VERSION", String.valueOf(id), "CREATE_VERSION", actor, "DEVELOPER", null, null, "version=" + version);
+        audit("MCP_VERSION", String.valueOf(id), "SAVE_VERSION", actor, "DEVELOPER", null, null, "version=" + version);
         return id;
     }
 
     public Map<String, Object> testMcpConnectivity(long versionId, String actor) {
         Map<String, Object> version = one("SELECT id,transport_type,endpoint_config,status FROM mcp_version WHERE id=?", versionId);
-        String transport = String.valueOf(version.get("transport_type"));
+        String storedTransport = String.valueOf(version.get("transport_type"));
         String config = String.valueOf(version.get("endpoint_config"));
         JSONObject json = JSON.parseObject(config);
+        String transport = normalizeTransportForConnectivity(storedTransport, json);
         boolean passed;
         String detail;
         if ("sse".equals(transport) || "streamable-http".equals(transport)) {
@@ -112,15 +129,114 @@ public class CapabilityRegistryService {
         return Map.of("passed", passed, "detail", detail);
     }
 
+    static String normalizeTransportForConnectivity(String storedTransport, JSONObject endpointConfig) {
+        String transport = storedTransport == null ? "" : storedTransport.trim().toLowerCase(Locale.ROOT);
+        if (endpointConfig == null || endpointConfig.isEmpty()) return transport;
+        if (endpointConfig.getString("command") != null || endpointConfig.getJSONObject("stdio") != null) return "stdio";
+        if (endpointConfig.getString("baseUri") != null || endpointConfig.getString("url") != null) {
+            if (transport.isBlank() || "stdio".equals(transport)) return "sse";
+        }
+        return transport;
+    }
+
     public void recordMcpDiscovery(long versionId, List<Map<String, Object>> tools, String actor) {
-        requireState("mcp_version", versionId, "CONNECTIVITY_CHECKED");
+        String currentStatus = String.valueOf(one("SELECT status FROM mcp_version WHERE id=?", versionId).get("status")).toUpperCase(Locale.ROOT);
+        if (!Set.of("CONNECTIVITY_CHECKED", "DISCOVERED").contains(currentStatus)) {
+            throw new IllegalStateException("MCP 当前状态不允许探测工具: " + currentStatus);
+        }
         if (tools == null) throw new IllegalArgumentException("tools is required");
         for (Map<String, Object> tool : tools) {
             jdbc.update("INSERT INTO mcp_discovered_tool (version_id,tool_name,description,input_schema,risk_level,enabled) VALUES (?,?,?,?,?,0) ON DUPLICATE KEY UPDATE description=VALUES(description),input_schema=VALUES(input_schema),risk_level=VALUES(risk_level)",
                     versionId, required(tool, "name"), text(tool, "description"), JSON.toJSONString(tool.getOrDefault("inputSchema", Map.of())), riskFor(tool));
         }
-        transition("mcp_version", versionId, WorkflowTransitionPolicy.Resource.MCP, "DISCOVERED");
+        if ("CONNECTIVITY_CHECKED".equals(currentStatus)) {
+            transition("mcp_version", versionId, WorkflowTransitionPolicy.Resource.MCP, "DISCOVERED");
+        }
         audit("MCP_VERSION", String.valueOf(versionId), "DISCOVER_TOOLS", actor, "TESTER", null, null, "tools=" + tools.size());
+    }
+
+    public List<Map<String, Object>> discoverMcpTools(long versionId, String actor) {
+        String currentStatus = String.valueOf(one("SELECT status FROM mcp_version WHERE id=?", versionId).get("status")).toUpperCase(Locale.ROOT);
+        if (!Set.of("CONNECTIVITY_CHECKED", "DISCOVERED").contains(currentStatus)) {
+            throw new IllegalStateException("MCP 当前状态不允许探测工具: " + currentStatus);
+        }
+        Map<String, Object> version = one("SELECT transport_type,endpoint_config FROM mcp_version WHERE id=?", versionId);
+        JSONObject json = JSON.parseObject(String.valueOf(version.get("endpoint_config")));
+        String transport = normalizeTransportForConnectivity(String.valueOf(version.get("transport_type")), json);
+        if (!"stdio".equals(transport)) {
+            throw new IllegalArgumentException("当前仅支持自动发现 STDIO MCP 工具；HTTP/SSE MCP 请使用手动发现或后续接入协议发现");
+        }
+        List<Map<String, Object>> tools = discoverStdioTools(json);
+        recordMcpDiscovery(versionId, tools, actor);
+        return tools;
+    }
+
+    private List<Map<String, Object>> discoverStdioTools(JSONObject json) {
+        String command = json.getString("command");
+        if (command == null || command.isBlank()) throw new IllegalArgumentException("STDIO MCP requires command");
+        if (command.matches(".*[;&|`].*")) throw new IllegalArgumentException("STDIO command contains unsafe shell token");
+
+        List<String> commandLine = new ArrayList<>();
+        commandLine.add(command);
+        Optional.ofNullable(json.getJSONArray("args")).ifPresent(args -> args.forEach(arg -> commandLine.add(String.valueOf(arg))));
+
+        Process process = null;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            ProcessBuilder builder = new ProcessBuilder(commandLine);
+            JSONObject env = json.getJSONObject("env");
+            if (env != null) env.forEach((key, value) -> builder.environment().put(key, String.valueOf(value)));
+            process = builder.start();
+
+            try (BufferedWriter stdin = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+                 BufferedReader stdout = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                stdin.write(JSON.toJSONString(Map.of(
+                        "jsonrpc", "2.0",
+                        "id", 1,
+                        "method", "initialize",
+                        "params", Map.of("protocolVersion", "2024-11-05", "capabilities", Map.of(), "clientInfo", Map.of("name", "ai-agent-station", "version", "dev"))
+                )));
+                stdin.newLine();
+                stdin.flush();
+                readLine(stdout, executor, "initialize");
+
+                stdin.write(JSON.toJSONString(Map.of("jsonrpc", "2.0", "id", 2, "method", "tools/list", "params", Map.of())));
+                stdin.newLine();
+                stdin.flush();
+                String line = readLine(stdout, executor, "tools/list");
+                JSONObject response = JSON.parseObject(line);
+                if (response.getJSONObject("error") != null) throw new IllegalStateException(response.getJSONObject("error").toJSONString());
+                JSONArray toolArray = response.getJSONObject("result").getJSONArray("tools");
+                List<Map<String, Object>> tools = new ArrayList<>();
+                if (toolArray != null) {
+                    for (int index = 0; index < toolArray.size(); index++) {
+                        tools.add(new LinkedHashMap<>(toolArray.getJSONObject(index)));
+                    }
+                }
+                if (tools == null || tools.isEmpty()) throw new IllegalStateException("MCP 未返回任何工具");
+                return tools;
+            }
+        } catch (IOException error) {
+            throw new IllegalStateException("启动 STDIO MCP 失败: " + error.getMessage(), error);
+        } finally {
+            executor.shutdownNow();
+            if (process != null) process.destroyForcibly();
+        }
+    }
+
+    private String readLine(BufferedReader reader, ExecutorService executor, String step) {
+        try {
+            String line = executor.submit(reader::readLine).get(10, TimeUnit.SECONDS);
+            if (line == null || line.isBlank()) throw new IllegalStateException("MCP " + step + " 未返回响应");
+            return line;
+        } catch (TimeoutException error) {
+            throw new IllegalStateException("MCP " + step + " 响应超时", error);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("MCP " + step + " 被中断", error);
+        } catch (ExecutionException error) {
+            throw new IllegalStateException("读取 MCP " + step + " 响应失败: " + error.getMessage(), error);
+        }
     }
 
     public void scanMcp(long versionId, String actor) {
@@ -188,7 +304,7 @@ public class CapabilityRegistryService {
     }
 
     public List<Map<String,Object>> listMcpVersions(long serverId){return jdbc.queryForList("SELECT id,server_id,version,transport_type,status,timeout_seconds,retry_count,concurrency_limit,submitted_by,created_at,(credential_ref<>'') credential_configured FROM mcp_version WHERE server_id=? ORDER BY created_at DESC",serverId);}
-    public Map<String,Object> mcpVersionDetail(long versionId){return Map.of("version",one("SELECT id,server_id,version,transport_type,status,timeout_seconds,retry_count,concurrency_limit,submitted_by,created_at,(credential_ref<>'') credential_configured FROM mcp_version WHERE id=?",versionId),"tools",jdbc.queryForList("SELECT id,tool_name,description,risk_level,enabled FROM mcp_discovered_tool WHERE version_id=?",versionId),"tests",jdbc.queryForList("SELECT id,run_type,status,duration_ms,error_message,executed_by,created_at FROM mcp_test_run WHERE version_id=? ORDER BY id DESC",versionId),"reviews",jdbc.queryForList("SELECT review_type,decision,reviewer,comment,created_at FROM mcp_review WHERE version_id=?",versionId),"releases",jdbc.queryForList("SELECT id,environment,status,rollout_percent,released_by,released_at,ended_at FROM mcp_release WHERE version_id=? ORDER BY id DESC",versionId));}
+    public Map<String,Object> mcpVersionDetail(long versionId){return Map.of("version",one("SELECT id,server_id,version,transport_type,status,timeout_seconds,retry_count,concurrency_limit,submitted_by,created_at,(credential_ref<>'') credential_configured FROM mcp_version WHERE id=?",versionId),"tools",jdbc.queryForList("SELECT id,tool_name,description,input_schema,risk_level,enabled FROM mcp_discovered_tool WHERE version_id=?",versionId),"tests",jdbc.queryForList("SELECT id,run_type,status,duration_ms,error_message,executed_by,created_at FROM mcp_test_run WHERE version_id=? ORDER BY id DESC",versionId),"reviews",jdbc.queryForList("SELECT review_type,decision,reviewer,comment,created_at FROM mcp_review WHERE version_id=?",versionId),"releases",jdbc.queryForList("SELECT id,environment,status,rollout_percent,released_by,released_at,ended_at FROM mcp_release WHERE version_id=? ORDER BY id DESC",versionId));}
 
     public long uploadSkill(String key, String name, String description, String version, MultipartFile zip, String actor) throws Exception {
         Path quarantine = Path.of(storageDir, "skills", "quarantine", UUID.randomUUID().toString()).toAbsolutePath().normalize();

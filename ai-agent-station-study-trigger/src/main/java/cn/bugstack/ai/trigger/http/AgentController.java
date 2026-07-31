@@ -559,12 +559,16 @@ public class AgentController {
     @GetMapping("/skills/{skillId}")
     public Map<String, Object> getSkill(@PathVariable("skillId") String skillId,
                                         @RequestParam(value = "agentId", required = false) String agentId) {
+        boolean boundToAgent = false;
         if (agentId != null && !agentId.isBlank()) {
-            if (!agentRepository.queryBoundSkillIds(agentId).contains(skillId)) {
-                return Map.of("success", false, "message", "Skill not bound to Agent");
+            boundToAgent = agentRepository.queryBoundSkillIds(agentId).contains(skillId);
+            var skill = boundToAgent ? readRuntimeSkill(agentId, skillId) : null;
+            if (skill == null) {
+                skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
             }
-            var skill = readRuntimeSkill(agentId, skillId);
-            return skill != null ? Map.of("success", true, "skill", skill) : Map.of("success", false, "message", "Skill not found in Agent runtime workspace");
+            return skill != null
+                    ? Map.of("success", true, "skill", skill, "boundToAgent", boundToAgent, "runtimeAvailable", boundToAgent)
+                    : Map.of("success", false, "message", "Skill not found in Agent runtime workspace");
         }
         var skill = readRuntimeSkill(agentId, skillId);
         if (skill == null) {

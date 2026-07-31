@@ -34,8 +34,8 @@ public class CapabilityRegistryController {
     @PostMapping("/mcp-versions/{id}/connectivity-test") public Map<String,Object> connectivity(@PathVariable("id") long id,
             @RequestHeader(value="X-Actor",defaultValue="local-tester")String actor,@RequestHeader(value="X-Role",defaultValue="TESTER")String role){requireRole(role,"TESTER");return registry.testMcpConnectivity(id,actor);}
 
-    @PostMapping("/mcp-versions/{id}/discovery") public Map<String,Object> discovery(@PathVariable("id") long id,@RequestBody Map<String,List<Map<String,Object>>> body,
-            @RequestHeader(value="X-Actor",defaultValue="local-tester")String actor,@RequestHeader(value="X-Role",defaultValue="TESTER")String role){requireRole(role,"TESTER");registry.recordMcpDiscovery(id,body.get("tools"),actor);return Map.of("success",true);}
+    @PostMapping("/mcp-versions/{id}/discovery") public Map<String,Object> discovery(@PathVariable("id") long id,@RequestBody(required=false) Map<String,List<Map<String,Object>>> body,
+            @RequestHeader(value="X-Actor",defaultValue="local-tester")String actor,@RequestHeader(value="X-Role",defaultValue="TESTER")String role){requireRole(role,"TESTER");List<Map<String,Object>> tools=body==null?List.of():body.get("tools");if(tools==null||tools.isEmpty())tools=registry.discoverMcpTools(id,actor);else registry.recordMcpDiscovery(id,tools,actor);return Map.of("success",true,"tools",tools);}
 
     @PostMapping("/mcp-versions/{id}/security-scan") public Map<String,Object> scanMcp(@PathVariable("id") long id,
             @RequestHeader(value="X-Actor",defaultValue="local-security")String actor,@RequestHeader(value="X-Role",defaultValue="SECURITY_REVIEWER")String role){requireRole(role,"SECURITY_REVIEWER");registry.scanMcp(id,actor);return Map.of("success",true);}
