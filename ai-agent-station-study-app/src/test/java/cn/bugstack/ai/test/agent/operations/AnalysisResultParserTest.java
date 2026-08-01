@@ -27,7 +27,7 @@ public class AnalysisResultParserTest {
     @Test
     public void parsesBusinessRelevanceEvidenceAndPromotionDecision() {
         String json = "{\"signals\":[],"
-                + "\"cases\":[{\"title\":\"退款规则缺失\",\"summary\":\"售后 Agent 缺少退款审批规则\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":85,\"confidence\":88,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":91,\"evidenceScore\":77,\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"用户明确反馈退款审批规则缺失\"}]}";
+                + "\"cases\":[{\"title\":\"退款规则缺失\",\"summary\":\"售后 Agent 缺少退款审批规则\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":85,\"confidence\":88,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":91,\"evidenceScore\":77,\"businessEvidence\":true,\"evidenceSource\":\"USER_FEEDBACK\",\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"用户明确反馈退款审批规则缺失\"}]}";
 
         AnalysisResultParser.AnalysisResult result = parser.parse(json);
 
@@ -37,6 +37,8 @@ public class AnalysisResultParserTest {
         assertEquals(77d, candidate.evidenceScore(), 0.001d);
         assertTrue(candidate.promoteToCase());
         assertFalse(candidate.historicalHighRiskMatch());
+        assertTrue(candidate.businessEvidence());
+        assertEquals("USER_FEEDBACK", candidate.evidenceSource());
     }
 
     @Test
@@ -50,6 +52,16 @@ public class AnalysisResultParserTest {
         assertEquals(0d, candidate.businessRelevance(), 0.001d);
         assertEquals(0d, candidate.evidenceScore(), 0.001d);
         assertFalse(candidate.promoteToCase());
+    }
+
+    @Test
+    public void parsesBusinessEvidenceSource() {
+        String json = "{\"signals\":[],\"cases\":[{\"title\":\"库存不足\",\"summary\":\"库存低于安全线\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":80,\"confidence\":90,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":90,\"evidenceScore\":80,\"businessEvidence\":true,\"evidenceSource\":\"skill_result\",\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"Skill 查询到库存事实\"}]}";
+
+        AnalysisResultParser.CaseCandidate candidate = parser.parse(json).cases().get(0);
+
+        assertTrue(candidate.businessEvidence());
+        assertEquals("SKILL_RESULT", candidate.evidenceSource());
     }
 
     @Test

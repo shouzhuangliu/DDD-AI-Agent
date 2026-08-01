@@ -24,6 +24,7 @@ import cn.bugstack.ai.domain.agent.service.tools.internal.FileReadTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.FileWriteTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.BashTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
+import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.SubagentTaskTool;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.DispatchSubagentsTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
@@ -68,6 +69,22 @@ import java.time.LocalDateTime;
 @Service
 public class ReActExecuteStrategy implements IExecuteStrategy {
 
+    public static String normalizeFinalContent(String content, String modelId) {
+        if (content != null && !content.isBlank()) return content;
+        return "模型 " + (modelId == null || modelId.isBlank() ? "未知" : modelId)
+                + " 返回空内容，未生成可显示回复。请检查模型响应或稍后重试。";
+    }
+
+    public static boolean isRateLimitError(String message) {
+        if (message == null || message.isBlank()) return false;
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("429")
+                || normalized.contains("rpm exhausted")
+                || normalized.contains("quota_exceeded")
+                || normalized.contains("rate limit")
+                || normalized.contains("too many requests");
+    }
+
     @Resource
     private ApplicationContext applicationContext;
 
@@ -91,6 +108,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
     @Resource
     private McpCallTool mcpCallTool;
+
+    @Resource
+    private AiClientToolMcpNode aiClientToolMcpNode;
 
     @Resource
     private SubagentTaskTool subagentTaskTool;
@@ -240,13 +260,17 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     JSON.toJSONString(Map.of("toolSteps", usedSteps)));
             sendStateEvent(emitter, executionId, sessionId, 0, usedSteps, "RUNNING");
 
+            boolean emptyResponse = finalContent == null || finalContent.isBlank();
+            finalContent = normalizeFinalContent(finalContent, selectedModelId);
+
             // 记录 LLM 调用日志
             try {
                 ChatMessageRecorder.LlmLogEntry logEntry = ChatMessageRecorder.LlmLogEntry.builder()
                         .sessionId(sessionId).agentId(agentId)
                         .modelName(selectedModelId)
                         .mode(AiAgentModeEnum.REACT.getCode())
-                        .durationMs(0).status("success")
+                        .durationMs(0).status(emptyResponse ? "failed" : "success")
+                        .errorMessage(emptyResponse ? finalContent : null)
                         .historyMsgCount(history.size())
                         .foldedMsgCount(msgMaps.size())
                         .systemPromptLen(systemPrompt.length())
@@ -255,10 +279,6 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                         .build();
                 messageRecorder.recordLlmLog(logEntry);
             } catch (Exception ignored) {}
-
-            if (finalContent == null || finalContent.isBlank()) {
-                finalContent = "未能生成有效回复";
-            }
 
             log.info("🧠 ReAct 执行完成: {}", finalContent);
 
@@ -358,6 +378,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 .build();
 
         int boundedMaxSteps = Math.max(1, maxSteps);
+        int emptyResponseRetries = 0;
         for (int round = 0; round < boundedMaxSteps; round++) {
             ReActToolContext context = ReActToolContextHolder.get();
             if (context != null && context.isCancellationRequested()) {
@@ -372,7 +393,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             AssistantMessage assistant = response.getResult().getOutput();
             conversation.add(assistant);
             List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
-            if (toolCalls == null || toolCalls.isEmpty()) return assistant.getText();
+            if (toolCalls == null || toolCalls.isEmpty()) {
+                String text = assistant.getText();
+                if (text != null && !text.isBlank()) return text;
+                log.warn("模型返回空文本: modelId={}, round={}, response={}",
+                        modelId, round + 1, JSON.toJSONString(response));
+                if (emptyResponseRetries++ < 1) continue;
+                return "";
+            }
 
             List<ToolResponseMessage.ToolResponse> toolResponses = new ArrayList<>();
             boolean cancellationRequested = false;
@@ -428,6 +456,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 }
                 log.error("模型调用失败(#{}): {}", i, e.getMessage());
                 String message = e.getMessage() == null ? "" : e.getMessage();
+                if (isRateLimitError(message)) {
+                    return "模型调用被限流：当前 API 已达到每分钟请求上限，请稍后再试，或更换模型/API Key。";
+                }
                 if (message.contains("404") || message.toLowerCase().contains("model is not found")) {
                     return "模型调用失败：模型 " + modelId + " 在当前接口中不存在，请检查数据库里的 modelName。";
                 }
@@ -520,6 +551,19 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 for (var m : mcps) {
                     sb.append("- ").append(m.getMcpId()).append(": ").append(m.getMcpName())
                             .append(" (").append(m.getTransportType()).append(")\n");
+                    var exposedTools = aiClientToolMcpNode.listTools(m.getMcpId());
+                    if (exposedTools.isEmpty()) {
+                        sb.append("  当前未读取到该 MCP 的工具列表，禁止猜测工具名。\n");
+                    } else {
+                        sb.append("  可用工具：\n");
+                        for (var exposedTool : exposedTools) {
+                            sb.append("  - ").append(exposedTool.name());
+                            if (exposedTool.description() != null && !exposedTool.description().isBlank()) {
+                                sb.append(": ").append(exposedTool.description());
+                            }
+                            sb.append("\n");
+                        }
+                    }
                 }
                 sb.append("""
                     使用方式：call_mcp_tool(mcpId="工具ID", toolName="工具内具体方法名", args="{"参数名":"参数值"}")

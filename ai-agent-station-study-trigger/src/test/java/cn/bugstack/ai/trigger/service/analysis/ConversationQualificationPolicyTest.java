@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,6 +70,34 @@ class ConversationQualificationPolicyTest {
                 1, 0, 95, true, 95, 79, false)));
         assertTrue(policy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
                 1, 0, 95, true, 95, 85, false)));
+    }
+
+    @Test
+    void rejectsTechnicalToolFailureWithoutBusinessEvidence() {
+        AnalysisResultParser.CaseCandidate candidate = new AnalysisResultParser.CaseCandidate(
+                "MCP 连接失败", "库存反馈工具不可用", "BUG", "HIGH", 90, 95,
+                true, true, 95, 95, true, false, "工具连接失败", false, "");
+
+        assertFalse(policy.hasBusinessEvidence(candidate));
+    }
+
+    @Test
+    void acceptsCaseBackedBySkillOrBusinessMcpEvidence() {
+        AnalysisResultParser.CaseCandidate candidate = new AnalysisResultParser.CaseCandidate(
+                "库存不足", "SKU 1001 库存低于安全线", "QUALITY", "HIGH", 90, 95,
+                false, true, 95, 95, true, false, "库存 Skill 查询结果", true, "SKILL_RESULT");
+
+        assertTrue(policy.hasBusinessEvidence(candidate));
+    }
+
+    @Test
+    void parsesBusinessEvidenceContract() {
+        String json = "{\"signals\":[],\"cases\":[{\"title\":\"库存不足\",\"summary\":\"库存低于安全线\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":80,\"confidence\":90,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":90,\"evidenceScore\":80,\"businessEvidence\":true,\"evidenceSource\":\"skill_result\",\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"Skill 查询到库存事实\"}]}";
+
+        AnalysisResultParser.CaseCandidate candidate = new AnalysisResultParser().parse(json).cases().get(0);
+
+        assertTrue(candidate.businessEvidence());
+        assertEquals("SKILL_RESULT", candidate.evidenceSource());
     }
 
     private ConversationQualificationPolicy.ConversationMessage message(String role, String content) {

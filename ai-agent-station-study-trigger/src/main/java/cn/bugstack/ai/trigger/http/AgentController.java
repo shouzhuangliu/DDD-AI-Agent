@@ -469,6 +469,14 @@ public class AgentController {
             agentRepository.bindSkills(agentId, skillIds);
             agentRepository.bindMcps(agentId, mcpIds);
             agentRepository.bindTools(agentId, toolIds);
+            for (AiClientToolMcpVO mcp : agentRepository.queryMcpToolsByIds(mcpIds)) {
+                aiClientToolMcpNode.registerMcpSyncClient(
+                        mcp.getMcpId(),
+                        mcp.getMcpName(),
+                        mcp.getTransportType(),
+                        mcp.getTransportConfig(),
+                        mcp.getRequestTimeout() == null ? 60 : mcp.getRequestTimeout());
+            }
             return Map.of(
                     "success", true,
                     "message", "bindings saved",

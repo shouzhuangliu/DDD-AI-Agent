@@ -33,6 +33,11 @@ public interface IAgentRepository {
 
     List<AiClientModelVO> queryEnabledModelVOList();
 
+    /**
+     * 查询所有启用的 MCP 配置，用于应用启动后的客户端恢复。
+     */
+    List<AiClientToolMcpVO> queryEnabledMcpTools();
+
     Map<String,AiAgentClientFlowConfigVO> queryAiAgentClientFlowConfig(String aiAgentId);
 
     // ========== 专属 Agent 系统 ==========

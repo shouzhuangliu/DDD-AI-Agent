@@ -2776,7 +2776,7 @@ onMounted(() => {
                           <div v-for="(entry, index) in selectedLogSession.logs" :key="`llm-${selectedLogSession.sessionId}-${entry.id || index}`" class="trace-llm-card">
                             <div style="font-weight:700">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
                             <div class="muted" style="font-size:12px;margin-top:5px">
-                              {{ entry.mode || '-' }} · 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠 {{ entry.foldedMsgCount ?? 0 }}
+                              {{ entry.mode || '-' }} · 加载历史消息 {{ entry.historyMsgCount ?? 0 }} 条 / 整理后发送 {{ entry.foldedMsgCount ?? 0 }} 条
                             </div>
                             <div class="trace-mini-tags">
                               <span class="pill">{{ entry.status || '-' }}</span>
@@ -2785,6 +2785,9 @@ onMounted(() => {
                             </div>
                             <div class="muted" style="font-size:12px;margin-top:8px">
                               系统 {{ entry.systemPromptLen ?? 0 }}字 / 用户 {{ entry.userMessageLen ?? 0 }}字 / 回复 {{ entry.assistantResponseLen ?? 0 }}字
+                            </div>
+                            <div class="trace-context-note" title="整理会去掉无效的工具中间消息，并在上下文过长时压缩内容，再发送给模型。">
+                              整理后发送 = 去除无效中间消息并压缩过长上下文
                             </div>
                             <div v-if="entry.errorMessage" class="error" style="margin-top:8px">{{ entry.errorMessage }}</div>
                           </div>
@@ -2863,7 +2866,7 @@ onMounted(() => {
                             <div>
                               <div style="font-weight:600">{{ entry.modelName || entry.modelId || '未知模型' }}</div>
                               <div class="muted" style="font-size:12px;margin-top:4px">
-                                {{ entry.mode || '-' }} / 历史 {{ entry.historyMsgCount ?? 0 }} / 折叠后 {{ entry.foldedMsgCount ?? 0 }}
+                                {{ entry.mode || '-' }} / 加载历史消息 {{ entry.historyMsgCount ?? 0 }} 条 / 整理后发送 {{ entry.foldedMsgCount ?? 0 }} 条
                               </div>
                             </div>
                             <div class="actions">

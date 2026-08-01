@@ -484,6 +484,23 @@ public class AgentRepository implements IAgentRepository {
     }
 
     @Override
+    public List<AiClientToolMcpVO> queryEnabledMcpTools() {
+        List<AiClientToolMcp> enabledMcps = aiClientToolMcpDao.queryEnabledMcps();
+        if (enabledMcps == null || enabledMcps.isEmpty()) {
+            return List.of();
+        }
+        return enabledMcps.stream()
+                .map(mcp -> AiClientToolMcpVO.builder()
+                        .mcpId(mcp.getMcpId())
+                        .mcpName(mcp.getMcpName())
+                        .transportType(mcp.getTransportType())
+                        .transportConfig(mcp.getTransportConfig())
+                        .requestTimeout(mcp.getRequestTimeout())
+                        .build())
+                .toList();
+    }
+
+    @Override
     public List<AiClientModelVO> AiClientModelVOByModelIds(List<String> modelIdList) {
         if (modelIdList == null || modelIdList.isEmpty()) {
             return List.of();
@@ -572,6 +589,7 @@ public class AgentRepository implements IAgentRepository {
                 result.add(AiClientToolMcpVO.builder()
                         .mcpId(po.getMcpId()).mcpName(po.getMcpName())
                         .transportType(po.getTransportType())
+                        .transportConfig(po.getTransportConfig())
                         .requestTimeout(po.getRequestTimeout()).build());
             }
         }

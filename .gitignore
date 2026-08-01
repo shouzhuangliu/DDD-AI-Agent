@@ -53,7 +53,7 @@ build/
 
 # Local dependency/cache/runtime data
 /.m2_repo/
-/.ma/
+**/.ma/
 
 # Frontend dependencies and build output
 **/node_modules/

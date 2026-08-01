@@ -3,6 +3,7 @@ package cn.bugstack.ai.trigger.http;
 import cn.bugstack.ai.domain.agent.adapter.repository.IAgentRepository;
 import cn.bugstack.ai.domain.agent.model.valobj.AiClientToolMcpVO;
 import cn.bugstack.ai.domain.agent.service.execute.react.ReActToolAllowlistPolicy;
+import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
@@ -33,6 +34,7 @@ class AgentControllerTest {
     private AgentWorkspaceService agentWorkspaceService;
     private CapabilityRegistryService capabilityRegistryService;
     private AgentRuntimeBindingService agentRuntimeBindingService;
+    private AiClientToolMcpNode aiClientToolMcpNode;
     private AgentController controller;
 
     @BeforeEach
@@ -42,6 +44,7 @@ class AgentControllerTest {
         skillScannerService = mock(SkillScannerService.class);
         agentWorkspaceService = mock(AgentWorkspaceService.class);
         capabilityRegistryService = mock(CapabilityRegistryService.class);
+        aiClientToolMcpNode = mock(AiClientToolMcpNode.class);
         agentRuntimeBindingService = new AgentRuntimeBindingService();
         ReflectionTestUtils.setField(agentRuntimeBindingService, "agentRepository", agentRepository);
         ReflectionTestUtils.setField(agentRuntimeBindingService, "agentWorkspaceService", agentWorkspaceService);
@@ -53,11 +56,41 @@ class AgentControllerTest {
         ReflectionTestUtils.setField(controller, "skillScannerService", skillScannerService);
         ReflectionTestUtils.setField(controller, "agentWorkspaceService", agentWorkspaceService);
         ReflectionTestUtils.setField(controller, "capabilityRegistryService", capabilityRegistryService);
+        ReflectionTestUtils.setField(controller, "aiClientToolMcpNode", aiClientToolMcpNode);
         ReflectionTestUtils.setField(controller, "reActToolAllowlistPolicy", new ReActToolAllowlistPolicy());
         ReflectionTestUtils.setField(controller, "agentRuntimeBindingService", agentRuntimeBindingService);
         ReActToolProperties properties = new ReActToolProperties();
         properties.setWorkDir("D:/repo");
         ReflectionTestUtils.setField(controller, "properties", properties);
+    }
+
+    @Test
+    void registersBoundMcpClientImmediately() {
+        when(aiAgentDao.queryByAgentId("inventory")).thenReturn(AiAgent.builder()
+                .agentId("inventory")
+                .workDir("D:/repo")
+                .build());
+        when(agentWorkspaceService.syncSkills("inventory", "D:/repo", "D:/repo", List.of()))
+                .thenReturn(Path.of("D:/repo/.ma/workspaces/inventory"));
+        AiClientToolMcpVO mcp = AiClientToolMcpVO.builder()
+                .mcpId("inventory-feedback-mcp")
+                .mcpName("库存反馈 MCP")
+                .transportType("stdio")
+                .transportConfig("{\"command\":\"python\",\"args\":[\"mcp-test-server/inventory_feedback_mcp.py\"]}")
+                .requestTimeout(60)
+                .build();
+        when(agentRepository.queryMcpToolsByIds(List.of("inventory-feedback-mcp")))
+                .thenReturn(List.of(mcp));
+
+        Map<String, Object> result = controller.updateBindings("inventory", Map.of(
+                "skillIds", List.of(),
+                "mcpIds", List.of("inventory-feedback-mcp"),
+                "toolIds", List.of("call_mcp_tool")
+        ));
+
+        assertEquals(true, result.get("success"));
+        verify(aiClientToolMcpNode).registerMcpSyncClient(
+                "inventory-feedback-mcp", "库存反馈 MCP", "stdio", mcp.getTransportConfig(), 60);
     }
 
     @Test

@@ -53,7 +53,8 @@ public class AnalysisResultParser {
                     confidence(value), value.getBooleanValue("criticalRisk"),
                     value.getBooleanValue("businessRelated"), businessRelevance, evidenceScore,
                     value.getBooleanValue("promoteToCase"), value.getBooleanValue("historicalHighRiskMatch"),
-                    required(value, "reason")));
+                    required(value, "reason"), value.getBooleanValue("businessEvidence"),
+                    normalizeEvidenceSource(value.getString("evidenceSource"))));
         }
         return new AnalysisResult(List.copyOf(signals), List.copyOf(cases));
     }
@@ -79,10 +80,15 @@ public class AnalysisResultParser {
         return value;
     }
 
+    private String normalizeEvidenceSource(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
     public record AnalysisResult(List<SignalCandidate> signals, List<CaseCandidate> cases) {}
     public record SignalCandidate(String type, String severity, double confidence, String summary, String rationale) {}
     public record CaseCandidate(String title, String summary, String caseType, String severity,
                                 double importance, double confidence, boolean criticalRisk,
                                 boolean businessRelated, double businessRelevance, double evidenceScore,
-                                boolean promoteToCase, boolean historicalHighRiskMatch, String reason) {}
+                                boolean promoteToCase, boolean historicalHighRiskMatch, String reason,
+                                boolean businessEvidence, String evidenceSource) {}
 }

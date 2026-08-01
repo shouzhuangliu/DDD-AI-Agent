@@ -16,6 +16,9 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * ReAct 内部工具：调用绑定的 MCP 工具。
  * <p>
@@ -30,6 +33,20 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 public class McpCallTool extends AbstractReActTool {
+
+    /**
+     * Validates the model-provided MCP tool name against tools/list output.
+     * A null return means the requested tool is valid.
+     */
+    public static String validateToolName(Set<String> exposedToolNames, String requestedToolName) {
+        if (exposedToolNames != null && exposedToolNames.contains(requestedToolName)) {
+            return null;
+        }
+        String available = exposedToolNames == null || exposedToolNames.isEmpty()
+                ? "无"
+                : exposedToolNames.stream().sorted().collect(Collectors.joining(", "));
+        return "MCP 工具不存在: " + requestedToolName + "，可用工具: " + available;
+    }
 
     @Resource
     private ApplicationContext applicationContext;
@@ -62,6 +79,22 @@ public class McpCallTool extends AbstractReActTool {
         } catch (Exception e) {
             String msg = "MCP 客户端未就绪: " + mcpId + "（可能未注册）";
             log.warn(msg);
+            emitObservation(toolTag, msg);
+            return msg;
+        }
+
+        try {
+            Set<String> exposedToolNames = client.listTools().tools().stream()
+                    .map(McpSchema.Tool::name)
+                    .collect(Collectors.toSet());
+            String validationMessage = validateToolName(exposedToolNames, toolName.trim());
+            if (validationMessage != null) {
+                emitObservation(toolTag, validationMessage);
+                return validationMessage;
+            }
+        } catch (Exception e) {
+            String msg = "无法读取 MCP 工具列表: " + e.getMessage();
+            log.warn(msg, e);
             emitObservation(toolTag, msg);
             return msg;
         }

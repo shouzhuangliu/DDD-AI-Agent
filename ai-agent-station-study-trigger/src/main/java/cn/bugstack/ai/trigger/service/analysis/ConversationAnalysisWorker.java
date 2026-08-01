@@ -53,12 +53,16 @@ public class ConversationAnalysisWorker {
                   "businessRelated": false,
                   "businessRelevance": 0,
                   "evidenceScore": 0,
+                  "businessEvidence": false,
+                  "evidenceSource": "USER_FEEDBACK|SKILL_RESULT|MCP_BUSINESS_DATA|CASE_HISTORY|NONE",
                   "promoteToCase": false,
                   "historicalHighRiskMatch": false,
                   "reason": "中文升级或不升级理由"
                 }
               ]
             }
+            Case 必须同时提供 businessEvidence=true 和 evidenceSource，且 evidenceSource 只能是 USER_FEEDBACK、SKILL_RESULT、MCP_BUSINESS_DATA、CASE_HISTORY 之一。
+            仅有 TOOL_FAILURE、MCP 连接失败、模型限流、空回复、内部执行异常等运行故障，businessEvidence 必须为 false，只能生成 Signal，不能生成 Case。
             只有 businessRelevance >= 70、confidence >= 75、evidenceScore >= 60，且存在显式反馈、跨会话重复、严重业务风险或历史高危命中时，promoteToCase 才允许为 true。
             证据不足时返回空数组。所有分数范围为 0 到 100。
             """;
@@ -136,6 +140,11 @@ public class ConversationAnalysisWorker {
 
     private void upsertCase(AnalysisJob job, AnalysisResultParser.CaseCandidate candidate, LocalDateTime now,
                             int explicitNegativeFeedback) {
+        if (!qualificationPolicy.hasBusinessEvidence(candidate)) {
+            log.info("Skip non-business Case candidate, agentId={}, sessionId={}, title={}, source={}",
+                    job.getAgentId(), job.getSessionId(), candidate.title(), candidate.evidenceSource());
+            return;
+        }
         String caseId = caseId(job.getAgentId(), candidate.title());
         evidenceDao.insertIgnore(CaseEvidence.builder().caseId(caseId).agentId(job.getAgentId())
                 .evidenceType("MESSAGE").evidenceId(job.getAssistantMessageId()).sessionId(job.getSessionId())

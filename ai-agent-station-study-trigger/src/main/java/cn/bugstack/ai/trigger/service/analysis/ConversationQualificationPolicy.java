@@ -22,6 +22,8 @@ public class ConversationQualificationPolicy {
     private static final double MIN_SINGLE_SESSION_EVIDENCE_SCORE = 75d;
     private static final double MIN_CRITICAL_RISK_CONFIDENCE = 90d;
     private static final double MIN_CRITICAL_RISK_EVIDENCE_SCORE = 80d;
+    private static final Set<String> BUSINESS_EVIDENCE_SOURCES = Set.of(
+            "USER_FEEDBACK", "SKILL_RESULT", "MCP_BUSINESS_DATA", "CASE_HISTORY");
     private static final Set<String> LOW_VALUE_INPUTS = Set.of(
             "1", "ok", "okay", "yes", "y", "no", "n", "hi", "hello",
             "继续", "好的", "好", "可以", "嗯", "啊", "行", "收到", "明白", "测试"
@@ -76,6 +78,11 @@ public class ConversationQualificationPolicy {
             return true;
         }
         return input.distinctSessions() >= 2;
+    }
+
+    public boolean hasBusinessEvidence(AnalysisResultParser.CaseCandidate candidate) {
+        if (candidate == null || !candidate.businessEvidence()) return false;
+        return BUSINESS_EVIDENCE_SOURCES.contains(candidate.evidenceSource());
     }
 
     public boolean isInternalPlaceholder(String content) {

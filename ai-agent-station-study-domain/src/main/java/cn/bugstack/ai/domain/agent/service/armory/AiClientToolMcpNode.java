@@ -9,17 +9,23 @@ import com.alibaba.fastjson2.JSON;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.StreamableHttpClientTransport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 
 import jakarta.annotation.Resource;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.net.http.HttpClient;
 
 /**
  * MCP客户端配置节点
@@ -32,6 +38,36 @@ import java.util.Map;
 public class AiClientToolMcpNode extends AbstractArmorySupport {
     @Resource
     private AiClientModelNode aiClientModelNode;
+
+    /**
+     * Agent 装配通常只会加载被 client 引用的 MCP。应用重启后补偿注册所有启用配置，
+     * 这样数据库中已发布但暂未绑定到 client 的 MCP 也能被 Agent 编辑页使用。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void registerEnabledMcpsAtStartup() {
+        List<AiClientToolMcpVO> enabledMcps;
+        try {
+            enabledMcps = repository.queryEnabledMcpTools();
+        } catch (Exception e) {
+            log.error("启动恢复 MCP 配置失败", e);
+            return;
+        }
+        if (enabledMcps == null || enabledMcps.isEmpty()) {
+            log.info("启动恢复 MCP：没有启用的 MCP 配置");
+            return;
+        }
+        for (AiClientToolMcpVO mcp : enabledMcps) {
+            if (mcp == null || StringUtils.isBlank(mcp.getMcpId())) {
+                continue;
+            }
+            registerMcpSyncClient(
+                    mcp.getMcpId(),
+                    mcp.getMcpName(),
+                    mcp.getTransportType(),
+                    mcp.getTransportConfig(),
+                    mcp.getRequestTimeout() == null ? 60 : mcp.getRequestTimeout());
+        }
+    }
     @Override
     protected String doApply(ArmoryCommandEntity requestParameter, DefaultArmoryStrategyFactory.DynamicContext dynamicContext) throws Exception {
         log.info("Ai Agent 构建节点，Tool MCP 工具配置{}", JSON.toJSONString(requestParameter));
@@ -106,8 +142,56 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
                 log.info("Tool Stdio MCP Initialized {}", init_stdio);
                 return mcpClient;
             }
+            case "streamable-http" -> {
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    com.fasterxml.jackson.databind.JsonNode config = mapper.readTree(aiClientToolMcpVO.getTransportConfig());
+                    String endpoint = firstNonBlank(
+                            config.path("baseUri").asText(null),
+                            config.path("url").asText(null),
+                            config.path("endpoint").asText(null));
+                    if (StringUtils.isBlank(endpoint)) {
+                        throw new IllegalArgumentException("streamable-http requires baseUri, url, or endpoint");
+                    }
+                    Map<String, String> headers = config.has("headers")
+                            ? mapper.convertValue(config.get("headers"), new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {})
+                            : Map.of();
+                    int timeout = aiClientToolMcpVO.getRequestTimeout() == null
+                            ? 60 : aiClientToolMcpVO.getRequestTimeout();
+                    HttpClient httpClient = HttpClient.newBuilder()
+                            .connectTimeout(Duration.ofSeconds(Math.max(1, timeout)))
+                            .build();
+                    McpSyncClient mcpClient = McpClient.sync(new StreamableHttpClientTransport(
+                                    endpoint, mapper, httpClient, headers))
+                            .requestTimeout(Duration.ofSeconds(Math.max(1, timeout)))
+                            .build();
+                    var initStreamable = mcpClient.initialize();
+                    log.info("Tool Streamable HTTP MCP Initialized {}", initStreamable);
+                    return mcpClient;
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Invalid streamable-http MCP configuration", e);
+                }
+            }
         }
         throw new RuntimeException("err! transportType " + transportType + " not exist!");
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.isNotBlank(value)) return value;
+        }
+        return null;
+    }
+
+    /** Returns the server-advertised MCP tools for progressive disclosure. */
+    public List<McpSchema.Tool> listTools(String mcpId) {
+        try {
+            McpSyncClient client = getBean(beanName(mcpId));
+            return client.listTools().tools();
+        } catch (Exception e) {
+            log.warn("读取 MCP 工具列表失败: mcpId={}, message={}", mcpId, e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     /**
@@ -120,6 +204,7 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
             vo.setMcpId(mcpId);
             vo.setMcpName(mcpName);
             vo.setTransportType(transportType);
+            vo.setTransportConfig(transportConfig);
             vo.setRequestTimeout(requestTimeout);
 
             if ("sse".equals(transportType) && transportConfig != null) {
