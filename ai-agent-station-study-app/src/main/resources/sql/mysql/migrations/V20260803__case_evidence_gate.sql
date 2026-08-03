@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS `case_evaluation_snapshot` (
 
 SET @db_name = DATABASE();
 
+UPDATE analysis_job
+SET status='COMPLETED', error_message='superseded by v4-evidence-gate', updated_at=NOW()
+WHERE policy_version <> 'v4-evidence-gate'
+  AND status IN ('PENDING','RETRY','RUNNING');
+
 SET @sql = IF(
   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=@db_name AND table_name='case_evidence')
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=@db_name AND table_name='case_evidence' AND column_name='evidence_role'),

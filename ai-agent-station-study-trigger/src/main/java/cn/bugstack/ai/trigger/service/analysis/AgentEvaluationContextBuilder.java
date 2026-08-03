@@ -9,9 +9,15 @@ import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class AgentEvaluationContextBuilder {
+
+    private static final Pattern RULE_HEADING = Pattern.compile("(?m)^#{1,4}\\s*(?:规则|Rule)\\s+([A-Za-z0-9_.:-]+)");
 
     private static final int RECENT_MESSAGE_LIMIT = 30;
     private static final int LONG_TERM_MEMORY_LIMIT = 5;
@@ -71,7 +77,7 @@ public class AgentEvaluationContextBuilder {
         }
         try {
             AgentRuntimeBindingService.AgentRuntimeBindings bindings =
-                    agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+                    agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             List<String> skillIds = bindings.getSkillIds() == null ? List.of() : bindings.getSkillIds();
             if (skillIds.isEmpty()) {
                 evidence.append("- none; cases are not eligible without a bound business Skill\n");
@@ -102,7 +108,7 @@ public class AgentEvaluationContextBuilder {
     public boolean hasBoundBusinessSkills(String agentId) {
         if (agentRuntimeBindingService == null || skillScannerService == null) return false;
         try {
-            var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+            var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             if (bindings.getSkillIds() == null || bindings.getSkillIds().isEmpty()
                     || bindings.getWorkspace() == null) return false;
             return bindings.getSkillIds().stream()
@@ -118,7 +124,7 @@ public class AgentEvaluationContextBuilder {
         if (skillId == null || skillId.isBlank()
                 || agentRuntimeBindingService == null || skillScannerService == null) return false;
         try {
-            var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+            var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             if (bindings.getSkillIds() == null || bindings.getSkillIds().isEmpty()
                     || bindings.getWorkspace() == null) return false;
             return bindings.getSkillIds().stream()
@@ -129,6 +135,35 @@ public class AgentEvaluationContextBuilder {
         } catch (Exception exception) {
             return false;
         }
+    }
+
+    /** Returns the exact Skill and rule IDs available to the current Agent. */
+    public CaseEvidenceGate.BoundSkillContext boundSkillContext(String agentId) {
+        if (agentRuntimeBindingService == null || skillScannerService == null) {
+            return CaseEvidenceGate.BoundSkillContext.empty();
+        }
+        try {
+            var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
+            List<String> skillIds = bindings.getSkillIds() == null ? List.of() : bindings.getSkillIds();
+            if (skillIds.size() != 1 || bindings.getWorkspace() == null) {
+                return new CaseEvidenceGate.BoundSkillContext(agentId, "", Set.of());
+            }
+            String skillId = skillIds.get(0);
+            SkillScannerService.SkillInfo skill = skillScannerService.readSkillFromWorkDir(
+                    bindings.getWorkspace().toString(), skillId);
+            if (skill == null) return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, Set.of());
+            return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, extractRuleIds(skill.getContent()));
+        } catch (Exception exception) {
+            return CaseEvidenceGate.BoundSkillContext.empty();
+        }
+    }
+
+    private Set<String> extractRuleIds(String content) {
+        Set<String> ruleIds = new LinkedHashSet<>();
+        if (content == null) return ruleIds;
+        Matcher matcher = RULE_HEADING.matcher(content);
+        while (matcher.find()) ruleIds.add(matcher.group(1));
+        return Set.copyOf(ruleIds);
     }
 
     private static String blank(String value) {

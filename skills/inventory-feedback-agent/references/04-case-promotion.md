@@ -1,5 +1,7 @@
 # 阶段 04：Case 升级判断
 
+本阶段对应 Skill 规则：`INV-FACT-COMPLETENESS`、`INV-URGENCY`、`INV-CASE-PROMOTION`。评测输出的 ruleIds 必须来自当前 Agent 实际绑定版本。
+
 ## 目标
 
 判断一条库存反馈是否应当升级为候选 Case。

@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.service.operations.CaseScoringService;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
 import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
+import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -21,79 +22,66 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
+/**
+ * Conversation quality worker.
+ *
+ * <p>The model only proposes a structured evaluation. Cadence, Skill binding,
+ * evidence ownership, scoring and Case promotion are all decided server-side.</p>
+ */
 @Slf4j
 @Component
 public class ConversationAnalysisWorker {
 
     private static final String SYSTEM_PROMPT = """
-            你是企业级 Agent 运营质量评测员，只返回一个纯 JSON 对象，不要 Markdown。
-            你的任务不是总结普通聊天，而是判断当前对话是否暴露了当前 Agent 业务范围内的问题、缺口、异常或可复用经验。
-            普通问候、单字测试、OK、继续、好的、内部执行占位文案、没有明确业务证据的轻微误答，都不能生成 Case。
-            Signal 是低置信度观察，只能代表可能的问题线索；Case 必须代表当前 Agent 绑定业务 Skill 所覆盖范围内的真实业务影响、产品缺陷、流程风险或高价值可复用经验。
-            固定结构：
+            你是企业级 Agent 业务质量评测器，只返回一个纯 JSON 对象，不要 Markdown。
+            你的职责是根据当前 Agent 已绑定的业务 Skill，评估本轮对话是否包含可验证的业务反馈；不要把普通闲聊、单字测试、助手自说自话、工具报错当成 Case。
+            你只能引用当前会话中真实存在的消息作为 evidence，quote 必须是原文连续片段，不能编造消息 ID、商品、订单或影响。
+
+            输出契约：
             {
-              "signals": [
-                {
-                  "type": "USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|TOOL_FAILURE|OTHER",
-                  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
-                  "confidence": 0,
-                  "summary": "中文摘要",
-                  "rationale": "中文证据说明"
-                }
-              ],
-              "cases": [
-                {
-                  "title": "中文标题",
-                  "summary": "中文摘要",
-                  "caseType": "BUG|FAQ|FEATURE|RUNBOOK|QUALITY",
-                  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
-                  "importance": 0,
-                  "confidence": 0,
-                  "criticalRisk": false,
-                  "businessRelated": false,
-                  "businessRelevance": 0,
-                  "evidenceScore": 0,
-                  "businessEvidence": false,
-                  "evidenceSource": "USER_FEEDBACK|SKILL_RESULT|MCP_BUSINESS_DATA|CASE_HISTORY|NONE",
-                  "skillId": "当前 Agent 绑定的 Skill ID",
-                  "promoteToCase": false,
-                  "historicalHighRiskMatch": false,
-                  "reason": "中文升级或不升级理由"
-                }
-              ]
+              "decision":"NOT_ELIGIBLE|FEEDBACK_ONLY|NEED_MORE_INFO|CANDIDATE_CASE",
+              "skill":{"id":"当前绑定Skill ID，没有则空字符串","ruleIds":["规则ID"],"matchScore":0},
+              "facts":{"subject":"业务对象，如 SKU/商品/库存","expected":"期望结果","actual":"实际结果","impact":"业务影响","timeRange":"时间范围","scope":"影响范围"},
+              "evidence":[{"messageId":123,"role":"user|operator|tool","quote":"原文连续片段","supports":["规则ID","事实字段"]}],
+              "missingInformation":["仍缺少的信息"],
+              "severity":"P0|P1|P2|P3",
+              "confidence":0,
+              "reason":"中文评测理由",
+              "signals":[{"type":"USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|TOOL_FAILURE|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","confidence":0,"summary":"中文观察","rationale":"中文依据"}]
             }
-            Case 必须同时提供 businessEvidence=true 和 evidenceSource，且 evidenceSource 只能是 USER_FEEDBACK、SKILL_RESULT、MCP_BUSINESS_DATA、CASE_HISTORY 之一。
-            仅有 TOOL_FAILURE、MCP 连接失败、模型限流、空回复、内部执行异常等运行故障，businessEvidence 必须为 false，只能生成运行观察 Signal，不能生成 Case。
-            没有绑定业务 Skill，或对话没有引用绑定 Skill 的业务规则/查询结果时，cases 必须返回空数组；每个 Case 必须填写真实的 skillId。
-            只有 businessRelevance >= 70、confidence >= 75、evidenceScore >= 60，且存在显式反馈、跨会话重复、严重业务风险或历史高危命中时，promoteToCase 才允许为 true。
-            证据不足时返回空数组。所有分数范围为 0 到 100。
+
+            决策规则：
+            1. NOT_ELIGIBLE：与绑定业务 Skill 无关，或只是问候、1、OK、继续、占位回复。
+            2. FEEDBACK_ONLY：确认记录了业务反馈，但对象、实际结果或影响仍不完整；只能进入 Feedback 评测队列，不能生成 Case。
+            3. NEED_MORE_INFO：可能相关但事实或证据不足；必须填写 missingInformation。
+            4. CANDIDATE_CASE：只有在明确引用当前绑定 Skill 的 ruleId，并且事实、影响和至少一条真实证据完整时才可提出。严重程度 P0/P1 只能有业务证据支持。
+            5. 模型分数只是参考，服务端会重新计算证据门禁；不要输出 promoteToCase 字段。
             """;
 
     private static final String BUSINESS_BOUNDARY_PROMPT = """
-            Analysis boundary:
-            1. Produce business summaries only within the domain of the Agent's bound business Skills.
-            2. A Case must identify the relevant bound Skill and be supported by that Skill's rule, workflow, or verified result.
-            3. Tool timeout, invalid arguments, MCP connection failure, model quota, step limit, and internal execution errors are Agent runtime faults only.
-            4. Runtime faults may be returned as a TOOL_FAILURE signal for observability, but they are never business evidence, never a business summary, and never a Case.
-            5. Do not use assistant error text as business facts. If no Skill-backed business evidence exists, return cases=[] and businessEvidence=false.
-            6. Keep the business subject and Skill reference explicit in every case title, summary, and reason, for example SKU, order, inventory, refund, or service rule.
+            当前评测边界：只允许使用当前 Agent 绑定的 Skill 文档和其引用的业务工具结果。MCP 连接失败、超时、参数错误、模型限流和内部异常只能形成运行观察 Signal，不能成为业务事实或 Case 证据。没有有效绑定 Skill 时，decision 必须是 NOT_ELIGIBLE 或 NEED_MORE_INFO。
             """;
 
     @Resource private IAnalysisJobDao jobDao;
     @Resource private IChatMessageDao messageDao;
     @Resource private IAiSignalDao signalDao;
     @Resource private IAiCaseDao caseDao;
-    @Resource private IAiFeedbackDao feedbackDao;
     @Resource private ICaseEvidenceDao evidenceDao;
     @Resource private ICaseScoreSnapshotDao scoreSnapshotDao;
+    @Resource private ICaseEvaluationSnapshotDao evaluationSnapshotDao;
     @Resource private AnalysisResultParser parser;
     @Resource private AgentEvaluationContextBuilder evaluationContextBuilder;
     @Resource private ApplicationContext applicationContext;
     @Resource private ShortTermMemoryService shortTermMemoryService;
+    @Resource private CaseEvidenceGate evidenceGate;
+    @Resource private CaseSummaryComposer summaryComposer;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
+
     private final CaseScoringService scoringService = new CaseScoringService();
-    private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
+    private final CaseAnalysisCadencePolicy cadencePolicy = new CaseAnalysisCadencePolicy();
 
     @Value("${agent.analysis.enabled:true}") private boolean enabled;
 
@@ -104,30 +92,37 @@ public class ConversationAnalysisWorker {
         if (job == null || jobDao.claim(job.getId(), LocalDateTime.now().plusMinutes(2)) != 1) return;
         try {
             if (!AnalysisJobQueue.POLICY_VERSION.equals(job.getPolicyVersion())) {
-                log.info("Skip stale conversation analysis job, jobId={}, policyVersion={}",
-                        job.getId(), job.getPolicyVersion());
+                log.info("跳过旧版对话评测任务，jobId={}, policyVersion={}", job.getId(), job.getPolicyVersion());
                 jobDao.markComplete(job.getId());
                 return;
             }
-            try { shortTermMemoryService.refreshIfNeeded(job.getAgentId(), job.getSessionId(), job.getModelId()); }
-            catch (Exception memoryError) { log.warn("Short-term memory refresh failed for session {}", job.getSessionId(), memoryError); }
+            try {
+                shortTermMemoryService.refreshIfNeeded(job.getAgentId(), job.getSessionId(), job.getModelId());
+            } catch (Exception memoryError) {
+                log.warn("短期记忆刷新失败，继续执行 Case 评测，session={}", job.getSessionId(), memoryError);
+            }
+
             List<ChatMessage> messages = messageDao.queryBySessionId(job.getSessionId());
             int explicitNegativeFeedback = explicitNegativeFeedback(job);
-            boolean admitted = qualificationPolicy.shouldAnalyze(messages.stream()
-                    .map(message -> new ConversationQualificationPolicy.ConversationMessage(message.getRole(), message.getContent()))
-                    .toList(), explicitNegativeFeedback);
-            if (!admitted) {
-                log.debug("Conversation analysis skipped by admission policy, session={}, assistantMessage={}",
-                        job.getSessionId(), job.getAssistantMessageId());
+            CaseEvaluationSnapshot latest = evaluationSnapshotDao.queryLatest(job.getAgentId(), job.getSessionId());
+            CaseAnalysisCadencePolicy.Decision cadence = cadencePolicy.shouldEvaluate(
+                    messages.stream().map(message -> new CaseAnalysisCadencePolicy.ConversationMessage(
+                            message.getId() == null ? 0 : message.getId(), message.getRole(), message.getContent())).toList(),
+                    latest == null ? new CaseAnalysisCadencePolicy.EvaluationCursor(0, 0, "")
+                            : new CaseAnalysisCadencePolicy.EvaluationCursor(
+                            latest.getAssistantMessageId() == null ? 0 : latest.getAssistantMessageId(), 0,
+                            latest.getEvidenceFingerprint()),
+                    explicitNegativeFeedback > 0, false);
+            if (!cadence.required()) {
+                log.debug("按评测频率门禁跳过，session={}, reason={}", job.getSessionId(), cadence.reason());
                 jobDao.markComplete(job.getId());
                 return;
             }
+
             AnalysisResultParser.AnalysisResult result = parser.parse(analyze(job, messages));
-            persist(job, result, explicitNegativeFeedback);
+            persist(job, messages, result, explicitNegativeFeedback, latest, cadence);
             jobDao.markComplete(job.getId());
         } catch (Exception exception) {
-            try { shortTermMemoryService.refreshIfNeeded(job.getAgentId(), job.getSessionId(), job.getModelId()); }
-            catch (Exception memoryError) { log.warn("Short-term memory refresh failed for session {}", job.getSessionId(), memoryError); }
             int nextAttempt = job.getAttempts() == null ? 1 : job.getAttempts() + 1;
             String state = nextAttempt >= job.getMaxAttempts() ? "FAILED" : "RETRY";
             String error = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
@@ -137,7 +132,7 @@ public class ConversationAnalysisWorker {
             } else {
                 jobDao.markFailure(job.getId(), state, safeError);
             }
-            log.warn("Conversation analysis failed, jobId={}, state={}", job.getId(), state, exception);
+            log.warn("对话业务评测失败，jobId={}, state={}", job.getId(), state, exception);
         }
     }
 
@@ -148,7 +143,9 @@ public class ConversationAnalysisWorker {
                 .prompt().user(evaluationContextBuilder.build(job.getAgentId(), messages)).call().content();
     }
 
-    private void persist(AnalysisJob job, AnalysisResultParser.AnalysisResult result, int explicitNegativeFeedback) {
+    private void persist(AnalysisJob job, List<ChatMessage> messages,
+                         AnalysisResultParser.AnalysisResult result, int explicitNegativeFeedback,
+                         CaseEvaluationSnapshot latest, CaseAnalysisCadencePolicy.Decision cadence) {
         LocalDateTime now = LocalDateTime.now();
         for (AnalysisResultParser.SignalCandidate candidate : result.signals()) {
             signalDao.insert(AiSignal.builder().agentId(job.getAgentId()).sessionId(job.getSessionId())
@@ -159,46 +156,68 @@ public class ConversationAnalysisWorker {
                     .summary(candidate.summary()).rationale(candidate.rationale()).modelId(job.getModelId())
                     .status("OBSERVED").createdAt(now).build());
         }
-        for (AnalysisResultParser.CaseCandidate candidate : result.cases()) {
-            upsertCase(job, candidate, now, explicitNegativeFeedback);
+
+        CaseEvidenceGate.BoundSkillContext boundSkill = evaluationContextBuilder.boundSkillContext(job.getAgentId());
+        List<AiCase> sessionCases = caseDao.queryBySession(job.getAgentId(), job.getSessionId(), 1);
+        CaseEvidenceGate.ExistingCaseContext existingCase = new CaseEvidenceGate.ExistingCaseContext(
+                latest == null ? "" : blank(latest.getEvidenceFingerprint()), sessionCases != null && !sessionCases.isEmpty());
+        CaseEvidenceGate.GateDecision gate = evidenceGate.evaluate(
+                job.getAgentId(), messages, result, boundSkill, existingCase);
+
+        String fingerprint = gate.evidenceFingerprint().isBlank() ? cadence.evidenceFingerprint() : gate.evidenceFingerprint();
+        evaluationSnapshotDao.insertIgnore(CaseEvaluationSnapshot.builder()
+                .idempotencyKey("case-evaluation:" + job.getAgentId() + ":" + job.getSessionId() + ":" + job.getAssistantMessageId())
+                .agentId(job.getAgentId()).sessionId(job.getSessionId()).assistantMessageId(job.getAssistantMessageId())
+                .policyVersion(AnalysisJobQueue.POLICY_VERSION).decision(gate.state())
+                .skillId(result.skill().id()).ruleIdsJson(JSON.toJSONString(result.skill().ruleIds()))
+                .factsJson(JSON.toJSONString(result.facts())).missingInformationJson(JSON.toJSONString(gate.missingInformation()))
+                .evidenceJson(JSON.toJSONString(gate.acceptedEvidence())).confidence(result.confidence())
+                .serverScore(gate.serverScore()).reason(gate.reason()).evidenceFingerprint(fingerprint).createdAt(now).build());
+
+        if (!"CANDIDATE_CASE".equals(gate.state())) {
+            log.info("Case 评测未生成 Case，agent={}, session={}, state={}, score={}, reason={}",
+                    job.getAgentId(), job.getSessionId(), gate.state(), gate.serverScore(), gate.reason());
+            return;
         }
+
+        CaseSummaryComposer.BoundSkillRule rule = new CaseSummaryComposer.BoundSkillRule(
+                result.skill().id(), result.skill().ruleIds().get(0), result.skill().id());
+        CaseSummaryComposer.ComposedCase composed = summaryComposer.compose(result, rule, gate.acceptedEvidence());
+        upsertVerifiedCase(job, result, gate, composed, explicitNegativeFeedback, now);
     }
 
-    private void upsertCase(AnalysisJob job, AnalysisResultParser.CaseCandidate candidate, LocalDateTime now,
-                            int explicitNegativeFeedback) {
-        if (!evaluationContextBuilder.hasBoundBusinessSkill(job.getAgentId(), candidate.skillId())
-                || !qualificationPolicy.hasBusinessEvidence(candidate)) {
-            log.info("Skip non-business Case candidate, agentId={}, sessionId={}, title={}, source={}",
-                    job.getAgentId(), job.getSessionId(), candidate.title(), candidate.evidenceSource());
-            return;
+    private void upsertVerifiedCase(AnalysisJob job, AnalysisResultParser.AnalysisResult result,
+                                    CaseEvidenceGate.GateDecision gate,
+                                    CaseSummaryComposer.ComposedCase composed,
+                                    int explicitNegativeFeedback, LocalDateTime now) {
+        String caseId = caseId(job.getAgentId(), composed.title());
+        for (CaseEvidenceGate.EvidenceRef reference : gate.acceptedEvidence()) {
+            ChatMessage message = messageDao.queryById(reference.messageId());
+            evidenceDao.insertIgnore(CaseEvidence.builder().caseId(caseId).agentId(job.getAgentId())
+                    .evidenceType("MESSAGE").evidenceId(reference.messageId()).sessionId(job.getSessionId())
+                    .messageId(reference.messageId()).excerpt(reference.quote()).evidenceRole(reference.role())
+                    .skillRuleId(result.skill().ruleIds().stream().findFirst().orElse(""))
+                    .supportsJson(JSON.toJSONString(reference.supports())).createdAt(now).build());
+            if (message == null) log.warn("Case 证据消息不存在，messageId={}", reference.messageId());
         }
-        String caseId = caseId(job.getAgentId(), candidate.title());
-        evidenceDao.insertIgnore(CaseEvidence.builder().caseId(caseId).agentId(job.getAgentId())
-                .evidenceType("MESSAGE").evidenceId(job.getAssistantMessageId()).sessionId(job.getSessionId())
-                .messageId(job.getAssistantMessageId()).excerpt(candidate.reason()).createdAt(now).build());
-        int distinctSessions = jdbcTemplate.queryForObject(
-                "SELECT COUNT(DISTINCT session_id) FROM case_evidence WHERE case_id = ?", Integer.class, caseId);
-        if (!candidate.businessRelated() || !candidate.promoteToCase()
-                || !qualificationPolicy.shouldPromoteCase(new ConversationQualificationPolicy.CasePromotionInput(
-                distinctSessions, explicitNegativeFeedback, candidate.confidence(), candidate.criticalRisk(),
-                candidate.businessRelevance(), candidate.evidenceScore(), candidate.historicalHighRiskMatch()))) {
-            return;
-        }
-        AiCase existing = caseDao.queryByAgentAndCaseId(job.getAgentId(), caseId);
-        int frequency = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM case_evidence WHERE case_id = ?", Integer.class, caseId);
-        int affected = distinctSessions;
-        double severity = switch (candidate.severity()) { case "CRITICAL" -> 100; case "HIGH" -> 75; case "MEDIUM" -> 50; default -> 25; };
+        Integer frequencyValue = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM case_evidence WHERE case_id = ? AND agent_id = ?", Integer.class, caseId, job.getAgentId());
+        Integer distinctSessionsValue = jdbcTemplate.queryForObject(
+                "SELECT COUNT(DISTINCT session_id) FROM case_evidence WHERE case_id = ? AND agent_id = ?", Integer.class, caseId, job.getAgentId());
+        int frequency = frequencyValue == null ? 0 : frequencyValue;
+        int affectedSessions = distinctSessionsValue == null ? 0 : distinctSessionsValue;
+        double severity = severityScore(result.severity());
         double negative = Math.min(100, explicitNegativeFeedback * 50d);
         CaseScoringService.CaseScoreBreakdown score = scoringService.score(new CaseScoringService.CaseScoreInput(
-                severity, negative, Math.min(100, frequency * 10d), candidate.importance(), 100, 0,
-                candidate.confidence(), candidate.criticalRisk(), false));
-        String status = existing == null ? "CANDIDATE" : existing.getStatus();
-        AiCase record = AiCase.builder().caseId(caseId).agentId(job.getAgentId()).title(candidate.title())
-                .summary(candidate.summary()).caseType(candidate.caseType()).severity(candidate.severity())
-                .frequency(frequency).affectedSessions(affected).importanceScore(candidate.importance())
-                .confidence(candidate.confidence()).totalScore(score.total()).status(status).skillId(candidate.skillId())
-                .sourceModel(job.getModelId()).extractionReason(candidate.reason()).owner("").resolution("")
+                severity, negative, Math.min(100, frequency * 10d), result.confidence(), 100, 0,
+                result.confidence(), "P0".equalsIgnoreCase(result.severity()), false));
+        AiCase existing = caseDao.queryByAgentAndCaseId(job.getAgentId(), caseId);
+        String status = existing == null ? "CANDIDATE" : blank(existing.getStatus());
+        AiCase record = AiCase.builder().caseId(caseId).agentId(job.getAgentId()).title(composed.title())
+                .summary(composed.summary()).caseType("BUSINESS_ISSUE").severity(mapSeverity(result.severity()))
+                .frequency(frequency).affectedSessions(affectedSessions).importanceScore(result.confidence())
+                .confidence(result.confidence()).totalScore(score.total()).status(status).skillId(result.skill().id())
+                .sourceModel(job.getModelId()).extractionReason(composed.extractionReason()).owner("").resolution("")
                 .lastSeenAt(now).createdAt(now).updatedAt(now).build();
         if (existing == null) caseDao.insert(record); else caseDao.updateAnalysis(record);
         scoreSnapshotDao.insert(CaseScoreSnapshot.builder().caseId(caseId).agentId(job.getAgentId())
@@ -206,7 +225,8 @@ public class ConversationAnalysisWorker {
                 .negativeFeedbackScore(score.negativeFeedbackContribution()).frequencyScore(score.frequencyContribution())
                 .importanceScore(score.importanceContribution()).recencyScore(score.recencyContribution())
                 .unresolvedAgeScore(score.unresolvedAgeContribution()).confidenceScore(score.confidenceContribution())
-                .priorityFloorApplied(score.priorityFloorApplied() ? 1 : 0).rationale(candidate.reason()).createdAt(now).build());
+                .priorityFloorApplied(score.priorityFloorApplied() ? 1 : 0)
+                .rationale(gate.reason()).createdAt(now).build());
     }
 
     private int explicitNegativeFeedback(AnalysisJob job) {
@@ -218,13 +238,33 @@ public class ConversationAnalysisWorker {
         return value == null ? 0 : value;
     }
 
+    private double severityScore(String severity) {
+        return switch (blank(severity).toUpperCase(Locale.ROOT)) {
+            case "P0" -> 100;
+            case "P1" -> 85;
+            case "P2" -> 55;
+            default -> 25;
+        };
+    }
+
+    private String mapSeverity(String severity) {
+        return switch (blank(severity).toUpperCase(Locale.ROOT)) {
+            case "P0" -> "CRITICAL";
+            case "P1" -> "HIGH";
+            case "P2" -> "MEDIUM";
+            default -> "LOW";
+        };
+    }
+
     private String caseId(String agentId, String title) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest((agentId + ":" + title.trim().toLowerCase()).getBytes(StandardCharsets.UTF_8));
+                    .digest((agentId + ":" + blank(title).toLowerCase(Locale.ROOT)).getBytes(StandardCharsets.UTF_8));
             return "case-" + HexFormat.of().formatHex(digest, 0, 12);
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
         }
     }
+
+    private String blank(String value) { return value == null ? "" : value.trim(); }
 }

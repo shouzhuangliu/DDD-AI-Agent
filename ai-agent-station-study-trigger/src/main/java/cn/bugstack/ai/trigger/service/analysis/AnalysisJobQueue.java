@@ -14,7 +14,7 @@ import java.time.Duration;
 @Component
 public class AnalysisJobQueue {
 
-    public static final String POLICY_VERSION = "v3-event-idle";
+    public static final String POLICY_VERSION = "v4-evidence-gate";
     public static final Duration IDLE_DELAY = Duration.ofSeconds(60);
     public static final Duration SESSION_DEBOUNCE_WINDOW = Duration.ofMinutes(5);
 

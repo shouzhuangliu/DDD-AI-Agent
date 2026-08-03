@@ -63,6 +63,7 @@ public class EnterpriseSchemaContractTest {
         assertTrue(sql.contains("skill_rule_id"));
         assertTrue(sql.contains("supports_json"));
         assertTrue(sql.contains("uk_case_evaluation_idempotency"));
+        assertTrue(sql.contains("v4-evidence-gate"));
     }
 
     @Test
