@@ -14,6 +14,12 @@ import java.util.Set;
 public class AnalysisResultParser {
 
     private static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
+    private static final Set<String> RUNTIME_ONLY_SIGNAL_TYPES = Set.of(
+            "TOOL_FAILURE", "MCP_FAILURE", "MODEL_FAILURE", "MODEL_RATE_LIMIT", "EXECUTION_FAILURE");
+
+    public static boolean isRuntimeOnlySignalType(String type) {
+        return type != null && RUNTIME_ONLY_SIGNAL_TYPES.contains(type.trim().toUpperCase(Locale.ROOT));
+    }
 
     public AnalysisResult parse(String raw) {
         if (raw == null || raw.isBlank() || raw.contains("```")) {
@@ -54,7 +60,8 @@ public class AnalysisResultParser {
                     value.getBooleanValue("businessRelated"), businessRelevance, evidenceScore,
                     value.getBooleanValue("promoteToCase"), value.getBooleanValue("historicalHighRiskMatch"),
                     required(value, "reason"), value.getBooleanValue("businessEvidence"),
-                    normalizeEvidenceSource(value.getString("evidenceSource"))));
+                    normalizeEvidenceSource(value.getString("evidenceSource")),
+                     value.getString("skillId")));
         }
         return new AnalysisResult(List.copyOf(signals), List.copyOf(cases));
     }
@@ -90,5 +97,15 @@ public class AnalysisResultParser {
                                 double importance, double confidence, boolean criticalRisk,
                                 boolean businessRelated, double businessRelevance, double evidenceScore,
                                 boolean promoteToCase, boolean historicalHighRiskMatch, String reason,
-                                boolean businessEvidence, String evidenceSource) {}
+                                boolean businessEvidence, String evidenceSource, String skillId) {
+        public CaseCandidate(String title, String summary, String caseType, String severity,
+                             double importance, double confidence, boolean criticalRisk,
+                             boolean businessRelated, double businessRelevance, double evidenceScore,
+                             boolean promoteToCase, boolean historicalHighRiskMatch, String reason,
+                             boolean businessEvidence, String evidenceSource) {
+            this(title, summary, caseType, severity, importance, confidence, criticalRisk,
+                    businessRelated, businessRelevance, evidenceScore, promoteToCase,
+                    historicalHighRiskMatch, reason, businessEvidence, evidenceSource, "");
+        }
+    }
 }

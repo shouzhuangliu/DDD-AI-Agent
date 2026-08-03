@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.service.model;
 
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.armory.ModelCredentialResolver;
+import cn.bugstack.ai.domain.agent.service.model.ModelRetryPolicy;
 import cn.bugstack.ai.infrastructure.dao.IAiClientApiDao;
 import cn.bugstack.ai.infrastructure.dao.IAiClientModelDao;
 import cn.bugstack.ai.infrastructure.dao.po.AiClientApi;
@@ -90,6 +91,7 @@ public class ChatModelBeanRegistrar {
             OpenAiChatModel chatModel = OpenAiChatModel.builder()
                     .openAiApi(openAiApi)
                     .defaultOptions(OpenAiChatOptions.builder().model(model.getModelName()).build())
+                    .retryTemplate(ModelRetryPolicy.noRetry())
                     .build();
             registerBean(AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(model.getModelId()), OpenAiChatModel.class, chatModel);
             log.info("模型 Bean 已注册，modelId={}，apiId={}，baseUrl={}{}，model={}",

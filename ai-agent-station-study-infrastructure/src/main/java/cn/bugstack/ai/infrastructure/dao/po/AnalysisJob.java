@@ -16,6 +16,7 @@ public class AnalysisJob {
     private Integer attempts;
     private Integer maxAttempts;
     private LocalDateTime leaseUntil;
+    private LocalDateTime availableAt;
     private String errorMessage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

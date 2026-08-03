@@ -7,15 +7,17 @@
     <result column="assistant_message_id" property="assistantMessageId"/><result column="policy_version" property="policyVersion"/>
     <result column="model_id" property="modelId"/><result column="status" property="status"/>
     <result column="attempts" property="attempts"/><result column="max_attempts" property="maxAttempts"/>
-    <result column="lease_until" property="leaseUntil"/><result column="error_message" property="errorMessage"/>
+    <result column="lease_until" property="leaseUntil"/><result column="available_at" property="availableAt"/><result column="error_message" property="errorMessage"/>
     <result column="created_at" property="createdAt"/><result column="updated_at" property="updatedAt"/>
   </resultMap>
   <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.AnalysisJob" useGeneratedKeys="true" keyProperty="id">
-    INSERT IGNORE INTO analysis_job (idempotency_key,agent_id,session_id,assistant_message_id,policy_version,model_id,status,attempts,max_attempts,created_at,updated_at)
-    VALUES (#{idempotencyKey},#{agentId},#{sessionId},#{assistantMessageId},#{policyVersion},#{modelId},#{status},#{attempts},#{maxAttempts},#{createdAt},#{updatedAt})
+    INSERT IGNORE INTO analysis_job (idempotency_key,agent_id,session_id,assistant_message_id,policy_version,model_id,status,attempts,max_attempts,available_at,created_at,updated_at)
+    VALUES (#{idempotencyKey},#{agentId},#{sessionId},#{assistantMessageId},#{policyVersion},#{modelId},#{status},#{attempts},#{maxAttempts},#{availableAt},#{createdAt},#{updatedAt})
   </insert>
-  <select id="queryClaimable" resultMap="JobMap">SELECT * FROM analysis_job WHERE status IN ('PENDING','RETRY') AND attempts &lt; max_attempts AND (lease_until IS NULL OR lease_until &lt; NOW()) ORDER BY created_at LIMIT 1</select>
+  <update id="refreshPendingSession">UPDATE analysis_job SET assistant_message_id=#{assistantMessageId}, available_at=#{availableAt}, updated_at=NOW() WHERE agent_id=#{agentId} AND session_id=#{sessionId} AND policy_version=#{policyVersion} AND status IN ('PENDING','RETRY')</update>
+  <select id="queryClaimable" resultMap="JobMap">SELECT * FROM analysis_job WHERE status IN ('PENDING','RETRY') AND attempts &lt; max_attempts AND (lease_until IS NULL OR lease_until &lt; NOW()) AND (available_at IS NULL OR available_at &lt;= NOW()) ORDER BY created_at LIMIT 1</select>
   <update id="claim">UPDATE analysis_job SET status='RUNNING', attempts=attempts+1, lease_until=#{leaseUntil}, updated_at=NOW() WHERE id=#{id} AND status IN ('PENDING','RETRY') AND (lease_until IS NULL OR lease_until &lt; NOW())</update>
   <update id="markComplete">UPDATE analysis_job SET status='COMPLETED', lease_until=NULL, error_message=NULL, updated_at=NOW() WHERE id=#{id}</update>
   <update id="markFailure">UPDATE analysis_job SET status=#{status}, lease_until=NULL, error_message=#{errorMessage}, updated_at=NOW() WHERE id=#{id}</update>
+  <update id="deferFailure">UPDATE analysis_job SET status=#{status}, lease_until=#{leaseUntil}, error_message=#{errorMessage}, updated_at=NOW() WHERE id=#{id}</update>
 </mapper>

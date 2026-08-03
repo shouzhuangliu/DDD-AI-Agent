@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
+import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +47,45 @@ public class McpCallTool extends AbstractReActTool {
                 ? "无"
                 : exposedToolNames.stream().sorted().collect(Collectors.joining(", "));
         return "MCP 工具不存在: " + requestedToolName + "，可用工具: " + available;
+    }
+
+    /**
+     * Validates the required fields from the MCP server schema before a request
+     * crosses the process boundary. The schema is intentionally accepted as an
+     * Object because MCP SDK versions expose different JsonSchema types.
+     */
+    public static String validateRequiredArguments(Object inputSchema, JSONObject arguments) {
+        if (inputSchema == null) return null;
+        JSONObject schema;
+        try {
+            schema = JSON.parseObject(JSON.toJSONString(inputSchema));
+        } catch (Exception e) {
+            return "MCP schema cannot be read: " + e.getMessage();
+        }
+        if (schema == null) return null;
+        var required = schema.getJSONArray("required");
+        if (required == null || required.isEmpty()) return null;
+        JSONObject actual = arguments == null ? new JSONObject() : arguments;
+        List<String> missing = required.stream()
+                .map(String::valueOf)
+                .filter(name -> !actual.containsKey(name)
+                        || actual.get(name) == null
+                        || (actual.get(name) instanceof String value && value.isBlank()))
+                .toList();
+        return missing.isEmpty() ? null : "MCP missing required argument(s): " + String.join(", ", missing);
+    }
+
+    /** Returns a compact schema summary for progressive disclosure in prompts. */
+    public static String requiredArgumentsSummary(Object inputSchema) {
+        if (inputSchema == null) return "required: none";
+        try {
+            JSONObject schema = JSON.parseObject(JSON.toJSONString(inputSchema));
+            var required = schema == null ? null : schema.getJSONArray("required");
+            if (required == null || required.isEmpty()) return "required: none";
+            return "required: " + required.stream().map(String::valueOf).collect(Collectors.joining(", "));
+        } catch (Exception e) {
+            return "required: unavailable";
+        }
     }
 
     @Resource
@@ -83,8 +123,10 @@ public class McpCallTool extends AbstractReActTool {
             return msg;
         }
 
+        List<McpSchema.Tool> exposedTools;
         try {
-            Set<String> exposedToolNames = client.listTools().tools().stream()
+            exposedTools = client.listTools().tools();
+            Set<String> exposedToolNames = exposedTools.stream()
                     .map(McpSchema.Tool::name)
                     .collect(Collectors.toSet());
             String validationMessage = validateToolName(exposedToolNames, toolName.trim());
@@ -92,6 +134,7 @@ public class McpCallTool extends AbstractReActTool {
                 emitObservation(toolTag, validationMessage);
                 return validationMessage;
             }
+
         } catch (Exception e) {
             String msg = "无法读取 MCP 工具列表: " + e.getMessage();
             log.warn(msg, e);
@@ -105,6 +148,17 @@ public class McpCallTool extends AbstractReActTool {
             JSONObject jsonArgs = (args != null && !args.isBlank())
                     ? JSON.parseObject(args)
                     : new JSONObject();
+
+            McpSchema.Tool exposedTool = exposedTools.stream()
+                    .filter(tool -> toolName.trim().equals(tool.name()))
+                    .findFirst()
+                    .orElse(null);
+            String requiredMessage = validateRequiredArguments(
+                    exposedTool == null ? null : exposedTool.inputSchema(), jsonArgs);
+            if (requiredMessage != null) {
+                emitObservation(toolTag, requiredMessage);
+                return requiredMessage;
+            }
             request = new McpSchema.CallToolRequest(toolName, jsonArgs);
         } catch (Exception e) {
             String msg = "参数解析失败: " + e.getMessage() + " (args=" + args + ")";

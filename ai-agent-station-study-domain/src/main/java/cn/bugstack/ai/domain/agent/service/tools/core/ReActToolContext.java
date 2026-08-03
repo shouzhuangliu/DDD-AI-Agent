@@ -61,6 +61,12 @@ public class ReActToolContext {
     private int maxSteps = 30;
 
     @Builder.Default
+    private int maxToolCalls = 10;
+
+    @Builder.Default
+    private int maxModelRounds = 8;
+
+    @Builder.Default
     private AtomicInteger currentStep = new AtomicInteger(0);
 
     @Builder.Default
@@ -78,7 +84,7 @@ public class ReActToolContext {
     public int consumeStep() {
         while (true) {
             int current = currentStep.get();
-            if (current >= maxSteps) return -1;
+            if (current >= maxSteps || current >= maxToolCalls) return -1;
             if (currentStep.compareAndSet(current, current + 1)) return current + 1;
         }
     }
@@ -96,6 +102,6 @@ public class ReActToolContext {
             String removed = recentToolCalls.removeFirst();
             repeatedToolCalls.computeIfPresent(removed, (ignored, count) -> count <= 1 ? null : count - 1);
         }
-        return repeatedToolCalls.getOrDefault(key, 0) >= 5;
+        return repeatedToolCalls.getOrDefault(key, 0) >= 2;
     }
 }

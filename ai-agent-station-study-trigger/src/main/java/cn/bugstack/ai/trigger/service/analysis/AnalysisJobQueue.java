@@ -9,24 +9,30 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 
 @Component
 public class AnalysisJobQueue {
 
-    public static final String POLICY_VERSION = "v1";
+    public static final String POLICY_VERSION = "v3-event-idle";
+    public static final Duration IDLE_DELAY = Duration.ofSeconds(60);
+    public static final Duration SESSION_DEBOUNCE_WINDOW = Duration.ofMinutes(5);
 
     @Resource private IAnalysisJobDao analysisJobDao;
     @Resource private IAgentRepository agentRepository;
 
-    public void enqueue(String agentId, String sessionId, Long assistantMessageId) {
+    public void enqueue(String agentId, String sessionId, Long assistantMessageId, boolean immediate) {
         if (assistantMessageId == null) return;
         AiAgentVO agent = agentRepository.queryAgentById(agentId);
         String modelId = ModelSelectionService.select(null, agent == null ? null : agent.getModelId());
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime availableAt = immediate ? now : now.plus(IDLE_DELAY);
+        long window = now.toEpochSecond(java.time.ZoneOffset.UTC) / SESSION_DEBOUNCE_WINDOW.toSeconds();
         analysisJobDao.insertIgnore(AnalysisJob.builder()
-                .idempotencyKey("conversation-analysis:" + POLICY_VERSION + ":" + assistantMessageId)
+                .idempotencyKey("conversation-analysis:" + POLICY_VERSION + ":" + sessionId + ":" + window)
                 .agentId(agentId).sessionId(sessionId).assistantMessageId(assistantMessageId)
                 .policyVersion(POLICY_VERSION).modelId(modelId).status("PENDING")
-                .attempts(0).maxAttempts(3).createdAt(now).updatedAt(now).build());
+                .attempts(0).maxAttempts(3).availableAt(availableAt).createdAt(now).updatedAt(now).build());
+        analysisJobDao.refreshPendingSession(agentId, sessionId, POLICY_VERSION, assistantMessageId, availableAt);
     }
 }

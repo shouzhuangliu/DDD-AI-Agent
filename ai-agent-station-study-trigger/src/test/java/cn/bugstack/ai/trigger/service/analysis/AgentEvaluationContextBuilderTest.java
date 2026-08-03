@@ -1,12 +1,18 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
+import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
 import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,6 +78,38 @@ class AgentEvaluationContextBuilderTest {
 
         assertFalse(recalled.get());
         assertFalse(context.contains("长期记忆召回"));
+    }
+
+    @Test
+    void includesOnlySkillsBoundToTheCurrentAgentInEvaluationContext() {
+        LongTermMemoryPort memoryPort = mock(LongTermMemoryPort.class);
+        AgentRuntimeBindingService bindingService = mock(AgentRuntimeBindingService.class);
+        SkillScannerService scanner = mock(SkillScannerService.class);
+        var bindings = AgentRuntimeBindingService.AgentRuntimeBindings.builder()
+                .workspace(java.nio.file.Path.of("D:/agent-workspace"))
+                .skillIds(List.of("inventory-feedback-agent"))
+                .build();
+        when(bindingService.assemble("inventory-agent", System.getProperty("user.dir"), false))
+                .thenReturn(bindings);
+        when(scanner.readSkillFromWorkDir("D:/agent-workspace", "inventory-feedback-agent"))
+                .thenReturn(SkillScannerService.SkillInfo.builder()
+                        .skillId("inventory-feedback-agent")
+                        .skillName("库存反馈判断")
+                        .description("库存业务规则")
+                        .content("库存低于安全线时才可形成业务 Case")
+                        .build());
+
+        AgentEvaluationContextBuilder builder = new AgentEvaluationContextBuilder(
+                memoryPort, new MemoryQueryAdmissionPolicy());
+        ReflectionTestUtils.setField(builder, "agentRuntimeBindingService", bindingService);
+        ReflectionTestUtils.setField(builder, "skillScannerService", scanner);
+
+        String context = builder.build("inventory-agent", List.of(message(1L, "user", "1")));
+
+        assertTrue(context.contains("[BOUND BUSINESS SKILLS]"));
+        assertTrue(context.contains("inventory-feedback-agent"));
+        assertTrue(context.contains("库存低于安全线时才可形成业务 Case"));
+        assertTrue(builder.hasBoundBusinessSkills("inventory-agent"));
     }
 
     private ChatMessage message(Long id, String role, String content) {

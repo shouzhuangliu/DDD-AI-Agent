@@ -1,6 +1,7 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.operations.CaseScoringService;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
@@ -29,7 +30,7 @@ public class ConversationAnalysisWorker {
             你是企业级 Agent 运营质量评测员，只返回一个纯 JSON 对象，不要 Markdown。
             你的任务不是总结普通聊天，而是判断当前对话是否暴露了当前 Agent 业务范围内的问题、缺口、异常或可复用经验。
             普通问候、单字测试、OK、继续、好的、内部执行占位文案、没有明确业务证据的轻微误答，都不能生成 Case。
-            Signal 是低置信度观察，只能代表可能的问题线索；Case 必须代表真实业务影响、产品缺陷、工具失败、流程风险、Skill/MCP 能力缺口或高价值可复用经验。
+            Signal 是低置信度观察，只能代表可能的问题线索；Case 必须代表当前 Agent 绑定业务 Skill 所覆盖范围内的真实业务影响、产品缺陷、流程风险或高价值可复用经验。
             固定结构：
             {
               "signals": [
@@ -55,6 +56,7 @@ public class ConversationAnalysisWorker {
                   "evidenceScore": 0,
                   "businessEvidence": false,
                   "evidenceSource": "USER_FEEDBACK|SKILL_RESULT|MCP_BUSINESS_DATA|CASE_HISTORY|NONE",
+                  "skillId": "当前 Agent 绑定的 Skill ID",
                   "promoteToCase": false,
                   "historicalHighRiskMatch": false,
                   "reason": "中文升级或不升级理由"
@@ -62,9 +64,20 @@ public class ConversationAnalysisWorker {
               ]
             }
             Case 必须同时提供 businessEvidence=true 和 evidenceSource，且 evidenceSource 只能是 USER_FEEDBACK、SKILL_RESULT、MCP_BUSINESS_DATA、CASE_HISTORY 之一。
-            仅有 TOOL_FAILURE、MCP 连接失败、模型限流、空回复、内部执行异常等运行故障，businessEvidence 必须为 false，只能生成 Signal，不能生成 Case。
+            仅有 TOOL_FAILURE、MCP 连接失败、模型限流、空回复、内部执行异常等运行故障，businessEvidence 必须为 false，只能生成运行观察 Signal，不能生成 Case。
+            没有绑定业务 Skill，或对话没有引用绑定 Skill 的业务规则/查询结果时，cases 必须返回空数组；每个 Case 必须填写真实的 skillId。
             只有 businessRelevance >= 70、confidence >= 75、evidenceScore >= 60，且存在显式反馈、跨会话重复、严重业务风险或历史高危命中时，promoteToCase 才允许为 true。
             证据不足时返回空数组。所有分数范围为 0 到 100。
+            """;
+
+    private static final String BUSINESS_BOUNDARY_PROMPT = """
+            Analysis boundary:
+            1. Produce business summaries only within the domain of the Agent's bound business Skills.
+            2. A Case must identify the relevant bound Skill and be supported by that Skill's rule, workflow, or verified result.
+            3. Tool timeout, invalid arguments, MCP connection failure, model quota, step limit, and internal execution errors are Agent runtime faults only.
+            4. Runtime faults may be returned as a TOOL_FAILURE signal for observability, but they are never business evidence, never a business summary, and never a Case.
+            5. Do not use assistant error text as business facts. If no Skill-backed business evidence exists, return cases=[] and businessEvidence=false.
+            6. Keep the business subject and Skill reference explicit in every case title, summary, and reason, for example SKU, order, inventory, refund, or service rule.
             """;
 
     @Resource private IAnalysisJobDao jobDao;
@@ -90,6 +103,12 @@ public class ConversationAnalysisWorker {
         AnalysisJob job = jobDao.queryClaimable();
         if (job == null || jobDao.claim(job.getId(), LocalDateTime.now().plusMinutes(2)) != 1) return;
         try {
+            if (!AnalysisJobQueue.POLICY_VERSION.equals(job.getPolicyVersion())) {
+                log.info("Skip stale conversation analysis job, jobId={}, policyVersion={}",
+                        job.getId(), job.getPolicyVersion());
+                jobDao.markComplete(job.getId());
+                return;
+            }
             try { shortTermMemoryService.refreshIfNeeded(job.getAgentId(), job.getSessionId(), job.getModelId()); }
             catch (Exception memoryError) { log.warn("Short-term memory refresh failed for session {}", job.getSessionId(), memoryError); }
             List<ChatMessage> messages = messageDao.queryBySessionId(job.getSessionId());
@@ -112,7 +131,12 @@ public class ConversationAnalysisWorker {
             int nextAttempt = job.getAttempts() == null ? 1 : job.getAttempts() + 1;
             String state = nextAttempt >= job.getMaxAttempts() ? "FAILED" : "RETRY";
             String error = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
-            jobDao.markFailure(job.getId(), state, error.substring(0, Math.min(2000, error.length())));
+            String safeError = error.substring(0, Math.min(2000, error.length()));
+            if (ReActExecuteStrategy.isRateLimitError(error)) {
+                jobDao.deferFailure(job.getId(), state, safeError, LocalDateTime.now().plusMinutes(2));
+            } else {
+                jobDao.markFailure(job.getId(), state, safeError);
+            }
             log.warn("Conversation analysis failed, jobId={}, state={}", job.getId(), state, exception);
         }
     }
@@ -120,7 +144,7 @@ public class ConversationAnalysisWorker {
     private String analyze(AnalysisJob job, List<ChatMessage> messages) {
         OpenAiChatModel model = applicationContext.getBean(
                 AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(job.getModelId()), OpenAiChatModel.class);
-        return ChatClient.builder(model).defaultSystem(SYSTEM_PROMPT).build()
+        return ChatClient.builder(model).defaultSystem(SYSTEM_PROMPT + "\n" + BUSINESS_BOUNDARY_PROMPT).build()
                 .prompt().user(evaluationContextBuilder.build(job.getAgentId(), messages)).call().content();
     }
 
@@ -129,7 +153,9 @@ public class ConversationAnalysisWorker {
         for (AnalysisResultParser.SignalCandidate candidate : result.signals()) {
             signalDao.insert(AiSignal.builder().agentId(job.getAgentId()).sessionId(job.getSessionId())
                     .assistantMessageId(job.getAssistantMessageId()).signalType(candidate.type())
-                    .sourceType("AI_INFERRED").severity(candidate.severity()).confidence(candidate.confidence())
+                    .sourceType(AnalysisResultParser.isRuntimeOnlySignalType(candidate.type())
+                            ? "RUNTIME_OBSERVATION" : "AI_INFERRED")
+                    .severity(candidate.severity()).confidence(candidate.confidence())
                     .summary(candidate.summary()).rationale(candidate.rationale()).modelId(job.getModelId())
                     .status("OBSERVED").createdAt(now).build());
         }
@@ -140,7 +166,8 @@ public class ConversationAnalysisWorker {
 
     private void upsertCase(AnalysisJob job, AnalysisResultParser.CaseCandidate candidate, LocalDateTime now,
                             int explicitNegativeFeedback) {
-        if (!qualificationPolicy.hasBusinessEvidence(candidate)) {
+        if (!evaluationContextBuilder.hasBoundBusinessSkill(job.getAgentId(), candidate.skillId())
+                || !qualificationPolicy.hasBusinessEvidence(candidate)) {
             log.info("Skip non-business Case candidate, agentId={}, sessionId={}, title={}, source={}",
                     job.getAgentId(), job.getSessionId(), candidate.title(), candidate.evidenceSource());
             return;
@@ -170,7 +197,7 @@ public class ConversationAnalysisWorker {
         AiCase record = AiCase.builder().caseId(caseId).agentId(job.getAgentId()).title(candidate.title())
                 .summary(candidate.summary()).caseType(candidate.caseType()).severity(candidate.severity())
                 .frequency(frequency).affectedSessions(affected).importanceScore(candidate.importance())
-                .confidence(candidate.confidence()).totalScore(score.total()).status(status).skillId("")
+                .confidence(candidate.confidence()).totalScore(score.total()).status(status).skillId(candidate.skillId())
                 .sourceModel(job.getModelId()).extractionReason(candidate.reason()).owner("").resolution("")
                 .lastSeenAt(now).createdAt(now).updatedAt(now).build();
         if (existing == null) caseDao.insert(record); else caseDao.updateAnalysis(record);

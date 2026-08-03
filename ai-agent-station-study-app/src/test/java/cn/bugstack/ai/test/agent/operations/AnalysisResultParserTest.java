@@ -25,9 +25,16 @@ public class AnalysisResultParserTest {
     }
 
     @Test
+    public void classifiesRuntimeFailuresOutsideBusinessSignals() {
+        assertTrue(AnalysisResultParser.isRuntimeOnlySignalType("TOOL_FAILURE"));
+        assertTrue(AnalysisResultParser.isRuntimeOnlySignalType("mcp_failure"));
+        assertFalse(AnalysisResultParser.isRuntimeOnlySignalType("USER_CORRECTION"));
+    }
+
+    @Test
     public void parsesBusinessRelevanceEvidenceAndPromotionDecision() {
         String json = "{\"signals\":[],"
-                + "\"cases\":[{\"title\":\"退款规则缺失\",\"summary\":\"售后 Agent 缺少退款审批规则\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":85,\"confidence\":88,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":91,\"evidenceScore\":77,\"businessEvidence\":true,\"evidenceSource\":\"USER_FEEDBACK\",\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"用户明确反馈退款审批规则缺失\"}]}";
+                + "\"cases\":[{\"title\":\"退款规则缺失\",\"summary\":\"售后 Agent 缺少退款审批规则\",\"caseType\":\"QUALITY\",\"severity\":\"HIGH\",\"importance\":85,\"confidence\":88,\"criticalRisk\":false,\"businessRelated\":true,\"businessRelevance\":91,\"evidenceScore\":77,\"businessEvidence\":true,\"evidenceSource\":\"USER_FEEDBACK\",\"skillId\":\"refund-skill\",\"promoteToCase\":true,\"historicalHighRiskMatch\":false,\"reason\":\"用户明确反馈退款审批规则缺失\"}]}";
 
         AnalysisResultParser.AnalysisResult result = parser.parse(json);
 
@@ -37,6 +44,7 @@ public class AnalysisResultParserTest {
         assertEquals(77d, candidate.evidenceScore(), 0.001d);
         assertTrue(candidate.promoteToCase());
         assertFalse(candidate.historicalHighRiskMatch());
+        assertEquals("refund-skill", candidate.skillId());
         assertTrue(candidate.businessEvidence());
         assertEquals("USER_FEEDBACK", candidate.evidenceSource());
     }

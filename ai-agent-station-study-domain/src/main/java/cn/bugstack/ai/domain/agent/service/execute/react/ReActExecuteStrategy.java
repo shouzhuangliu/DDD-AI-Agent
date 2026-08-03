@@ -53,6 +53,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.time.LocalDateTime;
 
@@ -83,6 +84,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 || normalized.contains("quota_exceeded")
                 || normalized.contains("rate limit")
                 || normalized.contains("too many requests");
+    }
+
+    public static boolean isLowValueRequest(String message) {
+        if (message == null) return true;
+        String normalized = message.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalized.isEmpty()) return true;
+        return Set.of("1", "ok", "okay", "yes", "y", "no", "n", "hi", "hello", "继续", "好的", "测试")
+                .contains(normalized);
     }
 
     @Resource
@@ -252,7 +261,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 else if ("assistant".equals(r)) msgs.add(new AssistantMessage(c));
             }
 
-            String finalContent = callReActLoop(chatModel, systemPrompt, msgs,
+            String finalContent = isLowValueRequest(requestParameter.getMessage())
+                    ? "请补充具体问题或业务对象，我再为你查询。"
+                    : callReActLoop(chatModel, systemPrompt, msgs,
                     internalTools.getToolCallbacks(), selectedModelId, maxSteps);
             ReActToolContext executionContext = ReActToolContextHolder.get();
             int usedSteps = executionContext == null ? 0 : executionContext.getCurrentStep().get();
@@ -377,8 +388,11 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 .toolCallbacks(java.util.Arrays.asList(callbacks))
                 .build();
 
-        int boundedMaxSteps = Math.max(1, maxSteps);
+        ReActToolContext loopContext = ReActToolContextHolder.get();
+        int configuredRounds = loopContext == null ? 8 : loopContext.getMaxModelRounds();
+        int boundedMaxSteps = Math.max(1, Math.min(maxSteps, configuredRounds));
         int emptyResponseRetries = 0;
+        int consecutiveToolFailures = 0;
         for (int round = 0; round < boundedMaxSteps; round++) {
             ReActToolContext context = ReActToolContextHolder.get();
             if (context != null && context.isCancellationRequested()) {
@@ -428,15 +442,35 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                         result = "工具执行失败: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
                     }
                 }
+                if (isToolFailureResult(result)) {
+                    consecutiveToolFailures++;
+                } else {
+                    consecutiveToolFailures = 0;
+                }
                 toolResponses.add(new ToolResponseMessage.ToolResponse(
                         toolCall.id(), toolCall.name(), result == null ? "" : result));
+                if (consecutiveToolFailures >= 2) {
+                    return "工具连续失败 2 次，已停止继续调用。请检查工具配置、服务状态或输入参数。";
+                }
             }
             conversation.add(new ToolResponseMessage(toolResponses));
             if (cancellationRequested) {
                 throw new java.util.concurrent.CancellationException("ReAct cancellation requested");
             }
         }
-        return "已达到 ReAct 步数上限（" + boundedMaxSteps + "）";
+        return "ReAct 已达到模型推理轮数上限（" + boundedMaxSteps + "），已停止继续调用工具。";
+    }
+
+    public static boolean isToolFailureResult(String result) {
+        if (result == null || result.isBlank()) return true;
+        String normalized = result.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("工具执行失败")
+                || normalized.contains("mcp 调用异常")
+                || normalized.contains("mcp 客户端未就绪")
+                || normalized.contains("tool execution failed")
+                || normalized.contains("connection refused")
+                || normalized.contains("unknown tool")
+                || normalized.contains("未知工具");
     }
 
     private Object callModelWithRetry(ChatModel chatModel, List<Message> messages,
@@ -457,7 +491,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 log.error("模型调用失败(#{}): {}", i, e.getMessage());
                 String message = e.getMessage() == null ? "" : e.getMessage();
                 if (isRateLimitError(message)) {
-                    return "模型调用被限流：当前 API 已达到每分钟请求上限，请稍后再试，或更换模型/API Key。";
+                    return "模型接口当前已限流（429），请稍后重试或更换模型/API Key。";
                 }
                 if (message.contains("404") || message.toLowerCase().contains("model is not found")) {
                     return "模型调用失败：模型 " + modelId + " 在当前接口中不存在，请检查数据库里的 modelName。";
@@ -561,6 +595,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                             if (exposedTool.description() != null && !exposedTool.description().isBlank()) {
                                 sb.append(": ").append(exposedTool.description());
                             }
+                            sb.append(" [")
+                                    .append(McpCallTool.requiredArgumentsSummary(exposedTool.inputSchema()))
+                                    .append("]");
                             sb.append("\n");
                         }
                     }

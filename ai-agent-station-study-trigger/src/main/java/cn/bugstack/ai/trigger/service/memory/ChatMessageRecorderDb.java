@@ -18,6 +18,8 @@ import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.infrastructure.dao.po.MemoryState;
 import cn.bugstack.ai.infrastructure.dao.po.MemoryToolResult;
 import cn.bugstack.ai.trigger.service.analysis.AnalysisJobQueue;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
+import cn.bugstack.ai.trigger.service.feedback.FeedbackAdmissionPolicy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
@@ -43,12 +45,20 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     @Resource private IAiSessionDao sessionDao;
     @Resource private LongTermMemoryPort longTermMemoryPort;
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
+    @Resource private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
+    @Resource private AgentBusinessContextService agentBusinessContextService;
 
     @Override public void recordUser(String s, String a, int t, String c) { save(s, a, t, 0, "user", c, null, null, null, null); }
     @Override public void recordAssistant(String s, String a, int t, int st, String c, String tc) {
         ChatMessage saved = save(s, a, t, st, "assistant", c, null, null, null, tc);
         if (isInternalExecutionPlaceholder(c)) return;
-        try { analysisJobQueue.enqueue(a, s, saved.getId()); }
+        String latestUser = chatMessageDao.queryBySessionId(s).stream()
+                .filter(message -> "user".equalsIgnoreCase(message.getRole()))
+                .reduce((ignored, latest) -> latest)
+                .map(ChatMessage::getContent).orElse("");
+        boolean immediate = feedbackAdmissionPolicy.shouldCapture(
+                latestUser, agentBusinessContextService.collectKeywords(a));
+        try { analysisJobQueue.enqueue(a, s, saved.getId(), immediate); }
         catch (Exception exception) { log.warn("Failed to enqueue conversation analysis for message {}", saved.getId(), exception); }
     }
     @Override public void recordTool(String s, String a, int t, int st, String id, String n, String args, String c) {

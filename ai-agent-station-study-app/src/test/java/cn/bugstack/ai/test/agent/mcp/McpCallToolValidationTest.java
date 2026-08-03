@@ -4,6 +4,7 @@ import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,5 +24,35 @@ public class McpCallToolValidationTest {
     public void acceptsToolExposedByMcpServer() {
         assertEquals(null,
                 McpCallTool.validateToolName(Set.of("get_today_feedback"), "get_today_feedback"));
+    }
+
+    @Test
+    public void rejectsMissingRequiredMcpArgumentBeforeRemoteCall() {
+        String message = McpCallTool.validateRequiredArguments(
+                Map.of("required", java.util.List.of("feedbackId", "decision", "operator")),
+                new com.alibaba.fastjson2.JSONObject(Map.of(
+                        "feedbackId", "feedback-1",
+                        "operator", "inventory-agent")));
+
+        assertEquals("MCP missing required argument(s): decision", message);
+    }
+
+    @Test
+    public void acceptsCompleteMcpArguments() {
+        String message = McpCallTool.validateRequiredArguments(
+                Map.of("required", java.util.List.of("feedbackId", "decision", "operator")),
+                new com.alibaba.fastjson2.JSONObject(Map.of(
+                        "feedbackId", "feedback-1",
+                        "decision", "PROMOTE_CASE",
+                        "operator", "inventory-agent")));
+
+        assertEquals(null, message);
+    }
+
+    @Test
+    public void summarizesRequiredArgumentsForProgressiveDisclosure() {
+        assertEquals("required: feedbackId, decision, operator",
+                McpCallTool.requiredArgumentsSummary(
+                        Map.of("required", java.util.List.of("feedbackId", "decision", "operator"))));
     }
 }

@@ -4,6 +4,7 @@ import cn.bugstack.ai.domain.agent.model.entity.ArmoryCommandEntity;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.model.valobj.AiClientModelVO;
 import cn.bugstack.ai.domain.agent.service.armory.factory.DefaultArmoryStrategyFactory;
+import cn.bugstack.ai.domain.agent.service.model.ModelRetryPolicy;
 import cn.bugstack.wrench.design.framework.tree.StrategyHandler;
 import com.alibaba.fastjson2.JSON;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -56,6 +57,7 @@ public class AiClientModelNode extends AbstractArmorySupport  {
                                     .model(modelVO.getModelName())
                                     .toolCallbacks(new SyncMcpToolCallbackProvider(mcpSyncClients).getToolCallbacks())
                                     .build())
+                    .retryTemplate(ModelRetryPolicy.noRetry())
                     .build();
             // 注册 Bean 对象
             registerBean(beanName(modelVO.getModelId()), OpenAiChatModel.class, chatModel);
