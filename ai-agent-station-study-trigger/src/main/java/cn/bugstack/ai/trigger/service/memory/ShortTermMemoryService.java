@@ -33,14 +33,17 @@ public class ShortTermMemoryService {
     @Resource private ApplicationContext applicationContext;
     @Resource private LongTermMemoryPort longTermMemoryPort;
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
-    @Value("${agent.memory.token-budget:16000}") private int tokenBudget;
+    @Value("${agent.memory.summary-token-threshold:8000}") private int tokenThreshold;
+    @Value("${agent.memory.summary-hard-limit:16000}") private int hardTokenLimit;
     @Value("${agent.memory.retain-messages:24}") private int retainMessages;
+    @Value("${agent.memory.min-new-user-turns:4}") private int minNewMeaningfulUserTurns;
 
     public void refreshIfNeeded(String agentId, String sessionId, String modelId) {
         List<ChatMessage> messages = messageDao.queryBySessionId(sessionId);
         MemorySummary previous = summaryDao.queryLatest(sessionId);
         long covered = previous == null ? 0 : previous.getEndMessageId();
-        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), tokenBudget, retainMessages);
+        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), tokenThreshold,
+                hardTokenLimit, retainMessages, minNewMeaningfulUserTurns);
         RollingSummaryPolicy.SummaryPlan plan = policy.plan(messages.stream()
                 .map(message -> new RollingSummaryPolicy.MemoryMessage(message.getId(), message.getRole(), message.getContent()))
                 .toList(), covered);
