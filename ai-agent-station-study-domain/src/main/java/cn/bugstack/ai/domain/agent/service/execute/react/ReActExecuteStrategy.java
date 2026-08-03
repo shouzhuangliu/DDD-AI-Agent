@@ -531,6 +531,30 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             sb.append(agent.getSystemPrompt()).append("\n\n");
         }
 
+        // 这段规则必须使用可靠的 UTF-8 文本，避免历史乱码提示词让模型误以为没有数据访问能力。
+        sb.append("""
+                【运行时工具规则】
+                1. 只可以调用下方列出的、当前 Agent 已绑定并通过运行时校验的工具；没有列出的能力一律不可假设存在。
+                2. 用户只是描述业务问题时，记录 Feedback，不要读取项目目录、代码或运行命令。
+                3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，必须直接调用 call_mcp_tool，不要询问生产授权，不要回复“无法访问生产数据”。
+                4. 今日反馈查询优先调用工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID，args 使用 JSON 对象字符串，例如 args="{\\"limit\\":50}"。
+                5. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
+
+                """);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)
+                && boundMcpIds != null && !boundMcpIds.isEmpty()) {
+            sb.append("【已绑定反馈 MCP】\n");
+            for (String mcpId : boundMcpIds) {
+                sb.append("- mcpId=").append(mcpId).append("；可调用 MCP 工具（以运行时 tools/list 为准）：");
+                var exposedTools = aiClientToolMcpNode.listTools(mcpId);
+                if (exposedTools == null || exposedTools.isEmpty()) {
+                    sb.append("当前未发现工具，禁止猜测工具名。\n");
+                } else {
+                    sb.append(exposedTools.stream().map(tool -> tool.name()).collect(java.util.stream.Collectors.joining(", "))).append('\n');
+                }
+            }
+        }
+
         sb.append("""
                 能力边界：
                 - 只能使用系统提示词中明确列出的工具，不能编造 Bash、ReadFile、WriteFile、Python、MySQL、Redis、SearchFile 等未授权工具。

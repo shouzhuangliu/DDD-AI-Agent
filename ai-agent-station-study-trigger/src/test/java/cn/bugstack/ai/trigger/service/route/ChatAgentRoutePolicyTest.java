@@ -38,4 +38,19 @@ class ChatAgentRoutePolicyTest {
 
         assertEquals("chat", decision.route());
     }
+
+    @Test
+    void routesTodayFeedbackQueryToToolExecution() {
+        ChatAgentRoutePolicy.RouteDecision decision = policy.route("你先去查询一下今日的反馈", "auto");
+
+        assertEquals("react", decision.route());
+        assertTrue(decision.reason().contains("MCP"));
+    }
+
+    @Test
+    void keepsBusinessFeedbackStatementInFeedbackWithoutQueryIntent() {
+        ChatAgentRoutePolicy.RouteDecision decision = policy.route("我发现库存存在空缺商品，希望补货", "auto");
+
+        assertEquals("feedback", decision.route());
+    }
 }
