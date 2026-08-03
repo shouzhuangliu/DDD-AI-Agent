@@ -90,8 +90,10 @@ public class EnterpriseSchemaContractTest {
                 "IDEA profile must use the local root password by default");
         assertTrue(yaml.contains("createdatabaseifnotexist=true"),
                 "IDEA profile must be able to create the local schema on first connection");
-        assertTrue(yaml.contains("characterencoding=utf8mb4"),
-                "IDEA profile must preserve Chinese and emoji text end to end");
+        assertTrue(yaml.contains("characterencoding=utf-8"),
+                "JDBC characterEncoding must use a Java charset name");
+        assertTrue(yaml.contains("connectioncollation=utf8mb4_0900_ai_ci"),
+                "MySQL utf8mb4 collation must be configured independently from the Java charset");
         assertTrue(yaml.contains("charset: utf-8"),
                 "HTTP responses must declare UTF-8 for non-browser clients");
         assertTrue(yaml.contains("force-response: true"),
