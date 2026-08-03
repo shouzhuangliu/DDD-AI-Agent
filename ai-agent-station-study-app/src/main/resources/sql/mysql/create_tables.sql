@@ -242,6 +242,49 @@ CREATE TABLE IF NOT EXISTS `ai_case` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Case 元数据';
 
+CREATE TABLE IF NOT EXISTS `case_evidence` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `case_id` VARCHAR(64) NOT NULL,
+  `agent_id` VARCHAR(32) NOT NULL,
+  `evidence_type` VARCHAR(24) NOT NULL,
+  `evidence_id` BIGINT UNSIGNED NOT NULL,
+  `session_id` VARCHAR(64) NOT NULL DEFAULT '',
+  `message_id` BIGINT UNSIGNED NULL,
+  `excerpt` TEXT NULL,
+  `evidence_role` VARCHAR(16) NOT NULL DEFAULT '',
+  `skill_rule_id` VARCHAR(128) NOT NULL DEFAULT '',
+  `supports_json` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_case_evidence` (`case_id`,`evidence_type`,`evidence_id`),
+  KEY `idx_evidence_agent` (`agent_id`,`case_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Case 原始证据引用';
+
+CREATE TABLE IF NOT EXISTS `case_evaluation_snapshot` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `idempotency_key` VARCHAR(180) NOT NULL,
+  `agent_id` VARCHAR(32) NOT NULL,
+  `session_id` VARCHAR(64) NOT NULL,
+  `assistant_message_id` BIGINT UNSIGNED NOT NULL,
+  `policy_version` VARCHAR(32) NOT NULL DEFAULT 'v4-evidence-gate',
+  `decision` VARCHAR(32) NOT NULL,
+  `skill_id` VARCHAR(64) NOT NULL DEFAULT '',
+  `rule_ids_json` TEXT NULL,
+  `facts_json` TEXT NULL,
+  `missing_information_json` TEXT NULL,
+  `evidence_json` TEXT NULL,
+  `confidence` DECIMAL(5,2) NOT NULL DEFAULT 0,
+  `server_score` INT NOT NULL DEFAULT 0,
+  `reason` TEXT NULL,
+  `evidence_fingerprint` VARCHAR(64) NOT NULL DEFAULT '',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_case_evaluation_idempotency` (`idempotency_key`),
+  KEY `idx_case_evaluation_agent` (`agent_id`,`created_at`),
+  KEY `idx_case_evaluation_session` (`agent_id`,`session_id`,`created_at`),
+  KEY `idx_case_evaluation_fingerprint` (`agent_id`,`session_id`,`evidence_fingerprint`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Case 结构化评测不可变快照';
+
 CREATE TABLE IF NOT EXISTS `chat_message` (
   `id` BIGINT UNSIGNED AUTO_INCREMENT,
   `session_id` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '会话ID',

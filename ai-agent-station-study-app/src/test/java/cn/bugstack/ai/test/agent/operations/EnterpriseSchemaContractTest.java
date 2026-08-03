@@ -54,6 +54,18 @@ public class EnterpriseSchemaContractTest {
     }
 
     @Test
+    public void caseEvidenceGateMigrationStoresImmutableEvaluationAndEvidenceFields() throws IOException {
+        String sql = readResource("sql/mysql/migrations/V20260803__case_evidence_gate.sql");
+
+        assertTrue(sql.contains("case_evaluation_snapshot"));
+        assertTrue(sql.contains("evidence_fingerprint"));
+        assertTrue(sql.contains("evidence_role"));
+        assertTrue(sql.contains("skill_rule_id"));
+        assertTrue(sql.contains("supports_json"));
+        assertTrue(sql.contains("uk_case_evaluation_idempotency"));
+    }
+
+    @Test
     public void devProfileMatchesNativeMysqlDefaults() throws IOException {
         String yaml = readResource("application-dev.yml");
 

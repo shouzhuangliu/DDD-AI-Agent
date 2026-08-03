@@ -13,5 +13,8 @@ public class CaseEvidence {
     private String sessionId;
     private Long messageId;
     private String excerpt;
+    private String evidenceRole;
+    private String skillRuleId;
+    private String supportsJson;
     private LocalDateTime createdAt;
 }

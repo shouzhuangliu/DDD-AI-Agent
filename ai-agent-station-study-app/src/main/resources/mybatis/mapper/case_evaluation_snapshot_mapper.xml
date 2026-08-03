@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.ICaseEvaluationSnapshotDao">
+  <resultMap id="SnapshotMap" type="cn.bugstack.ai.infrastructure.dao.po.CaseEvaluationSnapshot">
+    <id column="id" property="id"/>
+    <result column="idempotency_key" property="idempotencyKey"/>
+    <result column="agent_id" property="agentId"/>
+    <result column="session_id" property="sessionId"/>
+    <result column="assistant_message_id" property="assistantMessageId"/>
+    <result column="policy_version" property="policyVersion"/>
+    <result column="decision" property="decision"/>
+    <result column="skill_id" property="skillId"/>
+    <result column="rule_ids_json" property="ruleIdsJson"/>
+    <result column="facts_json" property="factsJson"/>
+    <result column="missing_information_json" property="missingInformationJson"/>
+    <result column="evidence_json" property="evidenceJson"/>
+    <result column="confidence" property="confidence"/>
+    <result column="server_score" property="serverScore"/>
+    <result column="reason" property="reason"/>
+    <result column="evidence_fingerprint" property="evidenceFingerprint"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+  <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.CaseEvaluationSnapshot" useGeneratedKeys="true" keyProperty="id">
+    INSERT IGNORE INTO case_evaluation_snapshot
+      (idempotency_key,agent_id,session_id,assistant_message_id,policy_version,decision,skill_id,
+       rule_ids_json,facts_json,missing_information_json,evidence_json,confidence,server_score,reason,evidence_fingerprint,created_at)
+    VALUES
+      (#{idempotencyKey},#{agentId},#{sessionId},#{assistantMessageId},#{policyVersion},#{decision},#{skillId},
+       #{ruleIdsJson},#{factsJson},#{missingInformationJson},#{evidenceJson},#{confidence},#{serverScore},#{reason},#{evidenceFingerprint},#{createdAt})
+  </insert>
+  <select id="queryLatest" resultMap="SnapshotMap">
+    SELECT * FROM case_evaluation_snapshot
+    WHERE agent_id=#{agentId} AND session_id=#{sessionId}
+    ORDER BY id DESC LIMIT 1
+  </select>
+</mapper>
