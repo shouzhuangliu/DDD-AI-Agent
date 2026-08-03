@@ -55,7 +55,7 @@ WHERE policy_version <> 'v4-evidence-gate'
 SET @sql = IF(
   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=@db_name AND table_name='case_evidence')
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=@db_name AND table_name='case_evidence' AND column_name='evidence_role'),
-  'ALTER TABLE case_evidence ADD COLUMN evidence_role VARCHAR(16) NOT NULL DEFAULT '' AFTER excerpt',
+  'ALTER TABLE case_evidence ADD COLUMN evidence_role VARCHAR(16) NOT NULL DEFAULT '''' AFTER excerpt',
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;
@@ -65,7 +65,7 @@ DEALLOCATE PREPARE stmt;
 SET @sql = IF(
   EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema=@db_name AND table_name='case_evidence')
   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=@db_name AND table_name='case_evidence' AND column_name='skill_rule_id'),
-  'ALTER TABLE case_evidence ADD COLUMN skill_rule_id VARCHAR(128) NOT NULL DEFAULT '' AFTER evidence_role',
+  'ALTER TABLE case_evidence ADD COLUMN skill_rule_id VARCHAR(128) NOT NULL DEFAULT '''' AFTER evidence_role',
   'SELECT 1'
 );
 PREPARE stmt FROM @sql;

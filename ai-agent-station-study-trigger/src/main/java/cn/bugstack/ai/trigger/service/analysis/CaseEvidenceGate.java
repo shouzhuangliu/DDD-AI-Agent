@@ -12,11 +12,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /**
  * Server-side admission gate for business Cases. It never trusts a model's
  * promote flag or score as the final decision.
  */
+@Component
 public class CaseEvidenceGate {
 
     private static final int MIN_SERVER_SCORE = 75;
