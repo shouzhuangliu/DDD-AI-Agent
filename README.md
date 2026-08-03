@@ -16,11 +16,18 @@ docker compose -f compose.local.yml up -d
 docker compose -f compose.local.yml ps
 ```
 
+如果直接使用 IDEA 连接本机 MySQL（`3306/root/1234`），可执行一次初始化脚本：
+
+```powershell
+./scripts/prepare-native-mysql.ps1
+```
+
 默认连接：
 
 | 服务 | 地址 | 用户 | 密码/数据库 |
 |---|---|---|---|
-| MySQL | `127.0.0.1:13306` | `root` | `123456` / `ai-agent-station-study` |
+| IDEA 本机 MySQL | `127.0.0.1:3306` | `root` | `1234` / `ai-agent-station-study` |
+| Docker Compose MySQL | `127.0.0.1:13306` | `root` | `123456` / `ai-agent-station-study` |
 | pgvector | `127.0.0.1:15432` | `postgres` | `123456` / `ai-rag-knowledge` |
 
 新数据卷会自动执行 `ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260717__enterprise_agent_operations.sql`。已有数据卷可手动重复执行该幂等迁移。
@@ -29,7 +36,7 @@ docker compose -f compose.local.yml ps
 
 1. 用 IDEA 打开根目录 `pom.xml`，将 Project SDK/Maven Runner JRE 设为 JDK 21。
 2. 运行 `ai-agent-station-study-app` 模块中的 `Application`。
-3. Program arguments 设置为 `--spring.profiles.active=dev`。
+3. Program arguments 设置为 `--spring.profiles.active=dev`。开发配置默认连接本机 MySQL（3306/root/1234）；如果使用 Docker Compose，请在 IDEA 环境变量中设置 `MYSQL_PORT=13306`、`MYSQL_PASSWORD=123456`。
 4. 模型密钥通过环境变量或数据库密文引用提供，不要写入源码。
 5. 打开 <http://localhost:8091>。
 

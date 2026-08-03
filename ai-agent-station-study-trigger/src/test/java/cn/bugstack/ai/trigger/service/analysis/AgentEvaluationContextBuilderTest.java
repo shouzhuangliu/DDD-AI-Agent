@@ -91,7 +91,7 @@ class AgentEvaluationContextBuilderTest {
                 .build();
         when(bindingService.assemble("inventory-agent", System.getProperty("user.dir"), false))
                 .thenReturn(bindings);
-        when(scanner.readSkillFromWorkDir("D:/agent-workspace", "inventory-feedback-agent"))
+        when(scanner.readSkillFromWorkDir(java.nio.file.Path.of("D:/agent-workspace").toString(), "inventory-feedback-agent"))
                 .thenReturn(SkillScannerService.SkillInfo.builder()
                         .skillId("inventory-feedback-agent")
                         .skillName("库存反馈判断")

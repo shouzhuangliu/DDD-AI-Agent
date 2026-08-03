@@ -570,7 +570,10 @@ public class AgentController {
         boolean boundToAgent = false;
         if (agentId != null && !agentId.isBlank()) {
             boundToAgent = agentRepository.queryBoundSkillIds(agentId).contains(skillId);
-            var skill = boundToAgent ? readRuntimeSkill(agentId, skillId) : null;
+            if (!boundToAgent) {
+                return Map.of("success", false, "message", "Skill not bound to Agent");
+            }
+            var skill = readRuntimeSkill(agentId, skillId);
             if (skill == null) {
                 skill = skillScannerService.readSkillFromWorkDir(properties.getWorkDir(), skillId);
             }

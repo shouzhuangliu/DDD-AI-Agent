@@ -26,6 +26,14 @@
 ./scripts/local-env.ps1 stop
 ```
 
+如果 IDEA 直接连接本机 MySQL（默认 `3306/root/1234`），不需要启动 Docker，执行一次：
+
+```powershell
+./scripts/prepare-native-mysql.ps1
+```
+
+该脚本只创建或补齐 `ai-agent-station-study` 库、表和种子数据，不会删除其他数据库。
+
 ## 从 IDEA 运行
 
 1. 将根目录的 `pom.xml` 作为 Maven 项目导入。
@@ -38,7 +46,8 @@
 
 本地默认连接：
 
-- MySQL：`127.0.0.1:13306`，数据库 `ai-agent-station-study`，用户 `root`，密码 `123456`
+- IDEA 本机 MySQL：`127.0.0.1:3306`，数据库 `ai-agent-station-study`，用户 `root`，密码 `1234`
+- Docker Compose MySQL：`127.0.0.1:13306`，数据库 `ai-agent-station-study`，用户 `root`，密码 `123456`
 - PGVector：`127.0.0.1:15432`，数据库 `ai-rag-knowledge`，用户 `postgres`，密码 `123456`
 
 ## 常见问题

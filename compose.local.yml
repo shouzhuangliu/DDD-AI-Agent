@@ -11,6 +11,7 @@ services:
       - --collation-server=utf8mb4_0900_ai_ci
     environment:
       TZ: Asia/Shanghai
+      MYSQL_DATABASE: "ai-agent-station-study"
       MYSQL_ROOT_PASSWORD: "123456"
     ports:
       - "13306:3306"
@@ -25,6 +26,8 @@ services:
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260718__agent_internal_tool_bindings.sql:/docker-entrypoint-initdb.d/07-agent-internal-tool-bindings.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260728__agent_memory_profile.sql:/docker-entrypoint-initdb.d/08-agent-memory-profile.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260730__subagent_task_state.sql:/docker-entrypoint-initdb.d/09-subagent-task-state.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260801__separate_runtime_signals.sql:/docker-entrypoint-initdb.d/10-separate-runtime-signals.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260802__conversation_analysis_event_idle.sql:/docker-entrypoint-initdb.d/11-conversation-analysis-event-idle.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s

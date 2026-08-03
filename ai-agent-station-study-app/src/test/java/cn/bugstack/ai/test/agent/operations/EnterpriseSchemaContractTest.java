@@ -1,13 +1,13 @@
 package cn.bugstack.ai.test.agent.operations;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class EnterpriseSchemaContractTest {
 
@@ -21,7 +21,7 @@ public class EnterpriseSchemaContractTest {
                 "mcp_server", "mcp_version", "mcp_test_run", "mcp_review", "mcp_release",
                 "skill_package", "skill_version", "skill_validation", "skill_review", "skill_release",
                 "audit_log"}) {
-            assertTrue("missing table " + table, sql.contains("table if not exists `" + table + "`"));
+            assertTrue(sql.contains("table if not exists `" + table + "`"), "missing table " + table);
         }
         assertTrue(sql.contains("`agent_id` varchar"));
         assertTrue(sql.contains("`assistant_message_id` bigint"));
@@ -39,23 +39,45 @@ public class EnterpriseSchemaContractTest {
         String feedbackTable = tableDefinition(sql, "ai_feedback");
         String caseTable = tableDefinition(sql, "ai_case");
 
-        assertFalse("feedback table must not own case merge target", feedbackTable.contains("merged_to_case_id"));
-        assertTrue("case table must own case merge target", caseTable.contains("merged_to_case_id"));
+        assertFalse(feedbackTable.contains("merged_to_case_id"), "feedback table must not own case merge target");
+        assertTrue(caseTable.contains("merged_to_case_id"), "case table must own case merge target");
+    }
+
+    @Test
+    public void latestAnalysisJobMigrationMustBeSelfContained() throws IOException {
+        String sql = readResource("sql/mysql/migrations/V20260802__conversation_analysis_event_idle.sql");
+
+        assertFalse(sql.contains("call add_column_if_missing"),
+                "latest migration must not call a procedure dropped by the previous migration");
+        assertTrue(sql.contains("available_at"),
+                "latest migration must add the event-idle scheduling column");
+    }
+
+    @Test
+    public void devProfileMatchesNativeMysqlDefaults() throws IOException {
+        String yaml = readResource("application-dev.yml");
+
+        assertTrue(yaml.contains("${mysql_port:3306}"),
+                "IDEA profile must use the native MySQL port by default");
+        assertTrue(yaml.contains("${mysql_password:1234}"),
+                "IDEA profile must use the local root password by default");
+        assertTrue(yaml.contains("createdatabaseifnotexist=true"),
+                "IDEA profile must be able to create the local schema on first connection");
     }
 
     private static String tableDefinition(String sql, String tableName) {
         String marker = "create table if not exists `" + tableName + "`";
         int start = sql.indexOf(marker);
-        assertTrue("missing table " + tableName, start >= 0);
+        assertTrue(start >= 0, "missing table " + tableName);
         int end = sql.indexOf("engine=innodb", start);
-        assertTrue("missing table end " + tableName, end > start);
+        assertTrue(end > start, "missing table end " + tableName);
         return sql.substring(start, end);
     }
 
     private static String readResource(String resourcePath) throws IOException {
         ClassLoader classLoader = EnterpriseSchemaContractTest.class.getClassLoader();
         try (InputStream inputStream = classLoader.getResourceAsStream(resourcePath)) {
-            assertTrue("missing resource " + resourcePath, inputStream != null);
+            assertTrue(inputStream != null, "missing resource " + resourcePath);
             return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8).toLowerCase();
         }
     }
