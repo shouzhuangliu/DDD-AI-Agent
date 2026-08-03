@@ -30,7 +30,7 @@ docker compose -f compose.local.yml ps
 | Docker Compose MySQL | `127.0.0.1:13306` | `root` | `123456` / `ai-agent-station-study` |
 | pgvector | `127.0.0.1:15432` | `postgres` | `123456` / `ai-rag-knowledge` |
 
-新数据卷会自动执行 `ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260717__enterprise_agent_operations.sql`。已有数据卷可手动重复执行该幂等迁移。
+新数据卷会自动执行 `ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/` 下的迁移脚本。已有数据卷请重新执行 `scripts/prepare-native-mysql.ps1`，其中 `V20260804__repair_display_text_encoding.sql` 会修复早期错误编码的 Agent/MCP/提示词展示数据；脚本使用 UTF-8 原始字节导入，避免 PowerShell 代码页再次损坏中文。
 
 ## IDEA 启动
 

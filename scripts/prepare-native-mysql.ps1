@@ -39,7 +39,10 @@ function Invoke-SqlFile {
     param([string]$Path)
 
     Write-Host "Applying $([IO.Path]::GetFileName($Path))"
-    Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | & $mysqlPath @mysqlArgs
+    # PowerShell 5 的原生管道会使用系统代码页传输字符串，中文会在进入
+    # mysql.exe 前被替换成 '?'。交给 cmd 做文件重定向，文件字节不会被转码。
+    $commandLine = '""' + $mysqlPath + '" --protocol=tcp -h "' + $HostName + '" -P "' + $Port + '" -u "' + $UserName + '" --default-character-set=utf8mb4 -D "' + $Database + '" < "' + $Path + '""'
+    & cmd.exe /d /c $commandLine
     if ($LASTEXITCODE -ne 0) {
         throw "SQL execution failed: $Path (exit code $LASTEXITCODE)"
     }

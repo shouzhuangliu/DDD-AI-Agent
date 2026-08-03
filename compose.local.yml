@@ -29,6 +29,7 @@ services:
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260801__separate_runtime_signals.sql:/docker-entrypoint-initdb.d/10-separate-runtime-signals.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260802__conversation_analysis_event_idle.sql:/docker-entrypoint-initdb.d/11-conversation-analysis-event-idle.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260803__case_evidence_gate.sql:/docker-entrypoint-initdb.d/12-case-evidence-gate.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260804__repair_display_text_encoding.sql:/docker-entrypoint-initdb.d/13-repair-display-text-encoding.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s

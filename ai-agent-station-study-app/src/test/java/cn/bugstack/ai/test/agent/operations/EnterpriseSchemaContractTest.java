@@ -67,6 +67,20 @@ public class EnterpriseSchemaContractTest {
     }
 
     @Test
+    public void displayTextRepairMigrationUsesUtf8SafeIdempotentUpdates() throws IOException {
+        String sql = readResource("sql/mysql/migrations/V20260804__repair_display_text_encoding.sql");
+
+        assertTrue(sql.contains("set names utf8mb4"));
+        assertTrue(sql.contains("convert(0x"), "repair values must be encoded as hex to survive a non-UTF-8 mysql client");
+        assertTrue(sql.contains("agent_id` = 'auto_agent'"));
+        assertTrue(sql.contains("agent_id` = 'feedback-ops-agent'"));
+        assertTrue(sql.contains("mcp_key` = 'feedback-ops-mcp'"));
+        assertTrue(sql.contains("prompt_id` = '5001'"));
+        assertTrue(sql.contains("prompt_content` like '%?%'"), "runtime prompt bodies must be repaired together with display labels");
+        assertTrue(sql.contains("like '%?%'"), "repair must not overwrite already-correct user-edited text");
+    }
+
+    @Test
     public void devProfileMatchesNativeMysqlDefaults() throws IOException {
         String yaml = readResource("application-dev.yml");
 
@@ -76,6 +90,12 @@ public class EnterpriseSchemaContractTest {
                 "IDEA profile must use the local root password by default");
         assertTrue(yaml.contains("createdatabaseifnotexist=true"),
                 "IDEA profile must be able to create the local schema on first connection");
+        assertTrue(yaml.contains("characterencoding=utf8mb4"),
+                "IDEA profile must preserve Chinese and emoji text end to end");
+        assertTrue(yaml.contains("charset: utf-8"),
+                "HTTP responses must declare UTF-8 for non-browser clients");
+        assertTrue(yaml.contains("force-response: true"),
+                "HTTP encoding must be forced on responses");
     }
 
     private static String tableDefinition(String sql, String tableName) {
