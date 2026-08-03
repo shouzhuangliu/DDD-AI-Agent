@@ -94,10 +94,19 @@ public class AgentEvaluationContextBuilder {
                 }
                 String content = skill.getContent() == null ? "" : skill.getContent();
                 int allowed = Math.min(content.length(), remaining);
+                Set<String> ruleIds = extractRuleIds(content);
                 evidence.append("- skillId=").append(skill.getSkillId())
                         .append(", name=").append(skill.getSkillName())
-                        .append(", description=").append(skill.getDescription()).append('\n')
+                        .append(", description=").append(skill.getDescription())
+                        .append(", version=workspace-bound")
+                        .append(", ruleIds=").append(ruleIds).append('\n')
                         .append(content, 0, allowed).append('\n');
+                evidence.append("[BOUND BUSINESS SKILL RULES]\n");
+                for (String ruleId : ruleIds) {
+                    evidence.append("- skillId=").append(skill.getSkillId())
+                            .append(", version=workspace-bound, ruleId=").append(ruleId)
+                            .append(", allowedEvidence=user|operator|tool, body=see bound SKILL.md\n");
+                }
                 remaining -= allowed;
             }
         } catch (Exception exception) {

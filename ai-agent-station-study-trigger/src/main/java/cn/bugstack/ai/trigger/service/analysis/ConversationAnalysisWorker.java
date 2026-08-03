@@ -143,7 +143,7 @@ public class ConversationAnalysisWorker {
                 .prompt().user(evaluationContextBuilder.build(job.getAgentId(), messages)).call().content();
     }
 
-    private void persist(AnalysisJob job, List<ChatMessage> messages,
+    void persist(AnalysisJob job, List<ChatMessage> messages,
                          AnalysisResultParser.AnalysisResult result, int explicitNegativeFeedback,
                          CaseEvaluationSnapshot latest, CaseAnalysisCadencePolicy.Decision cadence) {
         LocalDateTime now = LocalDateTime.now();

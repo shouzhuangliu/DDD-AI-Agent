@@ -89,7 +89,7 @@ class AgentEvaluationContextBuilderTest {
                 .workspace(java.nio.file.Path.of("D:/agent-workspace"))
                 .skillIds(List.of("inventory-feedback-agent"))
                 .build();
-        when(bindingService.assemble("inventory-agent", System.getProperty("user.dir"), false))
+        when(bindingService.assemble("inventory-agent", System.getProperty("user.dir"), true))
                 .thenReturn(bindings);
         when(scanner.readSkillFromWorkDir(java.nio.file.Path.of("D:/agent-workspace").toString(), "inventory-feedback-agent"))
                 .thenReturn(SkillScannerService.SkillInfo.builder()
@@ -109,6 +109,7 @@ class AgentEvaluationContextBuilderTest {
         assertTrue(context.contains("[BOUND BUSINESS SKILLS]"));
         assertTrue(context.contains("inventory-feedback-agent"));
         assertTrue(context.contains("库存低于安全线时才可形成业务 Case"));
+        assertTrue(context.contains("[BOUND BUSINESS SKILLS]"));
         assertTrue(builder.hasBoundBusinessSkills("inventory-agent"));
     }
 
