@@ -91,13 +91,13 @@ public class EnterpriseSchemaContractTest {
     }
 
     @Test
-    public void devProfileMatchesNativeMysqlDefaults() throws IOException {
+    public void devProfileMatchesProjectDockerMysqlDefaults() throws IOException {
         String yaml = readResource("application-dev.yml");
 
-        assertTrue(yaml.contains("${mysql_port:3306}"),
-                "IDEA profile must use the native MySQL port by default");
-        assertTrue(yaml.contains("${mysql_password:1234}"),
-                "IDEA profile must use the local root password by default");
+        assertTrue(yaml.contains("${mysql_port:13306}"),
+                "IDEA profile must use the project Docker MySQL port by default");
+        assertTrue(yaml.contains("${mysql_password:123456}"),
+                "IDEA profile must use the project Docker root password by default");
         assertTrue(yaml.contains("createdatabaseifnotexist=true"),
                 "IDEA profile must be able to create the local schema on first connection");
         assertTrue(yaml.contains("characterencoding=utf-8"),
