@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.model.entity.ExecuteCommandEntity;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
 import cn.bugstack.ai.domain.agent.service.execute.IExecuteStrategy;
+import cn.bugstack.ai.domain.agent.service.execute.react.ReActExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
@@ -74,7 +75,9 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
             status = "failed";
             errorMessage = e.getMessage();
             log.error("Chat 协调回复失败: {}", e.getMessage(), e);
-            reply = "我这边暂时没有拿到模型回复，但消息已经收到。你可以稍后重试，或者直接描述要执行的任务。";
+            reply = ReActExecuteStrategy.isServiceUnavailableError(e.getMessage())
+                    ? "模型服务暂时繁忙（HTTP 503），本次未重复发送请求。请切换到 2001（DeepSeek Chat）或 2002（SenseNova），也可以稍后重试。"
+                    : "我这边暂时没有拿到模型回复，但消息已经收到。你可以稍后重试，或者直接描述要执行的任务。";
         }
         int durationMs = (int) Math.max(0, System.currentTimeMillis() - start);
 

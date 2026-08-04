@@ -56,6 +56,13 @@ inventory-feedback-agent/
    - 是否建议升级为 Case
    - 需要人工补充的信息
 
+## 自动分诊边界
+
+- “查询今日反馈”是只读动作，必须先调用 `get_today_feedback`，拿到结果后直接汇总，不向用户索要授权或确认。
+- “结合业务 Skill 分诊/评测/巡检”表示用户已经授权本次评测：自动读取本 Skill 和绑定 MCP，完成分类、优先级、证据完整性及候选 Case 判断。
+- 评测结论可进入 `AI_EVALUATING`、`VALID`、`NEED_MORE_INFO` 或候选 `PENDING_REVIEW`，但不能自动发布正式 Case；只有用户明确要求“升级/发布/确认 Case”时才进入人工确认。
+- 单条短消息、问候或无业务对象的内容不生成 Feedback/Case，也不触发 MCP 查询。
+
 ## 阶段路由
 
 ```text

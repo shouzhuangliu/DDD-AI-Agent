@@ -20,4 +20,10 @@ class ReActResponseHandlingTest {
         assertTrue(ReActExecuteStrategy.isRateLimitError("429 - rpm exhausted"));
         assertTrue(ReActExecuteStrategy.isRateLimitError("quota_exceeded_error"));
     }
+
+    @Test
+    void identifiesProviderServiceUnavailableResponses() {
+        assertTrue(ReActExecuteStrategy.isServiceUnavailableError("503 Service Unavailable: service too busy"));
+        assertTrue(ReActExecuteStrategy.isServiceUnavailableError("service_unavailable_error"));
+    }
 }

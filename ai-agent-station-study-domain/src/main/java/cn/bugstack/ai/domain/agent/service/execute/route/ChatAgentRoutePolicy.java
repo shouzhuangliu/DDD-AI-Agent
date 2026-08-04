@@ -42,6 +42,10 @@ public class ChatAgentRoutePolicy {
             "缺货", "缺少商品", "空缺商品", "补货", "库存不足", "库存不一致", "希望修复",
             "閬囧埌闂", "鍑轰簡闂", "鏈変釜闂", "鍙嶉", "涓嶄竴鑷", "寮傚父", "鎶ラ敊", "涓嶅", "澶辫触", "缂鸿揣", "琛ヨ揣", "绌虹己"
     };
+    private static final String[] SKILL_TRIAGE_HINTS = {
+            "分诊", "评测", "评估", "业务skills", "业务 skill", "结合skills", "结合 skill",
+            "升级case", "升级 Case", "候选case", "候选 Case", "判定case", "判定 Case", "巡检"
+    };
     private static final String[] PLAN_HINTS = {
             "计划", "规划", "方案", "步骤", "路线图", "拆解", "先制定", "不要直接执行",
             "璁″垝", "瑙勫垝", "鏂规", "姝ラ", "璺嚎鍥", "鎷嗚В", "鍏堝埗瀹", "涓嶈鐩存帴鎵ц"
@@ -62,6 +66,12 @@ public class ChatAgentRoutePolicy {
         // 查询类反馈必须优先于“反馈收集”：这是只读数据查询，不是让用户提交问题。
         if (isFeedbackQuery(text)) {
             return new RouteDecision("react", "命中反馈查询意图，使用当前 Agent 已绑定的 MCP 工具读取数据并汇总。");
+        }
+        // 业务 Skill 分诊/评测需要读取绑定 Skill 和 MCP 事实，不能被当成普通反馈录入。
+        if (containsAny(text, SKILL_TRIAGE_HINTS)
+                && ("feedback-ops".equalsIgnoreCase(preferredMode)
+                || containsAny(text, new String[]{"业务", "反馈", "case", "skill", "巡检"}))) {
+            return new RouteDecision("react", "命中业务 Skill 分诊/Case 评测意图，进入 ReAct 读取事实并输出候选 Case。");
         }
         if (containsAny(text, FEEDBACK_HINTS) && !containsAny(text, INVESTIGATION_HINTS)) {
             return new RouteDecision("feedback", "识别为业务反馈，先记录 Feedback 并进入评测队列，不主动读取项目代码。");

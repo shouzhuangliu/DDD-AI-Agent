@@ -32,4 +32,6 @@
 
 ## 可选动作
 
-如果用户明确要求“记录分诊结果”，可以调用 `mark_feedback_triaged`
+分诊任务本身可以记录评测结果：调用 `mark_feedback_triaged` 写入分类、优先级、证据充分性和缺失信息。该动作不等于发布 Case。
+
+只有用户明确要求“升级/发布/确认 Case”时，才调用 `promote_feedback_to_case`；调用后仍必须保持 `PENDING_REVIEW`，不能在回复中声称 Case 已正式发布。

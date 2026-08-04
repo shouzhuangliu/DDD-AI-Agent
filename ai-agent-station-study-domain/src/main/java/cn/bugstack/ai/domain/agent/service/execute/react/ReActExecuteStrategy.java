@@ -86,6 +86,21 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 || normalized.contains("too many requests");
     }
 
+    /**
+     * Provider unavailable/overloaded errors are not recoverable by repeatedly sending the same request.
+     * Detect them explicitly so the agent can stop quickly and give the user an actionable model-switch hint.
+     */
+    public static boolean isServiceUnavailableError(String message) {
+        if (message == null || message.isBlank()) return false;
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("503")
+                || normalized.contains("service unavailable")
+                || normalized.contains("service_unavailable")
+                || normalized.contains("service too busy")
+                || normalized.contains("temporarily unavailable")
+                || normalized.contains("overloaded");
+    }
+
     public static boolean isLowValueRequest(String message) {
         if (message == null) return true;
         String normalized = message.trim().toLowerCase(java.util.Locale.ROOT);
@@ -491,6 +506,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 }
                 log.error("模型调用失败(#{}): {}", i, e.getMessage());
                 String message = e.getMessage() == null ? "" : e.getMessage();
+                if (isServiceUnavailableError(message)) {
+                    return "模型服务暂时繁忙（HTTP 503），已停止重复重试。请切换到 2001（DeepSeek Chat）或 2002（SenseNova），也可以稍后重试。";
+                }
                 if (isRateLimitError(message)) {
                     return "模型接口当前已限流（429），请稍后重试或更换模型/API Key。";
                 }
@@ -541,6 +559,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 4. 今日反馈查询优先调用工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID，args 使用 JSON 对象字符串，例如 args="{\\"limit\\":50}"。
                 5. 如果绑定工具清单没有 get_today_feedback，必须明确报告“当前 Agent 未绑定库存反馈 MCP”，禁止改用 search_feedback、query_feedback 或其他模糊搜索工具伪造今日结果。
                 6. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
+                7. 用户明确要求“分诊/评测/结合业务 Skill/巡检”时，先读取已绑定 Skill，再调用对应 MCP 获取事实，自动输出分类、优先级、证据充分性、缺失信息和候选 Case 结论；不要为只读查询或评测过程请求人工授权。
+                8. 只有用户明确要求“升级/发布/确认 Case”时才调用 promote_feedback_to_case；自动评测不得声称 Case 已发布，人工审核边界必须保持 PENDING_REVIEW。
+                9. 读取反馈、分诊和评测时，不得读取项目代码、运行 Bash 或调用未绑定工具；只有用户明确要求排查代码/运行命令时才允许这样做。
 
                 """);
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)

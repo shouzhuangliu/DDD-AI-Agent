@@ -53,4 +53,19 @@ class ChatAgentRoutePolicyTest {
 
         assertEquals("feedback", decision.route());
     }
+
+    @Test
+    void routesSkillBasedTriageToReactWhenFeedbackOpsModeIsSelected() {
+        ChatAgentRoutePolicy.RouteDecision decision = policy.route("结合业务skills分诊一下今日反馈", "feedback-ops");
+
+        assertEquals("react", decision.route());
+        assertTrue(decision.reason().contains("Skill"));
+    }
+
+    @Test
+    void routesCaseEvaluationRequestToReactInsteadOfGenericChat() {
+        ChatAgentRoutePolicy.RouteDecision decision = policy.route("请按业务 Skill 评测并给出候选 Case", "feedback-ops");
+
+        assertEquals("react", decision.route());
+    }
 }
