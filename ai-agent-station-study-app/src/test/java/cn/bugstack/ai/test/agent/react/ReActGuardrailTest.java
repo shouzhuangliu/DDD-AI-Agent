@@ -95,6 +95,18 @@ class ReActGuardrailTest {
     }
 
     @Test
+    void treatsEquivalentJsonArgumentsAsTheSameCallFingerprint() {
+        ReActToolContext context = ReActToolContext.builder().userMessage("查询今日反馈").build();
+
+        assertTrue(context.admitToolCall("call_mcp_tool", "{\"limit\":10,\"offset\":0}", true).allowed());
+        ReActToolContext.ToolCallDecision decision = context.admitToolCall(
+                "call_mcp_tool", "{ \"offset\": 0, \"limit\": 10 }", true);
+
+        assertEquals("DUPLICATE_TOOL_CALL", decision.code());
+        assertTrue(!decision.allowed());
+    }
+
+    @Test
     void blocksProjectToolsForAPlainFeedbackMessage() {
         ReActToolContext context = ReActToolContext.builder().userMessage("我反馈库存不一致").build();
 

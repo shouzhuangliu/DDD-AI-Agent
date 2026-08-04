@@ -1,19 +1,26 @@
 package cn.bugstack.ai.domain.agent.service.tools.core;
 
+import com.alibaba.fastjson2.JSON;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.Deque;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * ReAct 工具执行上下文。
@@ -126,7 +133,7 @@ public class ReActToolContext {
      */
     public synchronized ToolCallDecision admitToolCall(String toolName, String arguments,
                                                         boolean callbackRegistered, boolean authorized) {
-        String normalizedTool = toolName == null ? "" : toolName.trim();
+        String normalizedTool = toolName == null ? "" : toolName.trim().toLowerCase(Locale.ROOT);
         if (!authorized) {
             return ToolCallDecision.reject("UNAUTHORIZED_TOOL",
                     "工具调用已拦截：当前 Agent 未授权工具“" + normalizedTool + "”，请在 Agent 配置中绑定后再调用。");
@@ -167,8 +174,55 @@ public class ReActToolContext {
         }
     }
 
+    /**
+     * Builds a stable call fingerprint. Raw argument text is deliberately not used as the key:
+     * JSON whitespace and object-member order are presentation details, not different calls.
+     */
     private String callKey(String toolName, String arguments) {
-        return (toolName == null ? "" : toolName.trim()) + "\n" + (arguments == null ? "" : arguments.trim());
+        String normalizedTool = toolName == null ? "" : toolName.trim().toLowerCase(Locale.ROOT);
+        String canonicalArguments = canonicalizeArguments(arguments);
+        return normalizedTool + "\n" + sha256(canonicalArguments);
+    }
+
+    private String canonicalizeArguments(String arguments) {
+        String raw = arguments == null ? "" : arguments.trim();
+        if (raw.isBlank()) return "";
+        try {
+            return JSON.toJSONString(sortJsonValue(JSON.parse(raw)));
+        } catch (Exception ignored) {
+            // A malformed/non-JSON tool payload still gets a deterministic fingerprint.
+            return raw.replaceAll("\\s+", " ");
+        }
+    }
+
+    private Object sortJsonValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> sorted = new TreeMap<>();
+            map.forEach((key, item) -> sorted.put(String.valueOf(key), sortJsonValue(item)));
+            return sorted;
+        }
+        if (value instanceof Collection<?> collection) {
+            List<Object> sorted = new ArrayList<>(collection.size());
+            collection.forEach(item -> sorted.add(sortJsonValue(item)));
+            return sorted;
+        }
+        return value;
+    }
+
+    private String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte item : digest) {
+                int unsigned = item & 0xff;
+                hex.append(Character.forDigit(unsigned >>> 4, 16));
+                hex.append(Character.forDigit(unsigned & 0x0f, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用，无法生成工具调用指纹", e);
+        }
     }
 
     private boolean intentAllows(String toolName) {
