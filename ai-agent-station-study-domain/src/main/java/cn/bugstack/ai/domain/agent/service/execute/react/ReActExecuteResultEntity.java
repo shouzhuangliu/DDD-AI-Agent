@@ -68,6 +68,12 @@ public class ReActExecuteResultEntity {
                 .completed(true).timestamp(System.currentTimeMillis()).sessionId(sessionId).build();
     }
 
+    public static ReActExecuteResultEntity createToolGuardrail(String code, int step, String content, String sessionId) {
+        return ReActExecuteResultEntity.builder()
+                .type("error").subType("tool_guardrail:" + code).content(content).step(step)
+                .completed(false).timestamp(System.currentTimeMillis()).sessionId(sessionId).build();
+    }
+
     public static ReActExecuteResultEntity createComplete(String sessionId) {
         return ReActExecuteResultEntity.builder()
                 .type("complete").subType(null).content("执行完成").step(null)

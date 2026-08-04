@@ -63,10 +63,15 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     }
     @Override public void recordTool(String s, String a, int t, int st, String id, String n, String args, String c) {
         ChatMessage saved = save(s, a, t, st, "tool", c, id, n, args, null);
+        String toolContent = c == null ? "" : c;
+        String normalized = toolContent.toLowerCase();
+        boolean failed = normalized.contains("error") || normalized.contains("工具调用已拦截")
+                || normalized.contains("工具执行失败") || normalized.contains("mcp 调用异常")
+                || normalized.contains("未知工具") || normalized.contains("未授权工具");
         memoryToolResultDao.insertIgnore(MemoryToolResult.builder().agentId(a).sessionId(s).messageId(saved.getId())
                 .toolName(n == null ? "" : n).conclusion(MemoryFoldingPipeline.foldPlainText(c == null ? "" : c))
                 .keyParametersJson(args == null ? "{}" : args)
-                .errorSummary(c != null && c.toLowerCase().contains("error") ? MemoryFoldingPipeline.foldPlainText(c) : "")
+                .errorSummary(failed ? MemoryFoldingPipeline.foldPlainText(toolContent) : "")
                 .createdAt(LocalDateTime.now()).build());
     }
 

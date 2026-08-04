@@ -439,25 +439,38 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 if (context != null && context.isCancellationRequested()) {
                     cancellationRequested = true;
                 }
-                ToolCallback callback = callbackByName.get(toolCall.name());
+                String toolName = toolCall.name();
+                String toolArguments = toolCall.arguments();
+                ToolCallback callback = callbackByName.get(toolName);
                 String result;
                 if (cancellationRequested) {
                     result = "工具调用未执行：用户已请求停止";
-                } else if (callback == null) {
-                    result = "未授权的工具: " + toolCall.name();
                 } else {
+                    ReActToolContext.ToolCallDecision decision = context == null
+                            ? ReActToolContext.ToolCallDecision.allow(toolName)
+                            : context.admitToolCall(toolName, toolArguments, callback != null,
+                            context.getAllowedTools() != null && context.getAllowedTools().contains(toolName));
+                    if (!decision.allowed()) {
+                        int guardStep = context == null ? 0 : Math.max(0, context.consumeStep());
+                        result = "[" + decision.code() + "] " + decision.message();
+                        sendToolGuardrail(context, guardStep, decision.code(), result);
+                        recordToolResult(context, toolCall, result);
+                        return result;
+                    }
                     try {
-                        result = callback.call(toolCall.arguments());
+                        result = callback.call(toolArguments);
                     } catch (Exception e) {
                         if (e instanceof SubagentCancellationException
                                 || e instanceof java.util.concurrent.CancellationException
                                 || Thread.currentThread().isInterrupted()) {
                             cancellationRequested = true;
                             result = "工具调用已完成当前边界：用户已请求停止";
+                        } else {
+                            result = "工具执行失败: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
                         }
-                        result = "工具执行失败: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
                     }
                 }
+                recordToolResult(context, toolCall, result);
                 if (isToolFailureResult(result)) {
                     consecutiveToolFailures++;
                 } else {
@@ -477,10 +490,35 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         return "ReAct 已达到模型推理轮数上限（" + boundedMaxSteps + "），已停止继续调用工具。";
     }
 
+    private void sendToolGuardrail(ReActToolContext context, int step, String code, String content) {
+        if (context == null || context.getEmitter() == null) return;
+        try {
+            context.getEmitter().send("data: " + JSON.toJSONString(
+                    ReActExecuteResultEntity.createToolGuardrail(code, step, content, context.getSessionId())) + "\n\n");
+        } catch (Exception e) {
+            log.debug("发送工具防护反馈失败: {}", e.getMessage());
+        }
+    }
+
+    private void recordToolResult(ReActToolContext context, AssistantMessage.ToolCall toolCall, String result) {
+        if (context == null || toolCall == null) return;
+        try {
+            messageRecorder.recordTool(context.getSessionId(), context.getAgentId(), 0,
+                    context.getCurrentStep().get(), toolCall.id(), toolCall.name(), toolCall.arguments(),
+                    result == null ? "" : result);
+        } catch (Exception e) {
+            log.warn("记录工具调用结果失败: tool={}, reason={}", toolCall.name(), e.getMessage());
+        }
+    }
+
     public static boolean isToolFailureResult(String result) {
         if (result == null || result.isBlank()) return true;
         String normalized = result.toLowerCase(java.util.Locale.ROOT);
         return normalized.contains("工具执行失败")
+                || normalized.contains("工具调用已拦截")
+                || normalized.contains("unknown_tool")
+                || normalized.contains("unauthorized_tool")
+                || normalized.contains("tool_frequency")
                 || normalized.contains("mcp 调用异常")
                 || normalized.contains("mcp 客户端未就绪")
                 || normalized.contains("tool execution failed")
@@ -562,6 +600,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 7. 用户明确要求“分诊/评测/结合业务 Skill/巡检”时，先读取已绑定 Skill，再调用对应 MCP 获取事实，自动输出分类、优先级、证据充分性、缺失信息和候选 Case 结论；不要为只读查询或评测过程请求人工授权。
                 8. 只有用户明确要求“升级/发布/确认 Case”时才调用 promote_feedback_to_case；自动评测不得声称 Case 已发布，人工审核边界必须保持 PENDING_REVIEW。
                 9. 读取反馈、分诊和评测时，不得读取项目代码、运行 Bash 或调用未绑定工具；只有用户明确要求排查代码/运行命令时才允许这样做。
+                10. 工具调用由服务端按滑动窗口校验：同工具同参数重复调用会被拦截，同一工具短窗口内过于频繁也会被拦截；收到工具防护反馈后必须停止重复尝试并调整方案。
 
                 """);
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)

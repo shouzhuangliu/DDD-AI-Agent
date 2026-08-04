@@ -38,12 +38,7 @@ public abstract class AbstractReActTool {
         }
         int step = ctx.consumeStep();
         if (step < 0) {
-            String message = "ReAct 工具步数已达到上限（" + ctx.getMaxSteps() + "），本次工具调用已停止。";
-            send(ctx, ReActExecuteResultEntity.createError(message, ctx.getSessionId()));
-            throw new IllegalStateException(message);
-        }
-        if (ctx.repeatedCallExceeded(toolName, description)) {
-            String message = "检测到相同工具调用重复执行，已强制停止以避免循环。";
+            String message = "工具调用已达到执行安全上限（" + ctx.getMaxSteps() + " 步），已停止继续调用。";
             send(ctx, ReActExecuteResultEntity.createError(message, ctx.getSessionId()));
             throw new IllegalStateException(message);
         }
