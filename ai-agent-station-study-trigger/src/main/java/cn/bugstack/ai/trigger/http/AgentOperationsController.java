@@ -783,6 +783,10 @@ public class AgentOperationsController {
 
     private String promoteFeedbackToCase(String agentId, AiFeedback feedback, String requestedCaseId, String reason) {
         LocalDateTime now = LocalDateTime.now();
+        String skillId = safe(agentBusinessContextService.boundBusinessSkillId(agentId));
+        if (skillId.isBlank()) {
+            throw new IllegalArgumentException("当前 Agent 未解析到有效业务 Skill，不能生成可追踪 Case");
+        }
         String caseId = requestedCaseId.isBlank() ? "case-feedback-" + feedback.getId() : requestedCaseId;
         AiCase existing = caseDao.queryByAgentAndCaseId(agentId, caseId);
         String message = safe(feedback.getMessage());
@@ -802,7 +806,7 @@ public class AgentOperationsController {
                     .confidence("AI_INFERRED".equals(feedback.getSourceType()) ? 70d : 85d)
                     .totalScore("AI_INFERRED".equals(feedback.getSourceType()) ? 58d : 72d)
                     .status("CANDIDATE")
-                    .skillId("")
+                    .skillId(skillId)
                     .sourceModel("")
                     .extractionReason(reason.isBlank() ? "由 Feedback 人工升级为候选 Case" : reason)
                     .owner("")

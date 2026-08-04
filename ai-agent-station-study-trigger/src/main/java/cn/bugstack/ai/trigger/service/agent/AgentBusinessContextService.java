@@ -49,17 +49,28 @@ public class AgentBusinessContextService {
      * enabled Skill whose metadata can be loaded into its workspace.
      */
     public boolean hasBoundBusinessSkill(String agentId) {
-        if (agentId == null || agentId.isBlank()) return false;
+        return !boundBusinessSkillId(agentId).isBlank();
+    }
+
+    /**
+     * Returns the first active Skill whose metadata can be loaded for this
+     * Agent. Manual Feedback promotion uses this exact ID so the generated
+     * Case remains visible to the Agent-scoped dashboard queries.
+     */
+    public String boundBusinessSkillId(String agentId) {
+        if (agentId == null || agentId.isBlank()) return "";
         try {
             AgentRuntimeBindingService.AgentRuntimeBindings bindings =
                     agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
-            if (bindings.getSkillIds() == null || bindings.getSkillIds().isEmpty()) return false;
+            if (bindings.getSkillIds() == null || bindings.getSkillIds().isEmpty()
+                    || bindings.getSkillMetadataById() == null) return "";
             return bindings.getSkillIds().stream()
-                    .anyMatch(skillId -> bindings.getSkillMetadataById() != null
-                            && bindings.getSkillMetadataById().containsKey(skillId));
+                    .filter(skillId -> skillId != null && !skillId.isBlank())
+                    .filter(skillId -> bindings.getSkillMetadataById().containsKey(skillId))
+                    .findFirst().orElse("");
         } catch (Exception exception) {
-            log.debug("Agent 业务 Skill 上下文不可用，跳过业务反馈 agentId={}", agentId, exception);
-            return false;
+            log.debug("Agent 业务 Skill 上下文不可用，无法生成绑定 Skill ID agentId={}", agentId, exception);
+            return "";
         }
     }
 

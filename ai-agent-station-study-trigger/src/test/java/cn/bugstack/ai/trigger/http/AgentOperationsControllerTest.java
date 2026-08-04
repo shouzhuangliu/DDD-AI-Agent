@@ -82,6 +82,7 @@ class AgentOperationsControllerTest {
         agentRuntimeBindingService = mock(AgentRuntimeBindingService.class);
         agentBusinessContextService = mock(AgentBusinessContextService.class);
         when(agentBusinessContextService.hasBoundBusinessSkill(any())).thenReturn(true);
+        when(agentBusinessContextService.boundBusinessSkillId(any())).thenReturn("inventory-feedback-agent");
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
@@ -181,7 +182,10 @@ class AgentOperationsControllerTest {
 
         assertEquals(true, result.get("success"));
         assertEquals("case-feedback-101", result.get("caseId"));
-        verify(caseDao).insert(any());
+        var insertedCase = org.mockito.ArgumentCaptor.forClass(AiCase.class);
+        verify(caseDao).insert(insertedCase.capture());
+        assertEquals("inventory-feedback-agent", insertedCase.getValue().getSkillId(),
+                "升级生成的 Case 必须绑定当前 Agent 的业务 Skill，才能进入仪表盘");
         verify(caseEvidenceDao).insertIgnore(any());
         verify(caseScoreSnapshotDao).insert(any());
         verify(caseAuditDao).insertReview("case-feedback-101", "cs", "NEW", "PROMOTED", "system", "跨会话重复出现，影响下单");

@@ -18,6 +18,8 @@ public interface IAiFeedbackDao {
     List<AiFeedback> queryBySession(@Param("agentId") String agentId,
                                     @Param("sessionId") String sessionId,
                                     @Param("limit") int limit);
+    AiFeedback queryByAgentAndExternalRef(@Param("agentId") String agentId,
+                                          @Param("externalRef") String externalRef);
     long countExplicitByAgentId(@Param("agentId") String agentId);
     long countExplicitTodayByAgentId(@Param("agentId") String agentId);
     long countNegativeByAgentId(@Param("agentId") String agentId);

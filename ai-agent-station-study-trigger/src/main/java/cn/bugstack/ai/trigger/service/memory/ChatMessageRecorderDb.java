@@ -20,6 +20,7 @@ import cn.bugstack.ai.infrastructure.dao.po.MemoryToolResult;
 import cn.bugstack.ai.trigger.service.analysis.AnalysisJobQueue;
 import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
 import cn.bugstack.ai.trigger.service.feedback.FeedbackAdmissionPolicy;
+import cn.bugstack.ai.trigger.service.feedback.McpFeedbackIngestionService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
@@ -46,6 +47,7 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     @Resource private LongTermMemoryPort longTermMemoryPort;
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     @Resource private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
+    @Resource private McpFeedbackIngestionService mcpFeedbackIngestionService;
     @Resource private AgentBusinessContextService agentBusinessContextService;
 
     @Override public void recordUser(String s, String a, int t, String c) { save(s, a, t, 0, "user", c, null, null, null, null); }
@@ -73,6 +75,12 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
                 .keyParametersJson(args == null ? "{}" : args)
                 .errorSummary(failed ? MemoryFoldingPipeline.foldPlainText(toolContent) : "")
                 .createdAt(LocalDateTime.now()).build());
+        try {
+            mcpFeedbackIngestionService.ingest(a, s, saved.getId(), n, args, c);
+        } catch (Exception exception) {
+            // MCP 同步是旁路能力，不能因为外部反馈格式异常阻断对话记录。
+            log.warn("MCP 业务反馈同步失败 agentId={}, tool={}", a, n, exception);
+        }
     }
 
     private ChatMessage save(String s, String a, int t, int st, String r, String c, String tid, String tn, String ta, String tcj) {

@@ -197,6 +197,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None) -> Any:
             "operator": _required(arguments, "operator"),
             "note": str(arguments.get("note", "")).strip(),
             "createdAt": now(),
+            # 回传完整原始反馈，便于工作台在只调用分诊工具时完成幂等落库。
+            # 这不会改变 MCP 的分诊文件格式，仍保留 feedbackId 作为外部主键。
+            "feedback": _feedback_by_id(feedback_id),
         }
         _append_triage_row(row)
         return row
