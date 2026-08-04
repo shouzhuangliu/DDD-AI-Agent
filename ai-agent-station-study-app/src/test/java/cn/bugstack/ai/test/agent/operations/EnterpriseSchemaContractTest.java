@@ -91,6 +91,41 @@ public class EnterpriseSchemaContractTest {
     }
 
     @Test
+    public void businessSignalQueriesDeclareOuterAliasForSnapshotCorrelation() throws IOException {
+        String xml = readResource("mybatis/mapper/ai_signal_mapper.xml");
+
+        assertTrue(xml.contains("select s.* from ai_signal s"),
+                "business signal query must declare the outer signal alias");
+        assertTrue(xml.contains("e.agent_id=s.agent_id"),
+                "snapshot correlation must reference the declared signal alias");
+        assertTrue(xml.contains("from ai_signal s\n    where s.agent_id=#{agentid}"),
+                "count query must also use the same outer alias");
+    }
+
+    @Test
+    public void businessBoundaryMigrationQuarantinesUnboundFeedbackAndCases() throws IOException {
+        String sql = readResource("sql/mysql/migrations/V20260806__business_boundary.sql");
+
+        assertTrue(sql.contains("unbound_agent"));
+        assertTrue(sql.contains("archived"));
+        assertTrue(sql.contains("ai_agent_skill"));
+        assertTrue(sql.contains("ai_agent_mcp"));
+    }
+
+    @Test
+    public void businessDashboardsRequireActiveSkillAndMcpBindings() throws IOException {
+        String feedback = readResource("mybatis/mapper/ai_feedback_mapper.xml");
+        String cases = readResource("mybatis/mapper/ai_case_mapper.xml");
+
+        assertTrue(feedback.contains("exists (select 1 from ai_agent_skill sk"),
+                "feedback dashboard queries must exclude agents without an active business Skill");
+        assertTrue(cases.contains("exists (select 1 from ai_agent_skill sk"),
+                "case dashboard queries must require an active Skill binding");
+        assertTrue(cases.contains("exists (select 1 from ai_agent_mcp mc"),
+                "case dashboard queries must require an active MCP binding");
+    }
+
+    @Test
     public void devProfileMatchesProjectDockerMysqlDefaults() throws IOException {
         String yaml = readResource("application-dev.yml");
 

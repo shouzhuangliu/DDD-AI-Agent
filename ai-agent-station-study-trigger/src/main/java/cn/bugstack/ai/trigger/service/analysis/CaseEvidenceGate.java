@@ -30,6 +30,14 @@ public class CaseEvidenceGate {
                                  ExistingCaseContext existingCase) {
         if (evaluation == null) return needMore("评测结果为空", List.of());
         String decision = safe(evaluation.decision()).toUpperCase(Locale.ROOT);
+        BoundSkillContext bound = skillContext == null ? BoundSkillContext.empty() : skillContext;
+        if (agentId == null || agentId.isBlank() || !agentId.equals(bound.agentId()) || bound.skillId().isBlank()) {
+            if ("NOT_ELIGIBLE".equals(decision)) {
+                return new GateDecision("NOT_ELIGIBLE", List.of(), List.of(), 0, evaluation.reason(), "");
+            }
+            return new GateDecision("NOT_ELIGIBLE", List.of(), List.of("当前 Agent 未绑定有效业务 Skill"), 0,
+                    "当前 Agent 未绑定有效业务 Skill，不能生成业务 Feedback/Case", "");
+        }
         if ("NOT_ELIGIBLE".equals(decision)) {
             return new GateDecision("NOT_ELIGIBLE", List.of(), List.of(), 0, evaluation.reason(), "");
         }
@@ -44,7 +52,7 @@ public class CaseEvidenceGate {
             return needMore("未知评测状态，已阻止 Case 晋升", List.of("重新评测"));
         }
 
-        BoundSkillContext bound = skillContext == null ? BoundSkillContext.empty() : skillContext;
+        // bound context is initialized before the decision-specific branches.
         if (agentId == null || agentId.isBlank() || !agentId.equals(bound.agentId())) {
             return needMore("当前 Agent 上下文不匹配", List.of("确认 Agent 与 Skill 绑定关系"));
         }
@@ -55,6 +63,10 @@ public class CaseEvidenceGate {
         if (evaluation.skill().ruleIds().isEmpty()
                 || !bound.ruleIds().containsAll(evaluation.skill().ruleIds())) {
             return needMore("评测引用了当前 Agent 不存在的 Skill 规则", List.of("补充有效 ruleId"));
+        }
+        if (bound.mcpIds().isEmpty()) {
+            return needMore("当前 Agent 未绑定有效业务 MCP，禁止将 Feedback 升级为 Case",
+                    List.of("绑定业务 MCP 并获取实际工具回执"));
         }
         List<String> missing = new ArrayList<>(evaluation.missingInformation());
         appendMissing(missing, "业务对象", evaluation.facts().subject());
@@ -79,6 +91,10 @@ public class CaseEvidenceGate {
                 evidenceProblems.add("不允许的证据角色：" + role);
                 continue;
             }
+            if ("tool".equals(role) && safe(message.getToolName()).isBlank()) {
+                evidenceProblems.add("工具证据缺少真实 toolName，不能证明来自绑定 MCP");
+                continue;
+            }
             String quote = normalize(candidate.quote());
             if (quote.isBlank() || !normalize(message.getContent()).contains(quote)) {
                 evidenceProblems.add("消息 " + candidate.messageId() + " 的证据摘录无法与原文匹配");
@@ -93,8 +109,13 @@ public class CaseEvidenceGate {
         boolean completeFacts = missing.stream().noneMatch(item -> Set.of("业务对象", "实际结果", "业务影响").contains(item));
         boolean enoughEvidence = accepted.size() >= 2 || (accepted.size() == 1 && highImpact(evaluation.severity()));
         boolean candidateRequested = "CANDIDATE_CASE".equals(decision);
+        boolean hasBusinessToolEvidence = accepted.stream().anyMatch(item -> "tool".equals(item.role()));
         int score = serverScore(evaluation, completeFacts, accepted.size());
-        if (!candidateRequested || !completeFacts || !enoughEvidence || !missing.isEmpty() || score < MIN_SERVER_SCORE) {
+        if (!candidateRequested || !completeFacts || !enoughEvidence || !hasBusinessToolEvidence
+                || !missing.isEmpty() || score < MIN_SERVER_SCORE) {
+            if (!hasBusinessToolEvidence && missing.isEmpty()) {
+                missing.add("至少一条来自绑定 MCP 的工具结果");
+            }
             return new GateDecision("NEED_MORE_INFO", List.copyOf(accepted), missing, score,
                     firstReason(evaluation.reason(), "证据门禁未通过，暂不生成 Case"), fingerprint(accepted));
         }
@@ -159,11 +180,15 @@ public class CaseEvidenceGate {
 
     private String safe(String value) { return value == null ? "" : value.trim(); }
 
-    public record BoundSkillContext(String agentId, String skillId, Set<String> ruleIds) {
+    public record BoundSkillContext(String agentId, String skillId, Set<String> ruleIds, Set<String> mcpIds) {
         public BoundSkillContext {
             ruleIds = ruleIds == null ? Set.of() : Set.copyOf(ruleIds);
+            mcpIds = mcpIds == null ? Set.of() : Set.copyOf(mcpIds);
         }
-        public static BoundSkillContext empty() { return new BoundSkillContext("", "", Set.of()); }
+        public BoundSkillContext(String agentId, String skillId, Set<String> ruleIds) {
+            this(agentId, skillId, ruleIds, Set.of());
+        }
+        public static BoundSkillContext empty() { return new BoundSkillContext("", "", Set.of(), Set.of()); }
     }
 
     public record ExistingCaseContext(String evidenceFingerprint, boolean caseAlreadyExists) {

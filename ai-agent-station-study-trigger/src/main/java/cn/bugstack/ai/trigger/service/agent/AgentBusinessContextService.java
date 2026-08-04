@@ -44,6 +44,42 @@ public class AgentBusinessContextService {
         return keywords;
     }
 
+    /**
+     * Business feedback is only meaningful when the Agent has at least one
+     * enabled Skill whose metadata can be loaded into its workspace.
+     */
+    public boolean hasBoundBusinessSkill(String agentId) {
+        if (agentId == null || agentId.isBlank()) return false;
+        try {
+            AgentRuntimeBindingService.AgentRuntimeBindings bindings =
+                    agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+            if (bindings.getSkillIds() == null || bindings.getSkillIds().isEmpty()) return false;
+            return bindings.getSkillIds().stream()
+                    .anyMatch(skillId -> bindings.getSkillMetadataById() != null
+                            && bindings.getSkillMetadataById().containsKey(skillId));
+        } catch (Exception exception) {
+            log.debug("Agent 业务 Skill 上下文不可用，跳过业务反馈 agentId={}", agentId, exception);
+            return false;
+        }
+    }
+
+    /**
+     * A Case needs an enabled MCP binding in addition to a Skill. The actual
+     * tool result is validated later by the Case evidence gate.
+     */
+    public boolean hasBoundBusinessMcp(String agentId) {
+        if (agentId == null || agentId.isBlank()) return false;
+        try {
+            AgentRuntimeBindingService.AgentRuntimeBindings bindings =
+                    agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), false);
+            return bindings.getMcpIds() != null && !bindings.getMcpIds().isEmpty()
+                    && bindings.getMcpTools() != null && !bindings.getMcpTools().isEmpty();
+        } catch (Exception exception) {
+            log.debug("Agent 业务 MCP 上下文不可用，阻止 Case 升级 agentId={}", agentId, exception);
+            return false;
+        }
+    }
+
     private void appendTokens(Set<String> keywords, String rawText) {
         if (rawText == null || rawText.isBlank()) return;
         Matcher matcher = DOMAIN_TOKEN.matcher(rawText.toLowerCase(Locale.ROOT));

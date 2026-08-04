@@ -36,6 +36,7 @@ class FeedbackAutoCaptureServiceTest {
         ReflectionTestUtils.setField(service, "feedbackEvaluationJobQueue", feedbackEvaluationJobQueue);
         ReflectionTestUtils.setField(service, "feedbackAdmissionPolicy", feedbackAdmissionPolicy);
         ReflectionTestUtils.setField(service, "agentBusinessContextService", agentBusinessContextService);
+        when(agentBusinessContextService.hasBoundBusinessSkill("cs")).thenReturn(true);
         when(agentBusinessContextService.collectKeywords("cs")).thenReturn(Set.of());
         doAnswer(invocation -> {
             AiFeedback feedback = invocation.getArgument(0);
@@ -79,5 +80,17 @@ class FeedbackAutoCaptureServiceTest {
         assertEquals(101L, feedbackId);
         verify(feedbackDao).insert(any(AiFeedback.class));
         verify(feedbackEvaluationJobQueue).enqueue("cs", 101L);
+    }
+
+    @Test
+    void skipsBusinessFeedbackForAgentWithoutBoundSkill() {
+        when(agentBusinessContextService.hasBoundBusinessSkill("unbound-agent")).thenReturn(false);
+
+        Long feedbackId = service.captureUserIssue("unbound-agent", "sess-1",
+                "库存页面显示 RTX 5060 有 12 件，但后台实际只有 2 件");
+
+        assertNull(feedbackId);
+        verify(feedbackDao, never()).insert(any());
+        verify(feedbackEvaluationJobQueue, never()).enqueue(anyString(), anyLong());
     }
 }

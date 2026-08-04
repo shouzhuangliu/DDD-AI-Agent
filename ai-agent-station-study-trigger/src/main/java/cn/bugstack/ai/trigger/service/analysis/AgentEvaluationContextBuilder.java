@@ -79,6 +79,14 @@ public class AgentEvaluationContextBuilder {
             AgentRuntimeBindingService.AgentRuntimeBindings bindings =
                     agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             List<String> skillIds = bindings.getSkillIds() == null ? List.of() : bindings.getSkillIds();
+            List<String> mcpIds = bindings.getMcpIds() == null ? List.of() : bindings.getMcpIds();
+            evidence.append("[BOUND BUSINESS MCP]\n");
+            if (mcpIds.isEmpty()) {
+                evidence.append("- none; Case 只能停留在 Feedback，不能升级\n");
+            } else {
+                mcpIds.forEach(mcpId -> evidence.append("- mcpId=").append(mcpId)
+                        .append(", result must come from a recorded tool message\n"));
+            }
             if (skillIds.isEmpty()) {
                 evidence.append("- none; cases are not eligible without a bound business Skill\n");
                 return;
@@ -154,14 +162,15 @@ public class AgentEvaluationContextBuilder {
         try {
             var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             List<String> skillIds = bindings.getSkillIds() == null ? List.of() : bindings.getSkillIds();
+            List<String> mcpIds = bindings.getMcpIds() == null ? List.of() : bindings.getMcpIds();
             if (skillIds.size() != 1 || bindings.getWorkspace() == null) {
-                return new CaseEvidenceGate.BoundSkillContext(agentId, "", Set.of());
+                return new CaseEvidenceGate.BoundSkillContext(agentId, "", Set.of(), Set.copyOf(mcpIds));
             }
             String skillId = skillIds.get(0);
             SkillScannerService.SkillInfo skill = skillScannerService.readSkillFromWorkDir(
                     bindings.getWorkspace().toString(), skillId);
-            if (skill == null) return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, Set.of());
-            return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, extractRuleIds(skill.getContent()));
+            if (skill == null) return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, Set.of(), Set.copyOf(mcpIds));
+            return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, extractRuleIds(skill.getContent()), Set.copyOf(mcpIds));
         } catch (Exception exception) {
             return CaseEvidenceGate.BoundSkillContext.empty();
         }

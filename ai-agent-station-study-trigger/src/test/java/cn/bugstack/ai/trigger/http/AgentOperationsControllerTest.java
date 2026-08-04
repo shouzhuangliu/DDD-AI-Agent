@@ -26,6 +26,7 @@ import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
@@ -61,6 +62,7 @@ class AgentOperationsControllerTest {
     private ConversationSessionService conversationSessionService;
     private ConversationTraceService conversationTraceService;
     private AgentRuntimeBindingService agentRuntimeBindingService;
+    private AgentBusinessContextService agentBusinessContextService;
     private AgentOperationsController controller;
 
     @BeforeEach
@@ -78,6 +80,9 @@ class AgentOperationsControllerTest {
         conversationSessionService = mock(ConversationSessionService.class);
         conversationTraceService = mock(ConversationTraceService.class);
         agentRuntimeBindingService = mock(AgentRuntimeBindingService.class);
+        agentBusinessContextService = mock(AgentBusinessContextService.class);
+        when(agentBusinessContextService.hasBoundBusinessSkill(any())).thenReturn(true);
+        when(agentBusinessContextService.hasBoundBusinessMcp(any())).thenReturn(true);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);
@@ -100,6 +105,7 @@ class AgentOperationsControllerTest {
         ReflectionTestUtils.setField(controller, "conversationSessionService", conversationSessionService);
         ReflectionTestUtils.setField(controller, "conversationTraceService", conversationTraceService);
         ReflectionTestUtils.setField(controller, "agentRuntimeBindingService", agentRuntimeBindingService);
+        ReflectionTestUtils.setField(controller, "agentBusinessContextService", agentBusinessContextService);
     }
 
     @Test

@@ -77,6 +77,9 @@ public class FeedbackEvaluationWorker {
         if (text.isBlank() || text.length() < 6) {
             return new Evaluation("INVALID", "NON_ISSUE", 1);
         }
+        if (!agentBusinessContextService.hasBoundBusinessSkill(agentId)) {
+            return new Evaluation("INVALID", "UNBOUND_AGENT", 1);
+        }
 
         FeedbackAdmissionPolicy.FeedbackSignal signal = feedbackAdmissionPolicy.analyze(
                 text, agentBusinessContextService.collectKeywords(agentId));

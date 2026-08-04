@@ -29,6 +29,7 @@ import cn.bugstack.ai.trigger.service.analysis.CaseMemoryPublisher;
 import cn.bugstack.ai.trigger.service.analysis.AgentMemoryProfileService;
 import cn.bugstack.ai.trigger.service.analysis.ConversationQualificationPolicy;
 import cn.bugstack.ai.trigger.service.analysis.FeedbackEvaluationJobQueue;
+import cn.bugstack.ai.trigger.service.agent.AgentBusinessContextService;
 import cn.bugstack.ai.trigger.service.conversation.ConversationSessionService;
 import cn.bugstack.ai.trigger.service.memory.LongTermMemoryRecallService;
 import cn.bugstack.ai.trigger.service.memory.MemoryQueryAdmissionPolicy;
@@ -72,6 +73,7 @@ public class AgentOperationsController {
     @Resource private ConversationSessionService conversationSessionService;
     @Resource private ConversationTraceService conversationTraceService;
     @Resource private AgentRuntimeBindingService agentRuntimeBindingService;
+    @Resource private AgentBusinessContextService agentBusinessContextService;
     private final WorkflowTransitionPolicy transitionPolicy = new WorkflowTransitionPolicy();
     private final ConversationQualificationPolicy qualificationPolicy = new ConversationQualificationPolicy();
 
@@ -155,7 +157,7 @@ public class AgentOperationsController {
         transitionPolicy.requireAllowed(WorkflowTransitionPolicy.Resource.FEEDBACK, item.getStatus(), toStatus);
         String matchedCaseId = safe(request.matchedCaseId());
         if ("PROMOTED".equals(toStatus)) {
-            ensureFeedbackEligibleForPromotion(item, safe(request.reason()));
+            ensureFeedbackEligibleForPromotion(agentId, item, safe(request.reason()));
             matchedCaseId = promoteFeedbackToCase(agentId, item, matchedCaseId, safe(request.reason()));
         }
         int resolved = "RESOLVED".equals(toStatus) || "PROMOTED".equals(toStatus) || "INVALID".equals(toStatus) ? 1 : 0;
@@ -753,7 +755,13 @@ public class AgentOperationsController {
                 .count();
     }
 
-    private void ensureFeedbackEligibleForPromotion(AiFeedback feedback, String reason) {
+    private void ensureFeedbackEligibleForPromotion(String agentId, AiFeedback feedback, String reason) {
+        if (!agentBusinessContextService.hasBoundBusinessSkill(agentId)) {
+            throw new IllegalArgumentException("当前 Agent 未绑定有效业务 Skill，不能将 Feedback 升级为 Case");
+        }
+        if (!agentBusinessContextService.hasBoundBusinessMcp(agentId)) {
+            throw new IllegalArgumentException("当前 Agent 未绑定可用业务 MCP，不能将 Feedback 升级为 Case");
+        }
         String status = safe(feedback.getStatus()).toUpperCase();
         String sourceType = safe(feedback.getSourceType()).toUpperCase();
         boolean statusQualified = Set.of("VALID", "CLUSTERED").contains(status);

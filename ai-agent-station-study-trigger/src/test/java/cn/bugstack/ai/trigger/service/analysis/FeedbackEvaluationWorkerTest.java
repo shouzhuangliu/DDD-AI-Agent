@@ -33,6 +33,7 @@ class FeedbackEvaluationWorkerTest {
         ReflectionTestUtils.setField(worker, "feedbackAdmissionPolicy", new FeedbackAdmissionPolicy());
         ReflectionTestUtils.setField(worker, "agentBusinessContextService", agentBusinessContextService);
         ReflectionTestUtils.setField(worker, "enabled", true);
+        when(agentBusinessContextService.hasBoundBusinessSkill(anyString())).thenReturn(true);
     }
 
     @Test
@@ -98,6 +99,22 @@ class FeedbackEvaluationWorkerTest {
 
         verify(feedbackDao).transitionStatus(102L, "agent-cs", "OPEN", "INVALID", "NON_ISSUE", "", 1);
         verify(jobDao).markComplete(3L);
+    }
+
+    @Test
+    void marksFeedbackInvalidWhenAgentHasNoBoundSkill() {
+        when(jobDao.queryClaimable()).thenReturn(job(5L, "unbound-agent", 104L));
+        when(jobDao.claim(eq(5L), any(LocalDateTime.class))).thenReturn(1);
+        when(feedbackDao.queryById(104L)).thenReturn(AiFeedback.builder()
+                .id(104L).agentId("unbound-agent").status("OPEN")
+                .message("库存页面显示 RTX 5060 有 12 件，但后台实际只有 2 件")
+                .build());
+        when(agentBusinessContextService.hasBoundBusinessSkill("unbound-agent")).thenReturn(false);
+
+        worker.processNext();
+
+        verify(feedbackDao).transitionStatus(104L, "unbound-agent", "OPEN", "INVALID", "UNBOUND_AGENT", "", 1);
+        verify(jobDao).markComplete(5L);
     }
 
     private static FeedbackEvaluationJob job(Long id, String agentId, Long feedbackId) {
