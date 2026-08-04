@@ -50,7 +50,7 @@ public class ConversationAnalysisWorker {
               "severity":"P0|P1|P2|P3",
               "confidence":0,
               "reason":"中文评测理由",
-              "signals":[{"type":"USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|TOOL_FAILURE|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","confidence":0,"summary":"中文观察","rationale":"中文依据"}]
+              "signals":[{"type":"USER_CORRECTION|REPEATED_QUESTION|IRRELEVANT_ANSWER|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","confidence":0,"summary":"中文观察","rationale":"中文依据"}]
             }
 
             决策规则：
@@ -58,7 +58,8 @@ public class ConversationAnalysisWorker {
             2. FEEDBACK_ONLY：确认记录了业务反馈，但对象、实际结果或影响仍不完整；只能进入 Feedback 评测队列，不能生成 Case。
             3. NEED_MORE_INFO：可能相关但事实或证据不足；必须填写 missingInformation。
             4. CANDIDATE_CASE：只有在明确引用当前绑定 Skill 的 ruleId，并且事实、影响和至少一条真实证据完整时才可提出。严重程度 P0/P1 只能有业务证据支持。
-            5. 模型分数只是参考，服务端会重新计算证据门禁；不要输出 promoteToCase 字段。
+            5. TOOL_FAILURE、MCP_FAILURE、MODEL_FAILURE、MODEL_RATE_LIMIT、EXECUTION_FAILURE 属于运行时观测，不能放进 signals；它们由工具日志单独记录。NOT_ELIGIBLE 时 signals 必须为空。
+            6. 模型分数只是参考，服务端会重新计算证据门禁；不要输出 promoteToCase 字段。
             """;
 
     private static final String BUSINESS_BOUNDARY_PROMPT = """
@@ -147,22 +148,25 @@ public class ConversationAnalysisWorker {
                          AnalysisResultParser.AnalysisResult result, int explicitNegativeFeedback,
                          CaseEvaluationSnapshot latest, CaseAnalysisCadencePolicy.Decision cadence) {
         LocalDateTime now = LocalDateTime.now();
-        for (AnalysisResultParser.SignalCandidate candidate : result.signals()) {
-            signalDao.insert(AiSignal.builder().agentId(job.getAgentId()).sessionId(job.getSessionId())
-                    .assistantMessageId(job.getAssistantMessageId()).signalType(candidate.type())
-                    .sourceType(AnalysisResultParser.isRuntimeOnlySignalType(candidate.type())
-                            ? "RUNTIME_OBSERVATION" : "AI_INFERRED")
-                    .severity(candidate.severity()).confidence(candidate.confidence())
-                    .summary(candidate.summary()).rationale(candidate.rationale()).modelId(job.getModelId())
-                    .status("OBSERVED").createdAt(now).build());
-        }
-
         CaseEvidenceGate.BoundSkillContext boundSkill = evaluationContextBuilder.boundSkillContext(job.getAgentId());
         List<AiCase> sessionCases = caseDao.queryBySession(job.getAgentId(), job.getSessionId(), 1);
         CaseEvidenceGate.ExistingCaseContext existingCase = new CaseEvidenceGate.ExistingCaseContext(
                 latest == null ? "" : blank(latest.getEvidenceFingerprint()), sessionCases != null && !sessionCases.isEmpty());
         CaseEvidenceGate.GateDecision gate = evidenceGate.evaluate(
                 job.getAgentId(), messages, result, boundSkill, existingCase);
+
+        // Runtime observations remain available to the operational trace, but a
+        // non-business conversation must not become an AI business signal.
+        for (AnalysisResultParser.SignalCandidate candidate : result.signals()) {
+            boolean runtimeObservation = AnalysisResultParser.isRuntimeOnlySignalType(candidate.type());
+            if (!runtimeObservation && "NOT_ELIGIBLE".equals(gate.state())) continue;
+            signalDao.insert(AiSignal.builder().agentId(job.getAgentId()).sessionId(job.getSessionId())
+                    .assistantMessageId(job.getAssistantMessageId()).signalType(candidate.type())
+                    .sourceType(runtimeObservation ? "RUNTIME_OBSERVATION" : "AI_INFERRED")
+                    .severity(candidate.severity()).confidence(candidate.confidence())
+                    .summary(candidate.summary()).rationale(candidate.rationale()).modelId(job.getModelId())
+                    .status("OBSERVED").createdAt(now).build());
+        }
 
         String fingerprint = gate.evidenceFingerprint().isBlank() ? cadence.evidenceFingerprint() : gate.evidenceFingerprint();
         evaluationSnapshotDao.insertIgnore(CaseEvaluationSnapshot.builder()

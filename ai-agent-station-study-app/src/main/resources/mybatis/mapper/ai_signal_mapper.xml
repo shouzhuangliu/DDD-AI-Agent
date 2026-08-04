@@ -10,6 +10,31 @@
     <result column="status" property="status"/><result column="created_at" property="createdAt"/>
   </resultMap>
   <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AiSignal" useGeneratedKeys="true" keyProperty="id">INSERT INTO ai_signal (agent_id,session_id,assistant_message_id,signal_type,source_type,severity,confidence,summary,rationale,model_id,status,created_at) VALUES (#{agentId},#{sessionId},#{assistantMessageId},#{signalType},#{sourceType},#{severity},#{confidence},#{summary},#{rationale},#{modelId},#{status},#{createdAt})</insert>
-  <select id="queryByAgentId" resultMap="SignalMap">SELECT * FROM ai_signal WHERE agent_id=#{agentId} ORDER BY created_at DESC LIMIT #{limit}</select>
-  <select id="countOpenByAgentId" resultType="long">SELECT COUNT(*) FROM ai_signal WHERE agent_id=#{agentId} AND status='OPEN'</select>
+  <!-- 业务面板只展示 AI 业务观察；运行时故障统一留在日志/Trace，不混入 Feedback/Case 面板。 -->
+  <select id="queryByAgentId" resultMap="SignalMap">
+    SELECT * FROM ai_signal
+    WHERE agent_id=#{agentId}
+      AND status NOT IN ('SUPPRESSED','INVALID')
+      AND source_type &lt;&gt; 'RUNTIME_OBSERVATION'
+      AND signal_type NOT IN ('TOOL_FAILURE','MCP_FAILURE','MODEL_FAILURE','MODEL_RATE_LIMIT','EXECUTION_FAILURE')
+      AND NOT EXISTS (
+        SELECT 1 FROM case_evaluation_snapshot e
+        WHERE e.agent_id=s.agent_id AND e.session_id=s.session_id
+          AND e.assistant_message_id=s.assistant_message_id
+          AND e.decision='NOT_ELIGIBLE'
+      )
+    ORDER BY created_at DESC LIMIT #{limit}
+  </select>
+  <select id="countOpenByAgentId" resultType="long">
+    SELECT COUNT(*) FROM ai_signal
+    WHERE agent_id=#{agentId} AND status='OPEN'
+      AND source_type &lt;&gt; 'RUNTIME_OBSERVATION'
+      AND signal_type NOT IN ('TOOL_FAILURE','MCP_FAILURE','MODEL_FAILURE','MODEL_RATE_LIMIT','EXECUTION_FAILURE')
+      AND NOT EXISTS (
+        SELECT 1 FROM case_evaluation_snapshot e
+        WHERE e.agent_id=ai_signal.agent_id AND e.session_id=ai_signal.session_id
+          AND e.assistant_message_id=ai_signal.assistant_message_id
+          AND e.decision='NOT_ELIGIBLE'
+      )
+  </select>
 </mapper>

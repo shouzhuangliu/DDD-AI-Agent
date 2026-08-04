@@ -81,6 +81,16 @@ public class EnterpriseSchemaContractTest {
     }
 
     @Test
+    public void businessSignalMigrationSeparatesNonEligibleAndRuntimeObservations() throws IOException {
+        String sql = readResource("sql/mysql/migrations/V20260805__business_signal_visibility.sql");
+
+        assertTrue(sql.contains("decision = 'not_eligible'"));
+        assertTrue(sql.contains("status = 'suppressed'"));
+        assertTrue(sql.contains("runtime_observation"));
+        assertTrue(sql.contains("tool_failure"));
+    }
+
+    @Test
     public void devProfileMatchesNativeMysqlDefaults() throws IOException {
         String yaml = readResource("application-dev.yml");
 

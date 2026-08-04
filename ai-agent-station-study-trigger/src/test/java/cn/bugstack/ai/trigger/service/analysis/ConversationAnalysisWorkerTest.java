@@ -18,6 +18,7 @@ class ConversationAnalysisWorkerTest {
     private ConversationAnalysisWorker worker;
     private ICaseEvaluationSnapshotDao snapshotDao;
     private IAiCaseDao caseDao;
+    private IAiSignalDao signalDao;
     private CaseEvidenceGate evidenceGate;
     private AnalysisResultParser parser = new AnalysisResultParser();
 
@@ -26,12 +27,13 @@ class ConversationAnalysisWorkerTest {
         worker = new ConversationAnalysisWorker();
         snapshotDao = mock(ICaseEvaluationSnapshotDao.class);
         caseDao = mock(IAiCaseDao.class);
+        signalDao = mock(IAiSignalDao.class);
         evidenceGate = mock(CaseEvidenceGate.class);
         ReflectionTestUtils.setField(worker, "evaluationSnapshotDao", snapshotDao);
         ReflectionTestUtils.setField(worker, "caseDao", caseDao);
         ReflectionTestUtils.setField(worker, "evidenceGate", evidenceGate);
         ReflectionTestUtils.setField(worker, "evaluationContextBuilder", mock(AgentEvaluationContextBuilder.class));
-        ReflectionTestUtils.setField(worker, "signalDao", mock(IAiSignalDao.class));
+        ReflectionTestUtils.setField(worker, "signalDao", signalDao);
         ReflectionTestUtils.setField(worker, "summaryComposer", mock(CaseSummaryComposer.class));
         ReflectionTestUtils.setField(worker, "messageDao", mock(IChatMessageDao.class));
         ReflectionTestUtils.setField(worker, "evidenceDao", mock(ICaseEvidenceDao.class));
@@ -55,6 +57,24 @@ class ConversationAnalysisWorkerTest {
         verify(snapshotDao).insertIgnore(any());
         verify(caseDao, never()).insert(any());
         verify(caseDao, never()).updateAnalysis(any());
+    }
+
+    @Test
+    void notEligibleConversationDoesNotPersistBusinessSignals() {
+        var result = parser.parse("""
+                {"decision":"NOT_ELIGIBLE","skill":{"id":"","ruleIds":[],"matchScore":0},
+                 "facts":{},"evidence":[],"missingInformation":[],"severity":"P3","confidence":10,
+                 "reason":"普通查询，不是业务反馈","signals":[{"type":"USER_CORRECTION","severity":"LOW",
+                 "confidence":80,"summary":"用户纠正了助手","rationale":"但会话未命中业务 Skill"}]}
+                """);
+        when(evidenceGate.evaluate(any(), any(), eq(result), any(), any()))
+                .thenReturn(new CaseEvidenceGate.GateDecision("NOT_ELIGIBLE", List.of(), List.of(), 0,
+                        "普通查询，不是业务反馈", ""));
+
+        worker.persist(job(), List.of(message(1, "user", "查询今日反馈")), result, 0, null,
+                new CaseAnalysisCadencePolicy.Decision(true, "test", "fp", 2));
+
+        verify(signalDao, never()).insert(any());
     }
 
     @Test
