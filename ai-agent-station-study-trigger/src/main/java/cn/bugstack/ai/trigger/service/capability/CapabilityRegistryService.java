@@ -184,6 +184,14 @@ public class CapabilityRegistryService {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             ProcessBuilder builder = new ProcessBuilder(commandLine);
+            String workingDirectory = json.getString("workingDirectory");
+            if (workingDirectory != null && !workingDirectory.isBlank()) {
+                Path directory = Path.of(workingDirectory).toAbsolutePath().normalize();
+                if (!Files.isDirectory(directory)) {
+                    throw new IllegalArgumentException("MCP workingDirectory 不存在: " + directory);
+                }
+                builder.directory(directory.toFile());
+            }
             JSONObject env = json.getJSONObject("env");
             if (env != null) env.forEach((key, value) -> builder.environment().put(key, String.valueOf(value)));
             process = builder.start();

@@ -77,6 +77,8 @@ public class AiClientToolMcpVO {
             private String command;
             private List<String> args;
             private Map<String, String> env;
+            /** Optional local working directory used to resolve relative script arguments. */
+            private String workingDirectory;
         }
     }
 

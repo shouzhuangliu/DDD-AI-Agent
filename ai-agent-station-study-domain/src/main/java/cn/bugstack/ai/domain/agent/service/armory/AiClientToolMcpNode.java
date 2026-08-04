@@ -22,6 +22,8 @@ import org.springframework.context.event.EventListener;
 
 import jakarta.annotation.Resource;
 import java.time.Duration;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Collections;
@@ -129,9 +131,12 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
                         = transportConfigStdio.getStdio();
                 AiClientToolMcpVO.TransportConfigStdio.Stdio stdio
                         = stdioMap.get(aiClientToolMcpVO.getMcpName());
+                if (stdio == null) {
+                    throw new IllegalArgumentException("stdio 配置缺少 MCP 名称: " + aiClientToolMcpVO.getMcpName());
+                }
                 // https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
                 var stdioParams = ServerParameters.builder(stdio.getCommand())
-                        .args(stdio.getArgs())
+                        .args(resolveStdioArgs(stdio))
                         .env(stdio.getEnv())
                         .build();
 
@@ -181,6 +186,25 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
             if (StringUtils.isNotBlank(value)) return value;
         }
         return null;
+    }
+
+    /**
+     * Spring AI's MCP stdio transport does not expose a working-directory setter.
+     * Resolve relative script arguments before creating the child process so an
+     * IDEA run configuration can safely use a project-relative path.
+     */
+    public static List<String> resolveStdioArgs(AiClientToolMcpVO.TransportConfigStdio.Stdio stdio) {
+        List<String> args = stdio.getArgs() == null ? List.of() : stdio.getArgs();
+        String configuredDirectory = stdio.getWorkingDirectory();
+        if (configuredDirectory == null || configuredDirectory.isBlank()) return args;
+        Path workingDirectory = Path.of(configuredDirectory).toAbsolutePath().normalize();
+        return args.stream().map(argument -> {
+            if (argument == null || argument.isBlank()) return argument;
+            Path candidate = Path.of(argument);
+            if (candidate.isAbsolute()) return argument;
+            Path resolved = workingDirectory.resolve(candidate).normalize();
+            return Files.exists(resolved) ? resolved.toString() : argument;
+        }).toList();
     }
 
     /** Returns the server-advertised MCP tools for progressive disclosure. */
