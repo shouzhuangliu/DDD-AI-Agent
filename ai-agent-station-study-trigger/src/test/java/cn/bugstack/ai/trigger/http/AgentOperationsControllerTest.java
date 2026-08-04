@@ -218,6 +218,10 @@ class AgentOperationsControllerTest {
         assertEquals(1L, result.get("highPriorityCases"));
         assertEquals(2L, result.get("resolvedCases"));
         assertEquals(75.0d, result.get("satisfactionRate"));
+        @SuppressWarnings("unchecked")
+        Map<String, String> dataSources = (Map<String, String>) result.get("dataSources");
+        assertTrue(dataSources.get("feedback").startsWith("ai_feedback"));
+        assertTrue(dataSources.get("signals").contains("不直接代表业务事实"));
     }
 
     @Test
@@ -241,6 +245,8 @@ class AgentOperationsControllerTest {
         assertEquals("升级为 Case", actions.getFirst().get("label"));
         assertEquals("PROMOTED", actions.getFirst().get("status"));
         assertEquals("进入候选问题簇", actions.get(1).get("label"));
+        assertEquals("EXPLICIT_FEEDBACK", result.getFirst().get("dataSourceType"));
+        assertEquals("用户反馈", result.getFirst().get("dataSourceLabel"));
     }
 
     @Test
@@ -288,6 +294,8 @@ class AgentOperationsControllerTest {
         assertEquals("候选问题", first.get("statusLabel"));
         assertEquals("合并到其他 Case", actions.get(2).get("label"));
         assertEquals("MERGE", actions.get(2).get("operation"));
+        assertEquals("EVIDENCE_GATE", first.get("dataSourceType"));
+        assertEquals(true, first.get("evidenceRequired"));
     }
 
     @Test

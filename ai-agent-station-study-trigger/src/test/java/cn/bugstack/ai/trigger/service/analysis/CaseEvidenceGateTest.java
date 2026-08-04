@@ -71,6 +71,27 @@ class CaseEvidenceGateTest {
     }
 
     @Test
+    void instructionMessagesCannotPretendToBeMcpBusinessFacts() {
+        var result = parser.parse("""
+                {"decision":"CANDIDATE_CASE","skill":{"id":"inventory-feedback-agent","ruleIds":["inventory.stock-gap.v1"],"matchScore":99},
+                 "facts":{"subject":"今日反馈","expected":"返回库存反馈","actual":"发现库存问题","impact":"需要升级 Case"},
+                 "evidence":[{"messageId":1,"role":"user","quote":"查询今日反馈","supports":["INV-FEEDBACK-INTAKE"]},
+                             {"messageId":2,"role":"user","quote":"升级为 case","supports":["INV-CASE-PROMOTION"]}],
+                 "missingInformation":[],"severity":"P1","confidence":99,"reason":"模型根据上下文生成了汇总"}
+                """);
+
+        var decision = gate.evaluate("inventory", List.of(
+                message(1, "user", "查询今日反馈"), message(2, "user", "升级为 case")),
+                result, bound(), existing());
+
+        assertEquals("NEED_MORE_INFO", decision.state());
+        assertTrue(decision.serverScore() < 75,
+                "只有用户指令时，服务端评分不能因为模型填满 facts 就达到 Case 阈值");
+        assertTrue(decision.missingInformation().stream()
+                .anyMatch(item -> item.contains("可回溯证据覆盖")));
+    }
+
+    @Test
     void unboundSkillCannotPromote() {
         var result = parser.parse("""
                 {"decision":"CANDIDATE_CASE","skill":{"id":"other-skill","ruleIds":["other.rule.v1"],"matchScore":99},

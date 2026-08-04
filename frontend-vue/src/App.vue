@@ -195,6 +195,17 @@ const dashboardCards = computed(() => ([
   { label: '满意度', value: `${stats.value.satisfactionRate ?? 0}%` },
 ]));
 
+const dashboardDataSources = computed(() => stats.value.dataSources || {
+  feedback: 'ai_feedback：用户、运维或业务 MCP 返回后入库的反馈事实',
+  cases: 'ai_case：通过证据门禁或业务 MCP 分诊后生成的 Case',
+  signals: 'ai_signal：模型观察线索，仅用于辅助评测，不直接代表业务事实',
+  memory: 'memory_summary：模型生成的短期会话摘要，不作为 Case 证据',
+});
+
+function dashboardSource(key) {
+  return dashboardDataSources.value[key] || '';
+}
+
 const STATUS_LABELS = {
   CANDIDATE: '候选',
   PENDING_REVIEW: '待审核',
@@ -1875,9 +1886,9 @@ onMounted(() => {
 
             <div class="grid-2">
               <section class="panel">
-                <div class="panel-title">重点案例</div>
+                <div class="panel-title">重点案例 <small class="muted">{{ dashboardSource('cases') }}</small></div>
                 <div class="list">
-                  <div v-if="!topCases.length" class="empty">信息</div>
+                  <div v-if="!topCases.length" class="empty">暂无 Case（业务表中没有已生成的案例）</div>
                   <div v-for="item in topCases" :key="item.caseId" class="item clickable" @click="openWorkspaceDetail('Case 详情', item)">
                     <div class="item-row">
                       <div>
@@ -1886,6 +1897,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <div class="pill brand">{{ item.totalScore ?? 0 }}</div>
+                        <span class="muted" style="font-size:12px">{{ item.dataSourceLabel || '服务端证据门禁' }}</span>
                         <button class="btn" @click.stop="openWorkspaceDetail('Case 详情', item)">查看详情</button>
                       </div>
                     </div>
@@ -1894,7 +1906,7 @@ onMounted(() => {
               </section>
 
               <section class="panel">
-                <div class="panel-title">反馈概览</div>
+                <div class="panel-title">反馈概览 <small class="muted">{{ dashboardSource('feedback') }}</small></div>
                 <div class="list">
                   <div v-if="!businessFeedbackItems.length" class="empty">暂无业务反馈</div>
                   <div v-for="item in businessFeedbackItems" :key="item.id" class="item clickable" @click="openWorkspaceDetail('反馈详情', item)">
@@ -1905,6 +1917,7 @@ onMounted(() => {
                       </div>
                       <div class="actions">
                         <div class="pill">{{ labelStatus(item.status) }}</div>
+                        <span class="muted" style="font-size:12px">{{ item.dataSourceLabel || item.sourceLabel || '业务反馈表' }}</span>
                         <button class="btn" @click.stop="openWorkspaceDetail('反馈详情', item)">查看详情</button>
                       </div>
                     </div>
@@ -1914,7 +1927,7 @@ onMounted(() => {
             </div>
             <div class="grid-2 section-gap">
               <section class="panel">
-                <div class="panel-title">信号</div>
+                <div class="panel-title">信号 <small class="muted">{{ dashboardSource('signals') }}</small></div>
                 <div class="list">
                   <div v-if="!signals.length" class="empty">暂无数据</div>
                   <div v-for="item in signals" :key="item.id" class="item clickable" @click="openWorkspaceDetail('信号详情', item)">
@@ -1933,7 +1946,7 @@ onMounted(() => {
                 </div>
               </section>
               <section class="panel">
-                <div class="panel-title">记忆摘要</div>
+                <div class="panel-title">记忆摘要 <small class="muted">{{ dashboardSource('memory') }}</small></div>
                 <div class="list">
                   <div v-if="!memories.length" class="empty">暂无数据</div>
                   <div v-for="item in memories" :key="item.id" class="item clickable" @click="openWorkspaceDetail('记忆详情', item)">

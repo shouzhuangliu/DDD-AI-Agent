@@ -357,6 +357,13 @@ public class AgentOperationsController {
         result.put("highPriorityCases", inProgressCases);
         result.put("inProgressCases", inProgressCases);
         result.put("resolvedCases", caseDao.countByAgentAndStatus(agentId, "RESOLVED"));
+        // 仪表盘必须明确事实来源：业务表和模型观察不能混为同一类指标。
+        Map<String, String> dataSources = new java.util.LinkedHashMap<>();
+        dataSources.put("feedback", "ai_feedback：用户、运维或业务 MCP 返回后入库的反馈事实");
+        dataSources.put("cases", "ai_case：通过证据门禁或业务 MCP 分诊后生成的 Case");
+        dataSources.put("signals", "ai_signal：模型观察线索，仅用于辅助评测，不直接代表业务事实");
+        dataSources.put("memory", "memory_summary：模型生成的短期会话摘要，不作为 Case 证据");
+        result.put("dataSources", dataSources);
         return result;
     }
 
@@ -987,6 +994,12 @@ public class AgentOperationsController {
         view.put("statusLabel", rawCaseStatusLabel(status));
         view.put("skillId", safe(item.getSkillId()));
         view.put("sourceModel", safe(item.getSourceModel()));
+        String sourceModel = safe(item.getSourceModel());
+        view.put("dataSourceType", sourceModel.equalsIgnoreCase("mcp-triage")
+                ? "MCP_TRIAGE" : sourceModel.isBlank() ? "EVIDENCE_GATE" : "CONVERSATION_ANALYSIS");
+        view.put("dataSourceLabel", sourceModel.equalsIgnoreCase("mcp-triage")
+                ? "业务 MCP 分诊" : sourceModel.isBlank() ? "服务端证据门禁" : "会话评测（含用户/运维/工具证据）");
+        view.put("evidenceRequired", true);
         view.put("extractionReason", safe(item.getExtractionReason()));
         view.put("owner", safe(item.getOwner()));
         view.put("resolution", safe(item.getResolution()));
@@ -1085,6 +1098,12 @@ public class AgentOperationsController {
             case "AI_INFERRED" -> "AI观察";
             default -> blank(item.getSourceType()) ? "未知来源" : item.getSourceType();
         };
+        String submittedBy = safe(item.getSubmittedBy());
+        String dataSourceLabel = submittedBy.toLowerCase().startsWith("mcp:")
+                ? "业务 MCP 工具返回（已入库）"
+                : "AI_INFERRED".equalsIgnoreCase(item.getSourceType())
+                ? "模型观察（不作为业务事实）"
+                : sourceLabel;
         String statusLabel = switch (status) {
             case "OPEN" -> "新反馈";
             case "AI_EVALUATING" -> "AI评测中";
@@ -1107,6 +1126,9 @@ public class AgentOperationsController {
         view.put("correction", safe(item.getCorrection()));
         view.put("sourceType", safe(item.getSourceType()));
         view.put("sourceLabel", sourceLabel);
+        view.put("dataSourceType", dataSourceLabel.startsWith("业务 MCP") ? "MCP_TOOL_RESULT"
+                : "AI_INFERRED".equalsIgnoreCase(item.getSourceType()) ? "MODEL_OBSERVATION" : "EXPLICIT_FEEDBACK");
+        view.put("dataSourceLabel", dataSourceLabel);
         view.put("category", safe(item.getCategory()));
         view.put("matchedCaseId", safe(item.getMatchedCaseId()));
         view.put("resolved", item.getResolved() == null ? 0 : item.getResolved());

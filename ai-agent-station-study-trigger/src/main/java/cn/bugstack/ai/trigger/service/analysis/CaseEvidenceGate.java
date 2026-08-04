@@ -103,14 +103,27 @@ public class CaseEvidenceGate {
             accepted.add(new EvidenceRef(candidate.messageId(), role, quote, candidate.supports()));
         }
         if (accepted.isEmpty()) evidenceProblems.add("没有用户、运维或业务工具的有效证据");
+        Set<String> coveredFacts = coveredFacts(accepted);
+        List<String> uncoveredFacts = new ArrayList<>();
+        if (!coveredFacts.contains("subject")) uncoveredFacts.add("业务对象");
+        if (!coveredFacts.contains("actual")) uncoveredFacts.add("实际结果");
+        if (!coveredFacts.contains("impact")) uncoveredFacts.add("业务影响");
+        if (!uncoveredFacts.isEmpty()) {
+            evidenceProblems.add("业务事实缺少可回溯证据覆盖：" + String.join("、", uncoveredFacts));
+        }
         if (!evidenceProblems.isEmpty()) missing.addAll(evidenceProblems);
         missing = missing.stream().filter(item -> item != null && !item.isBlank()).distinct().toList();
 
-        boolean completeFacts = missing.stream().noneMatch(item -> Set.of("业务对象", "实际结果", "业务影响").contains(item));
+        boolean completeFacts = evaluation.facts() != null
+                && !safe(evaluation.facts().subject()).isBlank()
+                && !safe(evaluation.facts().actual()).isBlank()
+                && !safe(evaluation.facts().impact()).isBlank();
+        boolean factsSupported = uncoveredFacts.isEmpty();
         boolean enoughEvidence = accepted.size() >= 2 || (accepted.size() == 1 && highImpact(evaluation.severity()));
         boolean candidateRequested = "CANDIDATE_CASE".equals(decision);
-        int score = serverScore(evaluation, completeFacts, accepted.size());
-        if (!candidateRequested || !completeFacts || !enoughEvidence || !missing.isEmpty() || score < MIN_SERVER_SCORE) {
+        // facts 只有在 accepted evidence 实际覆盖后才计入服务端分数，避免“模型填满 facts”造成虚高。
+        int score = serverScore(evaluation, completeFacts && factsSupported, accepted.size(), coveredFacts.size());
+        if (!candidateRequested || !completeFacts || !factsSupported || !enoughEvidence || !missing.isEmpty() || score < MIN_SERVER_SCORE) {
             return new GateDecision("NEED_MORE_INFO", List.copyOf(accepted), missing, score,
                     firstReason(evaluation.reason(), "证据门禁未通过，暂不生成 Case"), fingerprint(accepted));
         }
@@ -135,11 +148,37 @@ public class CaseEvidenceGate {
     }
 
     private int serverScore(AnalysisResultParser.AnalysisResult evaluation, boolean completeFacts, int evidenceCount) {
+        return serverScore(evaluation, completeFacts, evidenceCount, 0);
+    }
+
+    private int serverScore(AnalysisResultParser.AnalysisResult evaluation, boolean completeFacts,
+                            int evidenceCount, int coveredFactCount) {
         int score = evaluation.skill() != null && !safe(evaluation.skill().id()).isBlank() ? 20 : 0;
         score += evaluation.skill() != null && !evaluation.skill().ruleIds().isEmpty() ? 20 : 0;
         score += completeFacts ? 30 : 0;
-        score += Math.min(30, evidenceCount * 15);
+        // 证据数量不能替代事实覆盖：两条“查询/升级”用户指令不能证明库存实际结果。
+        score += Math.min(15, evidenceCount * 5);
+        score += Math.min(15, coveredFactCount * 5);
         return Math.min(100, score);
+    }
+
+    private Set<String> coveredFacts(List<EvidenceRef> evidence) {
+        java.util.LinkedHashSet<String> covered = new java.util.LinkedHashSet<>();
+        if (evidence == null) return covered;
+        for (EvidenceRef item : evidence) {
+            for (String support : item.supports()) {
+                String normalized = safe(support).toLowerCase(Locale.ROOT)
+                        .replace('-', '_').replace(' ', '_');
+                if (Set.of("subject", "business_object", "object", "业务对象").contains(normalized)) {
+                    covered.add("subject");
+                } else if (Set.of("actual", "actual_result", "observed", "result", "实际结果", "事实").contains(normalized)) {
+                    covered.add("actual");
+                } else if (Set.of("impact", "business_impact", "effect", "影响", "业务影响").contains(normalized)) {
+                    covered.add("impact");
+                }
+            }
+        }
+        return covered;
     }
 
     private boolean highImpact(String severity) {

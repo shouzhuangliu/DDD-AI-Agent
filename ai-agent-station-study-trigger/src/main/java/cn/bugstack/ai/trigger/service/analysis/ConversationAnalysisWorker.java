@@ -45,7 +45,7 @@ public class ConversationAnalysisWorker {
               "decision":"NOT_ELIGIBLE|FEEDBACK_ONLY|NEED_MORE_INFO|CANDIDATE_CASE",
               "skill":{"id":"当前绑定Skill ID，没有则空字符串","ruleIds":["规则ID"],"matchScore":0},
               "facts":{"subject":"业务对象，如 SKU/商品/库存","expected":"期望结果","actual":"实际结果","impact":"业务影响","timeRange":"时间范围","scope":"影响范围"},
-              "evidence":[{"messageId":123,"role":"user|operator|tool","quote":"原文连续片段","supports":["规则ID","事实字段"]}],
+              "evidence":[{"messageId":123,"role":"user|operator|tool","quote":"原文连续片段","supports":["规则ID","subject|actual|impact"]}],
               "missingInformation":["仍缺少的信息"],
               "severity":"P0|P1|P2|P3",
               "confidence":0,
@@ -58,6 +58,7 @@ public class ConversationAnalysisWorker {
             2. FEEDBACK_ONLY：确认记录了业务反馈，但对象、实际结果或影响仍不完整；只能进入 Feedback 评测队列，不能生成 Case。
             3. NEED_MORE_INFO：可能相关但事实或证据不足；必须填写 missingInformation。
             4. CANDIDATE_CASE：只有在明确引用当前绑定 Skill 的 ruleId，并且事实、影响和至少一条真实证据完整时才可提出。严重程度 P0/P1 只能有业务证据支持。
+               supports 必须使用精确事实字段 subject、actual、impact 标记每条证据实际支持的事实；只填写规则 ID 不算事实证据覆盖。
             5. TOOL_FAILURE、MCP_FAILURE、MODEL_FAILURE、MODEL_RATE_LIMIT、EXECUTION_FAILURE 只能作为运行时观测，不能作为业务 Signal、事实或 Case 证据；NOT_ELIGIBLE 时业务 signals 必须为空。
             6. 模型分数只是参考，服务端会重新计算证据门禁；不要输出 promoteToCase 字段。
             """;
@@ -187,8 +188,12 @@ public class ConversationAnalysisWorker {
                 .serverScore(gate.serverScore()).reason(gate.reason()).evidenceFingerprint(fingerprint).createdAt(now).build());
 
         if (!"CANDIDATE_CASE".equals(gate.state())) {
-            log.info("Case 评测未生成 Case，agent={}, session={}, state={}, score={}, reason={}",
-                    job.getAgentId(), job.getSessionId(), gate.state(), gate.serverScore(), gate.reason());
+            String evidenceSource = gate.acceptedEvidence().stream()
+                    .map(CaseEvidenceGate.EvidenceRef::role).distinct().sorted()
+                    .reduce((left, right) -> left + "," + right).orElse("NONE");
+            log.info("Case 评测未生成 Case，agent={}, session={}, state={}, score={}, evidenceSource={}, evidenceCount={}, reason={}",
+                    job.getAgentId(), job.getSessionId(), gate.state(), gate.serverScore(), evidenceSource,
+                    gate.acceptedEvidence().size(), gate.reason());
             return;
         }
 
