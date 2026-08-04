@@ -58,12 +58,12 @@ public class ConversationAnalysisWorker {
             2. FEEDBACK_ONLY：确认记录了业务反馈，但对象、实际结果或影响仍不完整；只能进入 Feedback 评测队列，不能生成 Case。
             3. NEED_MORE_INFO：可能相关但事实或证据不足；必须填写 missingInformation。
             4. CANDIDATE_CASE：只有在明确引用当前绑定 Skill 的 ruleId，并且事实、影响和至少一条真实证据完整时才可提出。严重程度 P0/P1 只能有业务证据支持。
-            5. TOOL_FAILURE、MCP_FAILURE、MODEL_FAILURE、MODEL_RATE_LIMIT、EXECUTION_FAILURE 属于运行时观测，不能放进 signals；它们由工具日志单独记录。NOT_ELIGIBLE 时 signals 必须为空。
+            5. TOOL_FAILURE、MCP_FAILURE、MODEL_FAILURE、MODEL_RATE_LIMIT、EXECUTION_FAILURE 只能作为运行时观测，不能作为业务 Signal、事实或 Case 证据；NOT_ELIGIBLE 时业务 signals 必须为空。
             6. 模型分数只是参考，服务端会重新计算证据门禁；不要输出 promoteToCase 字段。
             """;
 
     private static final String BUSINESS_BOUNDARY_PROMPT = """
-            当前评测边界：只允许使用当前 Agent 绑定的 Skill 文档和其引用的业务工具结果。MCP 连接失败、超时、参数错误、模型限流和内部异常只能形成运行观察 Signal，不能成为业务事实或 Case 证据。没有有效绑定 Skill 时，decision 必须是 NOT_ELIGIBLE 或 NEED_MORE_INFO。
+            当前评测边界：绑定 Skill 只定义当前 Agent 的业务范围和规则；用户、运维消息可以作为业务反馈原始证据，成功的业务工具结果可以补充事实。MCP 连接失败、超时、参数错误、模型限流和内部异常只能形成运行观察 Signal，不能成为业务事实或 Case 证据。没有有效绑定 Skill 时，decision 必须是 NOT_ELIGIBLE 或 NEED_MORE_INFO。
             """;
 
     @Resource private IAnalysisJobDao jobDao;
@@ -157,11 +157,19 @@ public class ConversationAnalysisWorker {
 
         // Runtime observations remain available to the operational trace, but a
         // non-business conversation must not become an AI business signal.
+        boolean runtimeToolFailure = hasRuntimeToolFailure(messages);
+        boolean hasBusinessEvidence = gate.acceptedEvidence().stream()
+                .anyMatch(item -> "user".equalsIgnoreCase(item.role())
+                        || "operator".equalsIgnoreCase(item.role()));
         for (AnalysisResultParser.SignalCandidate candidate : result.signals()) {
-            boolean runtimeObservation = AnalysisResultParser.isRuntimeOnlySignalType(candidate.type());
+            boolean runtimeObservation = AnalysisResultParser.isRuntimeOnlySignalType(candidate.type())
+                    || isRuntimeFailureText(candidate.summary(), candidate.rationale());
+            if (runtimeToolFailure && !hasBusinessEvidence && !runtimeObservation) continue;
             if (!runtimeObservation && "NOT_ELIGIBLE".equals(gate.state())) continue;
+            String signalType = runtimeObservation && !AnalysisResultParser.isRuntimeOnlySignalType(candidate.type())
+                    ? "MCP_FAILURE" : candidate.type();
             signalDao.insert(AiSignal.builder().agentId(job.getAgentId()).sessionId(job.getSessionId())
-                    .assistantMessageId(job.getAssistantMessageId()).signalType(candidate.type())
+                    .assistantMessageId(job.getAssistantMessageId()).signalType(signalType)
                     .sourceType(runtimeObservation ? "RUNTIME_OBSERVATION" : "AI_INFERRED")
                     .severity(candidate.severity()).confidence(candidate.confidence())
                     .summary(candidate.summary()).rationale(candidate.rationale()).modelId(job.getModelId())
@@ -240,6 +248,31 @@ public class ConversationAnalysisWorker {
                   AND (feedback_type IN ('THUMBS_DOWN', 'NEGATIVE') OR rating IS NOT NULL AND rating <= 2)
                 """, Integer.class, job.getAgentId(), job.getAssistantMessageId());
         return value == null ? 0 : value;
+    }
+
+    private boolean hasRuntimeToolFailure(List<ChatMessage> messages) {
+        if (messages == null) return false;
+        return messages.stream().anyMatch(message -> {
+            if (message == null || !"tool".equalsIgnoreCase(blank(message.getRole()))) return false;
+            String content = blank(message.getContent()).toLowerCase(java.util.Locale.ROOT);
+            return containsRuntimeFailureMarker(content);
+        });
+    }
+
+    private boolean isRuntimeFailureText(String summary, String rationale) {
+        String text = (blank(summary) + " " + blank(rationale)).toLowerCase(java.util.Locale.ROOT);
+        if (containsRuntimeFailureMarker(text)) return true;
+        return text.contains("mcp") && (text.contains("失败") || text.contains("异常")
+                || text.contains("错误") || text.contains("拒绝") || text.contains("不可用")
+                || text.contains("error") || text.contains("failed"));
+    }
+
+    private boolean containsRuntimeFailureMarker(String text) {
+        return text.contains("工具执行失败") || text.contains("工具调用已拦截")
+                || text.contains("mcp 调用异常") || text.contains("未知工具")
+                || text.contains("未授权工具") || text.contains("连接超时")
+                || text.contains("连接失败") || text.contains("调用失败")
+                || text.contains("timeout") || text.contains("connection refused");
     }
 
     private double severityScore(String severity) {

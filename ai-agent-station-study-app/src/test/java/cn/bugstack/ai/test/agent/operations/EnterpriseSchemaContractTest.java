@@ -109,11 +109,15 @@ public class EnterpriseSchemaContractTest {
         assertTrue(sql.contains("unbound_agent"));
         assertTrue(sql.contains("archived"));
         assertTrue(sql.contains("ai_agent_skill"));
-        assertTrue(sql.contains("ai_agent_mcp"));
+        assertTrue(!sql.contains("ai_agent_mcp"),
+                "business-boundary migration must not treat MCP as a Case prerequisite");
+
+        String repair = readResource("sql/mysql/migrations/V20260807__restore_cases_archived_for_optional_mcp.sql");
+        assertTrue(repair.contains("mcp 不是 case 必选条件"));
     }
 
     @Test
-    public void businessDashboardsRequireActiveSkillAndMcpBindings() throws IOException {
+    public void businessDashboardsRequireActiveSkillBindings() throws IOException {
         String feedback = readResource("mybatis/mapper/ai_feedback_mapper.xml");
         String cases = readResource("mybatis/mapper/ai_case_mapper.xml");
 
@@ -121,8 +125,8 @@ public class EnterpriseSchemaContractTest {
                 "feedback dashboard queries must exclude agents without an active business Skill");
         assertTrue(cases.contains("exists (select 1 from ai_agent_skill sk"),
                 "case dashboard queries must require an active Skill binding");
-        assertTrue(cases.contains("exists (select 1 from ai_agent_mcp mc"),
-                "case dashboard queries must require an active MCP binding");
+        assertTrue(!cases.contains("exists (select 1 from ai_agent_mcp mc"),
+                "MCP availability must not be a prerequisite for a business Case");
     }
 
     @Test

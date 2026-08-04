@@ -759,9 +759,6 @@ public class AgentOperationsController {
         if (!agentBusinessContextService.hasBoundBusinessSkill(agentId)) {
             throw new IllegalArgumentException("当前 Agent 未绑定有效业务 Skill，不能将 Feedback 升级为 Case");
         }
-        if (!agentBusinessContextService.hasBoundBusinessMcp(agentId)) {
-            throw new IllegalArgumentException("当前 Agent 未绑定可用业务 MCP，不能将 Feedback 升级为 Case");
-        }
         String status = safe(feedback.getStatus()).toUpperCase();
         String sourceType = safe(feedback.getSourceType()).toUpperCase();
         boolean statusQualified = Set.of("VALID", "CLUSTERED").contains(status);

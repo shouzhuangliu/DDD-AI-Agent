@@ -103,23 +103,36 @@ class CaseEvidenceGateTest {
 
     private CaseEvidenceGate.BoundSkillContext bound() {
         return new CaseEvidenceGate.BoundSkillContext("inventory", "inventory-feedback-agent",
-                Set.of("inventory.stock-gap.v1"), Set.of("inventory-feedback-mcp"));
+                Set.of("inventory.stock-gap.v1"));
     }
 
     @Test
-    void doesNotPromoteWhenAgentHasNoBoundMcp() {
+    void promotesBusinessCaseWhenAgentHasNoBoundMcp() {
         var result = parser.parse("""
                 {"decision":"CANDIDATE_CASE","skill":{"id":"inventory-feedback-agent","ruleIds":["inventory.stock-gap.v1"],"matchScore":92},
                  "facts":{"subject":"DDR5","expected":"可售","actual":"缺货","impact":"用户无法下单"},
                  "evidence":[{"messageId":1,"role":"user","quote":"DDR5 商品缺货","supports":["subject","actual"]},
-                             {"messageId":2,"role":"tool","quote":"库存结果确认缺货","supports":["actual","impact"]}],
+                             {"messageId":2,"role":"operator","quote":"库存结果确认缺货","supports":["actual","impact"]}],
                  "missingInformation":[],"severity":"P1","confidence":90,"reason":"命中规则"}
                 """);
 
-        assertEquals("NEED_MORE_INFO", gate.evaluate("inventory", List.of(
-                message(1, "user", "DDR5 商品缺货"), toolMessage(2, "库存结果确认缺货")), result,
+        assertEquals("CANDIDATE_CASE", gate.evaluate("inventory", List.of(
+                message(1, "user", "DDR5 商品缺货"), message(2, "operator", "库存结果确认缺货")), result,
                 new CaseEvidenceGate.BoundSkillContext("inventory", "inventory-feedback-agent",
-                        Set.of("inventory.stock-gap.v1"), Set.of()), existing()).state());
+                        Set.of("inventory.stock-gap.v1")), existing()).state());
+    }
+
+    @Test
+    void runtimeMcpFailureCannotBecomeBusinessCaseEvidence() {
+        var result = parser.parse("""
+                {"decision":"CANDIDATE_CASE","skill":{"id":"inventory-feedback-agent","ruleIds":["inventory.stock-gap.v1"],"matchScore":92},
+                 "facts":{"subject":"库存查询","expected":"返回库存","actual":"MCP 调用失败","impact":"无法完成查询"},
+                 "evidence":[{"messageId":2,"role":"tool","quote":"工具执行失败：MCP 调用异常，连接超时","supports":["actual"]}],
+                 "missingInformation":[],"severity":"P1","confidence":90,"reason":"工具异常"}
+                """);
+
+        assertEquals("NEED_MORE_INFO", gate.evaluate("inventory", List.of(
+                toolMessage(2, "工具执行失败：MCP 调用异常，连接超时")), result, bound(), existing()).state());
     }
 
     private CaseEvidenceGate.ExistingCaseContext existing() {

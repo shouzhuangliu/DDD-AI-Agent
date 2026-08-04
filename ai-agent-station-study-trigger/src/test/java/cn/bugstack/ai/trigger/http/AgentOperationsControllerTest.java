@@ -82,7 +82,6 @@ class AgentOperationsControllerTest {
         agentRuntimeBindingService = mock(AgentRuntimeBindingService.class);
         agentBusinessContextService = mock(AgentBusinessContextService.class);
         when(agentBusinessContextService.hasBoundBusinessSkill(any())).thenReturn(true);
-        when(agentBusinessContextService.hasBoundBusinessMcp(any())).thenReturn(true);
         controller = new AgentOperationsController();
         ReflectionTestUtils.setField(controller, "feedbackDao", feedbackDao);
         ReflectionTestUtils.setField(controller, "caseDao", caseDao);

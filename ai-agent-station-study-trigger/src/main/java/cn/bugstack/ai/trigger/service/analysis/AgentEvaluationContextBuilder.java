@@ -162,15 +162,14 @@ public class AgentEvaluationContextBuilder {
         try {
             var bindings = agentRuntimeBindingService.assemble(agentId, System.getProperty("user.dir"), true);
             List<String> skillIds = bindings.getSkillIds() == null ? List.of() : bindings.getSkillIds();
-            List<String> mcpIds = bindings.getMcpIds() == null ? List.of() : bindings.getMcpIds();
             if (skillIds.size() != 1 || bindings.getWorkspace() == null) {
-                return new CaseEvidenceGate.BoundSkillContext(agentId, "", Set.of(), Set.copyOf(mcpIds));
+                return new CaseEvidenceGate.BoundSkillContext(agentId, "", Set.of());
             }
             String skillId = skillIds.get(0);
             SkillScannerService.SkillInfo skill = skillScannerService.readSkillFromWorkDir(
                     bindings.getWorkspace().toString(), skillId);
-            if (skill == null) return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, Set.of(), Set.copyOf(mcpIds));
-            return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, extractRuleIds(skill.getContent()), Set.copyOf(mcpIds));
+            if (skill == null) return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, Set.of());
+            return new CaseEvidenceGate.BoundSkillContext(agentId, skillId, extractRuleIds(skill.getContent()));
         } catch (Exception exception) {
             return CaseEvidenceGate.BoundSkillContext.empty();
         }
