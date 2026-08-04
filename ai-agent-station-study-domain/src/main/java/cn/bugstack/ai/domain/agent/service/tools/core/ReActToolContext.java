@@ -30,6 +30,9 @@ public class ReActToolContext {
     /** 会话ID */
     private String sessionId;
 
+    /** 当前轮用户原始消息，用于对语义明确的 MCP 查询做服务端校验。 */
+    private String userMessage;
+
     /** Agent ID */
     private String agentId;
 

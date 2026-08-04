@@ -1,10 +1,9 @@
 package cn.bugstack.ai.domain.agent.service.tools.mcp;
+
+import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.tools.core.AbstractReActTool;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContext;
 import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContextHolder;
-import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolProperties;
-
-import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import io.modelcontextprotocol.client.McpSyncClient;
@@ -16,44 +15,24 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
-import java.util.Set;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * ReAct 内部工具：调用绑定的 MCP 工具。
- * <p>
- * 采用 Progressive Disclosure 策略——系统提示词只列出 MCP 工具名和描述，
- * 不挂全量 schema（防上下文膨胀），LLM 决定使用哪个 MCP 工具后，
- * 通过此工具传入 mcpId + toolName + args 执行调用。
- * <p>
- * 一个 MCP 服务可能暴露多个工具，所以需要同时指定 mcpId 和 toolName。
- *
- * @author ai-agent-station-study
- */
+/** ReAct 内部工具：调用当前 Agent 已绑定并通过 tools/list 校验的 MCP 工具。 */
 @Slf4j
 @Component
 public class McpCallTool extends AbstractReActTool {
 
-    /**
-     * Validates the model-provided MCP tool name against tools/list output.
-     * A null return means the requested tool is valid.
-     */
+    /** Validates a model-provided MCP tool name against the live tools/list result. */
     public static String validateToolName(Set<String> exposedToolNames, String requestedToolName) {
-        if (exposedToolNames != null && exposedToolNames.contains(requestedToolName)) {
-            return null;
-        }
+        if (exposedToolNames != null && exposedToolNames.contains(requestedToolName)) return null;
         String available = exposedToolNames == null || exposedToolNames.isEmpty()
-                ? "无"
-                : exposedToolNames.stream().sorted().collect(Collectors.joining(", "));
+                ? "无" : exposedToolNames.stream().sorted().collect(Collectors.joining(", "));
         return "MCP 工具不存在: " + requestedToolName + "，可用工具: " + available;
     }
 
-    /**
-     * Validates the required fields from the MCP server schema before a request
-     * crosses the process boundary. The schema is intentionally accepted as an
-     * Object because MCP SDK versions expose different JsonSchema types.
-     */
+    /** Validates required fields from an MCP JSON schema before crossing the process boundary. */
     public static String validateRequiredArguments(Object inputSchema, JSONObject arguments) {
         if (inputSchema == null) return null;
         JSONObject schema;
@@ -88,107 +67,175 @@ public class McpCallTool extends AbstractReActTool {
         }
     }
 
+    /** 判断用户是否明确要求查询今天/今日的反馈。 */
+    public static boolean isTodayFeedbackQuery(String message) {
+        if (message == null || message.isBlank()) return false;
+        String text = message.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean feedback = text.contains("反馈") || text.contains("feedback");
+        boolean today = text.contains("今日") || text.contains("今天") || text.contains("当天") || text.contains("当日");
+        return feedback && today;
+    }
+
+    /** 返回专门查询今日反馈的工具名，不存在时不允许降级为模糊搜索。 */
+    public static String preferredTodayFeedbackTool(Set<String> exposedToolNames) {
+        return exposedToolNames != null && exposedToolNames.contains("get_today_feedback")
+                ? "get_today_feedback" : "";
+    }
+
     @Resource
     private ApplicationContext applicationContext;
 
-    @Tool(description = "调用一个绑定的 MCP 工具。参数 mcpId 为 MCP 工具配置 ID（格式如 mcp_fetch），toolName 为 MCP 服务暴露的具体工具名，args 为 JSON 格式的参数对象。调用前务必确认参数格式正确。")
-    public String callMcpTool(@ToolParam(description = "MCP 工具配置 ID，如 mcp_fetch") String mcpId,
-                              @ToolParam(description = "MCP 服务暴露的具体工具名，如 fetch") String toolName,
-                              @ToolParam(description = "JSON 格式的参数对象，如 {\"url\":\"https://example.com\"}") String args) {
-        String toolTag = "call_mcp(" + mcpId + "/" + toolName + ")";
-        emitAction(toolTag, "调用 MCP 工具: " + mcpId + "." + toolName);
-
+    @Tool(description = "调用一个绑定的 MCP 工具。今日反馈查询必须使用 get_today_feedback。")
+    public String callMcpTool(
+            @ToolParam(description = "MCP 工具配置 ID") String mcpId,
+            @ToolParam(description = "MCP 服务暴露的具体工具名") String toolName,
+            @ToolParam(description = "JSON 格式的参数对象") String args) {
+        String initialTag = "call_mcp(" + mcpId + "/" + toolName + ")";
         if (mcpId == null || toolName == null) {
-            String msg = "mcpId 和 toolName 不能为空";
-            emitObservation(toolTag, msg);
-            return msg;
+            String message = "mcpId 和 toolName 不能为空";
+            emitObservation(initialTag, message);
+            return message;
         }
+
         ReActToolContext context = ReActToolContextHolder.get();
-        if (context == null || context.getBoundMcpIds() == null || !context.getBoundMcpIds().contains(mcpId.trim())) {
-            String msg = "MCP 未绑定到当前 Agent: " + mcpId;
-            emitObservation(toolTag, msg);
-            return msg;
+        List<String> boundMcpIds = context == null || context.getBoundMcpIds() == null
+                ? List.of() : context.getBoundMcpIds();
+        if (boundMcpIds.isEmpty()) {
+            String message = "当前 Agent 未绑定 MCP，无法查询今日反馈";
+            emitObservation(initialTag, message);
+            return message;
         }
 
-        // 从 Spring 容器取 McpSyncClient bean
-        McpSyncClient client;
+        String effectiveMcpId = mcpId.trim();
+        String effectiveToolName = toolName.trim();
+        String effectiveArgs = args;
+        boolean todayQuery = isTodayFeedbackQuery(context == null ? null : context.getUserMessage());
+        McpTarget target;
         try {
-            client = applicationContext.getBean(
-                    AiAgentEnumVO.AI_CLIENT_TOOL_MCP.getBeanName(mcpId),
-                    McpSyncClient.class);
-        } catch (Exception e) {
-            String msg = "MCP 客户端未就绪: " + mcpId + "（可能未注册）";
-            log.warn(msg);
-            emitObservation(toolTag, msg);
-            return msg;
-        }
-
-        List<McpSchema.Tool> exposedTools;
-        try {
-            exposedTools = client.listTools().tools();
-            Set<String> exposedToolNames = exposedTools.stream()
-                    .map(McpSchema.Tool::name)
-                    .collect(Collectors.toSet());
-            String validationMessage = validateToolName(exposedToolNames, toolName.trim());
-            if (validationMessage != null) {
-                emitObservation(toolTag, validationMessage);
-                return validationMessage;
+            if (todayQuery) {
+                target = findTodayFeedbackTarget(boundMcpIds);
+                if (target == null) {
+                    String message = "今日反馈查询失败：当前 Agent 绑定的 MCP 未提供 get_today_feedback。"
+                            + "实际绑定工具为 " + describeBoundTools(boundMcpIds)
+                            + "；请绑定本地 inventory_feedback_mcp.py 对应的 MCP 版本。";
+                    emitObservation("call_mcp(today_feedback)", message);
+                    return message;
+                }
+                effectiveMcpId = target.mcpId();
+                effectiveToolName = "get_today_feedback";
+                effectiveArgs = todayFeedbackArgs(args);
+            } else {
+                if (!boundMcpIds.contains(effectiveMcpId)) {
+                    String message = "MCP 未绑定到当前 Agent: " + effectiveMcpId;
+                    emitObservation(initialTag, message);
+                    return message;
+                }
+                target = loadTarget(effectiveMcpId);
             }
-
         } catch (Exception e) {
-            String msg = "无法读取 MCP 工具列表: " + e.getMessage();
-            log.warn(msg, e);
-            emitObservation(toolTag, msg);
-            return msg;
+            String message = "无法读取 MCP 工具列表: " + safeMessage(e);
+            log.warn(message, e);
+            emitObservation(initialTag, message);
+            return message;
         }
 
-        // 解析参数
-        McpSchema.CallToolRequest request;
-        try {
-            JSONObject jsonArgs = (args != null && !args.isBlank())
-                    ? JSON.parseObject(args)
-                    : new JSONObject();
+        String toolTag = "call_mcp(" + effectiveMcpId + "/" + effectiveToolName + ")";
+        emitAction(toolTag, "调用 MCP 工具: " + effectiveMcpId + "." + effectiveToolName);
+        Set<String> exposedToolNames = target.tools().stream()
+                .map(McpSchema.Tool::name).collect(Collectors.toSet());
+        String validationMessage = validateToolName(exposedToolNames, effectiveToolName);
+        if (validationMessage != null) {
+            emitObservation(toolTag, validationMessage);
+            return validationMessage;
+        }
 
-            McpSchema.Tool exposedTool = exposedTools.stream()
-                    .filter(tool -> toolName.trim().equals(tool.name()))
-                    .findFirst()
-                    .orElse(null);
+        try {
+            JSONObject jsonArgs = effectiveArgs != null && !effectiveArgs.isBlank()
+                    ? JSON.parseObject(effectiveArgs) : new JSONObject();
+            String requestedToolName = effectiveToolName;
+            McpSchema.Tool exposedTool = target.tools().stream()
+                    .filter(tool -> requestedToolName.equals(tool.name()))
+                    .findFirst().orElse(null);
             String requiredMessage = validateRequiredArguments(
                     exposedTool == null ? null : exposedTool.inputSchema(), jsonArgs);
             if (requiredMessage != null) {
                 emitObservation(toolTag, requiredMessage);
                 return requiredMessage;
             }
-            request = new McpSchema.CallToolRequest(toolName, jsonArgs);
-        } catch (Exception e) {
-            String msg = "参数解析失败: " + e.getMessage() + " (args=" + args + ")";
-            emitObservation(toolTag, msg);
-            return msg;
-        }
-
-        // 执行工具调用
-        try {
-            McpSchema.CallToolResult result = client.callTool(request);
-
-            StringBuilder sb = new StringBuilder();
-            if (result.content() != null) {
+            McpSchema.CallToolRequest request = new McpSchema.CallToolRequest(effectiveToolName, jsonArgs);
+            McpSchema.CallToolResult result = target.client().callTool(request);
+            StringBuilder output = new StringBuilder();
+            if (result != null && result.content() != null) {
                 for (McpSchema.Content content : result.content()) {
-                    if (content instanceof McpSchema.TextContent text) {
-                        sb.append(text.text()).append("\n");
-                    }
+                    if (content instanceof McpSchema.TextContent text) output.append(text.text()).append('\n');
                 }
             }
-            String output = sb.toString().trim();
-            if (output.isEmpty()) {
-                output = "(无输出, isError=" + result.isError() + ")";
-            }
-            emitObservation(toolTag, output);
-            return output;
+            String value = output.toString().trim();
+            if (value.isEmpty()) value = "MCP 返回空内容（isError=" + (result != null && result.isError()) + ")";
+            emitObservation(toolTag, value);
+            return value;
         } catch (Exception e) {
-            String msg = "MCP 调用异常: " + e.getMessage();
-            log.error(msg, e);
-            emitObservation(toolTag, msg);
-            return msg;
+            String message = "MCP 调用异常: " + safeMessage(e);
+            log.error(message, e);
+            emitObservation(toolTag, message);
+            return message;
         }
+    }
+
+    private McpTarget findTodayFeedbackTarget(List<String> boundMcpIds) {
+        for (String boundMcpId : boundMcpIds) {
+            try {
+                McpTarget target = loadTarget(boundMcpId);
+                Set<String> names = target.tools().stream().map(McpSchema.Tool::name).collect(Collectors.toSet());
+                if (!preferredTodayFeedbackTool(names).isBlank()) return target;
+            } catch (Exception ignored) {
+                log.debug("今日反馈 MCP 探测失败: {}", boundMcpId);
+            }
+        }
+        return null;
+    }
+
+    private McpTarget loadTarget(String mcpId) {
+        McpSyncClient client = applicationContext.getBean(
+                AiAgentEnumVO.AI_CLIENT_TOOL_MCP.getBeanName(mcpId), McpSyncClient.class);
+        List<McpSchema.Tool> tools = client.listTools().tools();
+        return new McpTarget(mcpId, client, tools == null ? List.of() : tools);
+    }
+
+    private String describeBoundTools(List<String> boundMcpIds) {
+        return boundMcpIds.stream().map(id -> {
+            try {
+                McpTarget target = loadTarget(id);
+                String names = target.tools().stream().map(McpSchema.Tool::name)
+                        .sorted().collect(Collectors.joining(", "));
+                return id + "[" + (names.isBlank() ? "无工具" : names) + "]";
+            } catch (Exception e) {
+                return id + "[客户端未就绪]";
+            }
+        }).collect(Collectors.joining("；"));
+    }
+
+    private String todayFeedbackArgs(String args) {
+        JSONObject normalized = new JSONObject();
+        if (args != null && !args.isBlank()) {
+            try {
+                JSONObject requested = JSON.parseObject(args);
+                if (requested != null) {
+                    if (requested.getString("source") != null) normalized.put("source", requested.getString("source"));
+                    if (requested.getString("service") != null) normalized.put("service", requested.getString("service"));
+                }
+            } catch (Exception ignored) {
+                // 今日反馈查询由服务端补齐参数，模型传入的非 JSON 参数不应阻断查询。
+            }
+        }
+        normalized.put("limit", 50);
+        return JSON.toJSONString(normalized);
+    }
+
+    private String safeMessage(Exception e) {
+        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
+    private record McpTarget(String mcpId, McpSyncClient client, List<McpSchema.Tool> tools) {
     }
 }

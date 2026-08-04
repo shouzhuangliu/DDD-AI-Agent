@@ -55,4 +55,19 @@ public class McpCallToolValidationTest {
                 McpCallTool.requiredArgumentsSummary(
                         Map.of("required", java.util.List.of("feedbackId", "decision", "operator"))));
     }
+
+    @Test
+    public void recognizesTodayFeedbackIntentWithoutConfusingGenericSearch() {
+        assertTrue(McpCallTool.isTodayFeedbackQuery("查询今日反馈"));
+        assertTrue(McpCallTool.isTodayFeedbackQuery("帮我拉取今天的库存反馈"));
+        assertTrue(!McpCallTool.isTodayFeedbackQuery("搜索 DDR5 反馈"));
+    }
+
+    @Test
+    public void prefersDedicatedTodayFeedbackTool() {
+        assertEquals("get_today_feedback",
+                McpCallTool.preferredTodayFeedbackTool(Set.of("search_feedback", "get_today_feedback")));
+        assertEquals("",
+                McpCallTool.preferredTodayFeedbackTool(Set.of("search_feedback")));
+    }
 }

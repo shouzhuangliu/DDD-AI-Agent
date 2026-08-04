@@ -181,6 +181,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
         ReActToolContextHolder.set(ReActToolContext.builder()
                 .sessionId(sessionId)
+                .userMessage(requestParameter.getMessage())
                 .agentId(agentId)
                 .emitter(emitter)
                 .workDir(workDir)
@@ -214,7 +215,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             List<String> allowedTools = bindings.getEffectiveToolIds();
             String currentExecutionId = executionId;
             ReActToolContextHolder.set(ReActToolContext.builder()
-                    .sessionId(sessionId).agentId(agentId).emitter(emitter).workDir(workDir)
+                    .sessionId(sessionId).userMessage(requestParameter.getMessage()).agentId(agentId).emitter(emitter).workDir(workDir)
                     .boundSkillIds(skillIds).boundMcpIds(mcpIds)
                     .allowedTools(allowedTools).explicitToolIds(explicitToolIds)
                     .executionId(executionId).modelId(selectedModelId).maxSteps(maxSteps)
@@ -538,7 +539,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 2. 用户只是描述业务问题时，记录 Feedback，不要读取项目目录、代码或运行命令。
                 3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，必须直接调用 call_mcp_tool，不要询问生产授权，不要回复“无法访问生产数据”。
                 4. 今日反馈查询优先调用工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID，args 使用 JSON 对象字符串，例如 args="{\\"limit\\":50}"。
-                5. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
+                5. 如果绑定工具清单没有 get_today_feedback，必须明确报告“当前 Agent 未绑定库存反馈 MCP”，禁止改用 search_feedback、query_feedback 或其他模糊搜索工具伪造今日结果。
+                6. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
 
                 """);
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)
