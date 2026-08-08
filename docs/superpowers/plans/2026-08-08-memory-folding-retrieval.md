@@ -311,7 +311,7 @@ void retrievesOnlyFromCurrentSession() {
 void doesNotExecuteOriginalToolAgain() {
     when(recorder.findToolExchange("session_a", "call_1")).thenReturn(exchange("session_a", "call_1"));
 
-    tool.retrieve("session_a", "call_1");
+    tool.retrieveToolCall("session_a", "call_1");
 
     verify(recorder).findToolExchange("session_a", "call_1");
     verifyNoInteractions(originalMcpCallback);
