@@ -1,51 +1,81 @@
 package cn.bugstack.ai.domain.agent.service.tools.memory;
 
 import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
+import cn.bugstack.ai.domain.agent.service.memory.ToolCallExchange;
 import cn.bugstack.ai.domain.agent.service.tools.core.AbstractReActTool;
+import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContext;
+import cn.bugstack.ai.domain.agent.service.tools.core.ReActToolContextHolder;
+import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
- * 取回工具：按 tool_call_id 从 DB 捞回被折叠的消息原件。
- * <p>
- * 折叠只发生在「发给 LLM 的副本」上，DB 永远是完整原件。
- * LLM 在上下文中看到折叠指针后可调用此工具取回原文。
+ * 按工具调用 ID 从当前会话恢复被折叠的原始工具交换记录。
  */
 @Slf4j
 @Component
 public class RetrieveToolCallTool extends AbstractReActTool {
 
+    private static final int MAX_RETURN_CHARS = 20_000;
+
     @Resource
     private ChatMessageRecorder recorder;
 
-    @Tool(description = "按 tool_call_id 取回被折叠的完整消息原文。参数 toolCallId 为工具调用 ID（如 call_abc）。当上下文中的消息被折叠或标记为 retrieve 时，调用此工具获取完整内容。")
-    public String retrieveToolCall(@ToolParam(description = "工具调用 ID，如 call_abc") String toolCallId) {
-        String toolName = "retrieve_tool_call";
-        emitAction(toolName, "取回消息: " + toolCallId);
+    @Tool(description = "按 tool_call_id 取回当前会话中被折叠的完整工具结果，不会重新执行原工具")
+    public String retrieveToolCall(@ToolParam(description = "工具调用 ID，例如 call_abc") String toolCallId) {
+        ReActToolContext context = ReActToolContextHolder.get();
+        String sessionId = context == null ? null : context.getSessionId();
+        return retrieveToolCall(sessionId, toolCallId);
+    }
 
+    /** 服务层和测试使用的会话级入口。 */
+    public String retrieveToolCall(String sessionId, String toolCallId) {
+        String toolName = "retrieve_tool_call";
+        emitAction(toolName, "取回工具调用：" + toolCallId);
+
+        if (sessionId == null || sessionId.isBlank()) {
+            return observeError(toolName, "ERROR: session_id cannot be blank");
+        }
         if (toolCallId == null || toolCallId.isBlank()) {
-            String msg = "ERROR: tool_call_id 不能为空";
-            emitObservation(toolName, msg);
-            return msg;
+            return observeError(toolName, "ERROR: tool_call_id cannot be blank");
         }
 
         try {
-            String result = recorder.findByToolCallId(toolCallId);
-            if (result != null) {
-                emitObservation(toolName, "已取回消息: " + toolCallId);
-                return result;
+            ToolCallExchange exchange = recorder.findToolExchange(sessionId, toolCallId);
+            if (exchange == null) {
+                return observeError(toolName, "ERROR: no tool call exchange found for " + toolCallId);
             }
-            String msg = "ERROR: no tool call exchange found for " + toolCallId;
-            emitObservation(toolName, msg);
-            return msg;
-        } catch (Exception e) {
-            String msg = "ERROR: retrieve failed: " + e.getMessage();
-            log.error(msg, e);
-            emitObservation(toolName, msg);
-            return msg;
+
+            String result = exchange.resultContent() == null ? "" : exchange.resultContent();
+            boolean truncated = result.length() > MAX_RETURN_CHARS;
+            String bounded = truncated ? result.substring(0, MAX_RETURN_CHARS) : result;
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("toolCallId", exchange.toolCallId());
+            response.put("source", "archive");
+            response.put("tool", Map.of(
+                    "name", exchange.toolName() == null ? "" : exchange.toolName(),
+                    "arguments", exchange.toolArguments() == null ? "{}" : exchange.toolArguments()));
+            response.put("result", Map.of(
+                    "content", bounded,
+                    "truncated", truncated,
+                    "originalChars", result.length()));
+            emitObservation(toolName, "已取回工具调用：" + toolCallId);
+            return JSON.toJSONString(response);
+        } catch (Exception exception) {
+            String message = "ERROR: retrieve failed: " + exception.getMessage();
+            log.error(message, exception);
+            return observeError(toolName, message);
         }
+    }
+
+    private String observeError(String toolName, String message) {
+        emitObservation(toolName, message);
+        return message;
     }
 }
