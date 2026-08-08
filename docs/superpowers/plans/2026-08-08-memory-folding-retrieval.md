@@ -111,6 +111,7 @@ git commit -m "feat: 扩展会话工具消息元数据与会话级取回查询"
 
 **Files:**
 - Modify: `ai-agent-station-study-domain/src/main/java/cn/bugstack/ai/domain/agent/service/memory/MemoryFoldingPipeline.java`
+- Create: `ai-agent-station-study-domain/src/main/java/cn/bugstack/ai/domain/agent/service/memory/FoldConfig.java`
 - Create: `ai-agent-station-study-domain/src/main/java/cn/bugstack/ai/domain/agent/service/memory/HistoryMessageSanitizer.java`
 - Create: `ai-agent-station-study-domain/src/main/java/cn/bugstack/ai/domain/agent/service/memory/FoldedToolReference.java`
 - Test: `ai-agent-station-study-app/src/test/java/cn/bugstack/ai/test/agent/memory/MemoryFoldingPipelineTest.java`

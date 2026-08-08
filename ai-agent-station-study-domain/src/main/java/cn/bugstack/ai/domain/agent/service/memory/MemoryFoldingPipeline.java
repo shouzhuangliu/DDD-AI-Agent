@@ -5,247 +5,260 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- * 记忆折叠管线 — 推理前对消息副本做多级递进压缩。
- * <p>
- * 全部 Java 代码确定性完成，零 LLM 调用。
- * 压缩只改内存副本，不写 DB。
- * <p>
- * 管线顺序: sanitize → 轮内折叠 → 轮外剥离 → 单条截断 → 最终删条
- *
- * @author ai-agent-station-study
+ * 推理前的确定性历史压缩管线。只修改发送给模型的内存副本，数据库原文由调用记录负责保存。
  */
 @Slf4j
-public class MemoryFoldingPipeline {
+public final class MemoryFoldingPipeline {
 
-    public static final int KEEP_RECENT_STEPS = 6;
-    public static final int FOLD_TOOL_CONTENT_AFTER_STEP = 6;
-    public static final int SUMMARIZE_AFTER_STEP = 12;
-    public static final int LEVEL1_BUDGET_CHARS = 40000;
-    public static final int LEVEL2_BUDGET_CHARS = 80000;
-    public static final int MAX_MESSAGE_CHARS = 20000;
-    public static final int STAGE3_TRIGGER_CHARS = 120000;
-    public static final int MIN_KEEP_TOOLS = 6;
-
-    private static final String FOLD_MARKER = "……[agent:folded]……";
     private static final int LEAF_MIN_CHARS = 300;
     private static final int KEEP_HEAD_CHARS = 200;
     private static final int KEEP_TAIL_CHARS = 100;
 
-    /** 完整管线入口 */
+    private MemoryFoldingPipeline() {
+    }
+
     public static List<Map<String, Object>> fold(List<Map<String, Object>> messages) {
-        if (messages == null || messages.isEmpty()) return messages;
-        // 调用方可能使用 Map.of 构造消息；折叠阶段会修改 content/tool_calls，必须复制为可变 Map。
-        List<Map<String, Object>> msgs = new ArrayList<>();
-        for (Map<String, Object> message : messages) {
-            msgs.add(message == null ? new LinkedHashMap<>() : new LinkedHashMap<>(message));
-        }
-
-        msgs = sanitize(msgs);
-        msgs = intraRoundFold(msgs);
-        msgs = sanitize(msgs);
-        msgs = interRoundStrip(msgs);
-        msgs = sanitize(msgs);
-        msgs = capIndividualMessageSizes(msgs);
-        msgs = finalTrim(msgs);
-        return sanitize(msgs);
+        return fold(messages, FoldConfig.defaultProfile());
     }
 
-    /** sanitize: 配对校验 */
-    public static List<Map<String, Object>> sanitize(List<Map<String, Object>> messages) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        Set<String> pendingIds = null;
-        int pendingAsstIdx = -1;
+    public static List<Map<String, Object>> fold(List<Map<String, Object>> messages, FoldConfig config) {
+        if (messages == null || messages.isEmpty()) return List.of();
+        List<Map<String, Object>> copy = new ArrayList<>();
+        for (Map<String, Object> message : messages) copy.add(copyMap(message));
 
-        for (Map<String, Object> m : messages) {
-            String role = (String) m.get("role");
-            if ("tool".equals(role)) {
-                String tid = (String) m.get("tool_call_id");
-                if (pendingIds != null && tid != null && pendingIds.remove(tid)) {
-                    out.add(m);
-                }
-                continue;
-            }
-            if (pendingIds != null && !pendingIds.isEmpty()) {
-                Map<String, Object> lastAsst = out.get(pendingAsstIdx);
-                if (lastAsst != null) lastAsst.remove("tool_calls");
-                pendingIds = null;
-            }
-            if ("assistant".equals(role)) {
-                Object tc = m.get("tool_calls");
-                if (tc instanceof List && !((List<?>) tc).isEmpty()) {
-                    pendingIds = new HashSet<>();
-                    for (Object tco : (List<?>) tc) {
-                        if (tco instanceof Map) {
-                            Object id = ((Map<?, ?>) tco).get("id");
-                            if (id != null) pendingIds.add(id.toString());
-                        }
-                    }
-                    pendingAsstIdx = out.size();
-                } else { pendingIds = null; }
-            } else { pendingIds = null; }
-            out.add(m);
-        }
-        if (pendingIds != null && !pendingIds.isEmpty() && pendingAsstIdx >= 0 && pendingAsstIdx < out.size()) {
-            Map<String, Object> lastAsst = out.get(pendingAsstIdx);
-            if (lastAsst != null) lastAsst.remove("tool_calls");
-        }
-        return out;
+        List<Map<String, Object>> current = HistoryMessageSanitizer.sanitize(copy);
+        current = foldCurrentRound(current, config);
+        current = HistoryMessageSanitizer.sanitize(current);
+        current = stripHistoricalRounds(current, config);
+        current = HistoryMessageSanitizer.sanitize(current);
+        current = capIndividualMessages(current, config.maxMessageChars());
+        current = trimToFinalBudget(current, config.finalTriggerChars());
+        return HistoryMessageSanitizer.sanitize(current);
     }
 
-    /** 轮内折叠 */
-    private static List<Map<String, Object>> intraRoundFold(List<Map<String, Object>> messages) {
-        int lastUserIdx = -1;
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if ("user".equals(messages.get(i).get("role"))) { lastUserIdx = i; break; }
+    private static List<Map<String, Object>> foldCurrentRound(List<Map<String, Object>> messages,
+                                                                FoldConfig config) {
+        int lastUser = lastIndexOfRole(messages, "user");
+        if (lastUser < 0) return messages;
+        List<Integer> steps = new ArrayList<>();
+        for (int i = lastUser + 1; i < messages.size(); i++) {
+            Map<String, Object> message = messages.get(i);
+            if ("assistant".equals(message.get("role")) && message.get("tool_calls") instanceof List<?>) {
+                steps.add(i);
+            }
         }
-        if (lastUserIdx < 0) return messages;
-        List<Integer> asstSteps = new ArrayList<>();
-        for (int i = lastUserIdx + 1; i < messages.size(); i++) {
-            Map<String, Object> m = messages.get(i);
-            if ("assistant".equals(m.get("role")) && m.get("tool_calls") != null) asstSteps.add(i);
-        }
-        int totalSteps = asstSteps.size();
-        for (int si = 0; si < totalSteps; si++) {
-            int stepFromEnd = totalSteps - si;
-            int idx = asstSteps.get(si);
-            if (stepFromEnd <= KEEP_RECENT_STEPS) continue;
-            Map<String, Object> asst = messages.get(idx);
-            foldToolContent(asst);
-            if (stepFromEnd > SUMMARIZE_AFTER_STEP) summarizeStep(asst, stepFromEnd);
+
+        for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+            int distanceFromEnd = steps.size() - stepIndex;
+            if (distanceFromEnd <= config.keepRecentToolSteps()) continue;
+            int assistantIndex = steps.get(stepIndex);
+            foldToolExchange(messages, assistantIndex);
+            if (distanceFromEnd > config.summarizeAfterStep()) {
+                summarizeAssistantStep(messages.get(assistantIndex), distanceFromEnd);
+            }
         }
         return messages;
     }
 
-    private static void foldToolContent(Map<String, Object> asst) {
-        Object tc = asst.get("tool_calls");
-        if (tc instanceof List) {
-            for (Object tco : (List<?>) tc) {
-                if (tco instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> func = (Map<String, Object>) ((Map<String, Object>) tco).get("function");
-                    if (func != null) func.put("arguments", "{}");
+    @SuppressWarnings("unchecked")
+    private static void foldToolExchange(List<Map<String, Object>> messages, int assistantIndex) {
+        Map<String, Object> assistant = messages.get(assistantIndex);
+        Object rawCalls = assistant.get("tool_calls");
+        if (!(rawCalls instanceof List<?> calls)) return;
+
+        Map<String, String> namesById = new LinkedHashMap<>();
+        for (Object call : calls) {
+            if (!(call instanceof Map<?, ?> callMap)) continue;
+            String id = String.valueOf(valueOrDefault(callMap, "id", ""));
+            Object functionObject = callMap.get("function");
+            String name = "unknown";
+            if (functionObject instanceof Map<?, ?> function) {
+                name = String.valueOf(valueOrDefault(function, "name", "unknown"));
+                ((Map<String, Object>) function).put("arguments", "{}");
+            }
+            if (!id.isBlank()) namesById.put(id, name);
+        }
+
+        for (int i = assistantIndex + 1; i < messages.size(); i++) {
+            Map<String, Object> message = messages.get(i);
+            if (!"tool".equals(message.get("role"))) break;
+            String id = String.valueOf(message.getOrDefault("tool_call_id", ""));
+            String name = namesById.get(id);
+            if (name != null) {
+                message.put("content", FoldedToolReference.render(name, id,
+                        String.valueOf(message.getOrDefault("content", ""))));
+            }
+        }
+    }
+
+    private static void summarizeAssistantStep(Map<String, Object> assistant, int distanceFromEnd) {
+        String content = String.valueOf(assistant.getOrDefault("content", "")).trim();
+        String summary = content.length() <= 240 ? content : content.substring(0, 240) + "...";
+        StringBuilder refs = new StringBuilder();
+        Object calls = assistant.get("tool_calls");
+        if (calls instanceof List<?> list) {
+            for (Object call : list) {
+                if (call instanceof Map<?, ?> map) {
+                    if (refs.length() > 0) refs.append(",");
+                    refs.append(valueOrDefault(map, "id", "unknown"));
                 }
             }
         }
+        assistant.put("content", "[tool-step-summary step=" + distanceFromEnd
+                + "] tool_call_ids=" + refs + "\n" + summary);
     }
 
-    private static void summarizeStep(Map<String, Object> asst, int stepFromEnd) {
-        String orig = (String) asst.getOrDefault("content", "");
-        asst.put("content", orig.length() > 100
-                ? "[tool-step-summary step=" + stepFromEnd + "]\n" + orig.substring(0, Math.min(100, orig.length()))
-                : orig);
-    }
+    private static List<Map<String, Object>> stripHistoricalRounds(List<Map<String, Object>> messages,
+                                                                     FoldConfig config) {
+        int estimated = estimateChars(messages);
+        int rounds = countUserRounds(messages);
+        int stripFromEnd = estimated > config.level2BudgetChars() && rounds > 1 ? 1
+                : estimated > config.level1BudgetChars() && rounds > 3 ? 3 : 0;
+        if (stripFromEnd == 0) return messages;
 
-    /** 轮外剥离 */
-    private static List<Map<String, Object>> interRoundStrip(List<Map<String, Object>> messages) {
-        int est = estimateChars(messages);
-        int userRounds = countUserRounds(messages);
-        if (userRounds <= 1) return messages;
-        int stripFromEnd = 0;
-        if (est > LEVEL2_BUDGET_CHARS && userRounds > 1) stripFromEnd = 1;
-        else if (est > LEVEL1_BUDGET_CHARS && userRounds > 3) stripFromEnd = 3;
-        if (stripFromEnd <= 0) return messages;
-        return stripOldRounds(messages, stripFromEnd);
-    }
-
-    private static List<Map<String, Object>> stripOldRounds(List<Map<String, Object>> messages, int stripFromEnd) {
-        List<List<Map<String, Object>>> roundsList = new ArrayList<>();
-        List<Map<String, Object>> currentRound = new ArrayList<>();
-        for (Map<String, Object> m : messages) {
-            currentRound.add(m);
-            if ("user".equals(m.get("role"))) {
-                if (!currentRound.isEmpty()) { roundsList.add(currentRound); currentRound = new ArrayList<>(); }
-            }
-        }
-        if (!currentRound.isEmpty()) roundsList.add(currentRound);
+        List<List<Map<String, Object>>> roundList = splitRounds(messages);
         List<Map<String, Object>> result = new ArrayList<>();
-        int totalRounds = roundsList.size();
-        for (int ri = 0; ri < totalRounds; ri++) {
-            if (ri < totalRounds - stripFromEnd) {
-                Map<String, Object> lastAsst = null;
-                for (Map<String, Object> m : roundsList.get(ri)) {
-                    if ("assistant".equals(m.get("role")) && m.get("tool_calls") == null) lastAsst = m;
-                }
-                for (Map<String, Object> m : roundsList.get(ri)) {
-                    if ("user".equals(m.get("role"))) result.add(m);
-                }
-                if (lastAsst != null) result.add(lastAsst);
-            } else {
-                result.addAll(roundsList.get(ri));
+        int keepFrom = Math.max(0, roundList.size() - stripFromEnd);
+        for (int i = 0; i < roundList.size(); i++) {
+            List<Map<String, Object>> round = roundList.get(i);
+            if (i >= keepFrom) {
+                result.addAll(round);
+                continue;
             }
+            Map<String, Object> lastAnswer = null;
+            for (Map<String, Object> message : round) {
+                if ("user".equals(message.get("role"))) result.add(message);
+                if ("assistant".equals(message.get("role")) && message.get("tool_calls") == null) {
+                    lastAnswer = message;
+                }
+            }
+            if (lastAnswer != null && !result.contains(lastAnswer)) result.add(lastAnswer);
         }
         return result;
     }
 
-    /** 单条截断 */
-    private static List<Map<String, Object>> capIndividualMessageSizes(List<Map<String, Object>> messages) {
-        for (Map<String, Object> m : messages) {
-            String content = (String) m.get("content");
-            if (content != null && content.length() > MAX_MESSAGE_CHARS) {
-                m.put("content", content.substring(0, MAX_MESSAGE_CHARS) + "\n……[truncated]……");
+    private static List<List<Map<String, Object>>> splitRounds(List<Map<String, Object>> messages) {
+        List<List<Map<String, Object>>> rounds = new ArrayList<>();
+        List<Map<String, Object>> current = new ArrayList<>();
+        for (Map<String, Object> message : messages) {
+            if ("user".equals(message.get("role")) && !current.isEmpty()) {
+                rounds.add(current);
+                current = new ArrayList<>();
+            }
+            current.add(message);
+        }
+        if (!current.isEmpty()) rounds.add(current);
+        return rounds;
+    }
+
+    private static List<Map<String, Object>> capIndividualMessages(List<Map<String, Object>> messages,
+                                                                    int maxChars) {
+        for (Map<String, Object> message : messages) {
+            String content = String.valueOf(message.getOrDefault("content", ""));
+            if (content.length() <= maxChars) continue;
+            if ("tool".equals(message.get("role"))) {
+                String id = String.valueOf(message.getOrDefault("tool_call_id", "unknown"));
+                String name = String.valueOf(message.getOrDefault("name", "unknown"));
+                message.put("content", FoldedToolReference.render(name, id, content));
+            } else {
+                message.put("content", foldPlainText(content));
             }
         }
         return messages;
     }
 
-    /** 最终删条 */
-    private static List<Map<String, Object>> finalTrim(List<Map<String, Object>> messages) {
-        int est = estimateChars(messages);
-        if (est <= STAGE3_TRIGGER_CHARS) return messages;
-        int lastUserIdx = -1;
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if ("user".equals(messages.get(i).get("role"))) { lastUserIdx = i; break; }
+    private static List<Map<String, Object>> trimToFinalBudget(List<Map<String, Object>> messages,
+                                                                int triggerChars) {
+        if (estimateChars(messages) <= triggerChars) return messages;
+        int lastUser = lastIndexOfRole(messages, "user");
+        if (lastUser > 0) messages.subList(0, lastUser).clear();
+        if (estimateChars(messages) <= triggerChars) return messages;
+        for (Map<String, Object> message : messages) {
+            String content = String.valueOf(message.getOrDefault("content", ""));
+            if (content.length() > 512) message.put("content", foldPlainText(content));
         }
-        if (lastUserIdx > 0) messages.subList(0, lastUserIdx).clear();
-        Map<String, Object> notice = new LinkedHashMap<>();
-        notice.put("role", "assistant");
-        notice.put("content", "上下文已裁剪，完整正文仍在磁盘——需要时可用 read_file 取回。已完成的工具调用请勿重复执行。");
-        messages.add(0, notice);
         return messages;
     }
 
-    private static int estimateChars(List<Map<String, Object>> messages) {
-        int total = 0;
-        for (Map<String, Object> m : messages) {
-            String c = (String) m.get("content");
-            if (c != null) total += c.length();
-        }
-        return total;
-    }
-
-    private static int countUserRounds(List<Map<String, Object>> messages) {
-        int count = 0;
-        for (Map<String, Object> m : messages) { if ("user".equals(m.get("role"))) count++; }
-        return count;
-    }
-
     public static String foldPlainText(String text) {
-        if (text == null || text.length() <= LEAF_MIN_CHARS) return text;
-        return text.substring(0, KEEP_HEAD_CHARS) + FOLD_MARKER + text.substring(text.length() - KEEP_TAIL_CHARS);
+        if (text == null || text.length() <= LEAF_MIN_CHARS) return text == null ? "" : text;
+        return text.substring(0, KEEP_HEAD_CHARS) + "...[agent:folded]..."
+                + text.substring(text.length() - KEEP_TAIL_CHARS);
     }
 
     public static String foldJsonText(String json) {
         if (json == null || json.isBlank()) return json;
-        try { return JSON.toJSONString(foldJsonNode(JSON.parse(json))); }
-        catch (Exception e) { return foldPlainText(json); }
+        try {
+            return JSON.toJSONString(foldJsonNode(JSON.parse(json)));
+        } catch (Exception ignored) {
+            return foldPlainText(json);
+        }
     }
 
-    @SuppressWarnings("unchecked")
     private static Object foldJsonNode(Object node) {
-        if (node instanceof String s) return foldPlainText(s);
-        if (node instanceof JSONObject obj) {
-            JSONObject r = new JSONObject();
-            for (Map.Entry<String, Object> e : obj.entrySet()) r.put(e.getKey(), foldJsonNode(e.getValue()));
-            return r;
+        if (node instanceof String text) return foldPlainText(text);
+        if (node instanceof JSONObject object) {
+            JSONObject result = new JSONObject();
+            for (Map.Entry<String, Object> entry : object.entrySet()) {
+                result.put(entry.getKey(), foldJsonNode(entry.getValue()));
+            }
+            return result;
         }
-        if (node instanceof JSONArray arr) {
-            JSONArray r = new JSONArray();
-            for (Object item : arr) r.add(foldJsonNode(item));
-            return r;
+        if (node instanceof JSONArray array) {
+            JSONArray result = new JSONArray();
+            for (Object item : array) result.add(foldJsonNode(item));
+            return result;
         }
         return node;
+    }
+
+    private static int lastIndexOfRole(List<Map<String, Object>> messages, String role) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (role.equals(messages.get(i).get("role"))) return i;
+        }
+        return -1;
+    }
+
+    private static int countUserRounds(List<Map<String, Object>> messages) {
+        int count = 0;
+        for (Map<String, Object> message : messages) if ("user".equals(message.get("role"))) count++;
+        return count;
+    }
+
+    private static int estimateChars(List<Map<String, Object>> messages) {
+        int total = 0;
+        for (Map<String, Object> message : messages) {
+            Object content = message.get("content");
+            if (content != null) total += String.valueOf(content).length();
+        }
+        return total;
+    }
+
+    private static Object valueOrDefault(Map<?, ?> map, Object key, Object fallback) {
+        Object value = map.get(key);
+        return value == null ? fallback : value;
+    }
+
+    private static Map<String, Object> copyMap(Map<String, Object> source) {
+        Map<String, Object> target = new LinkedHashMap<>();
+        if (source == null) return target;
+        source.forEach((key, value) -> target.put(key, copyValue(value)));
+        return target;
+    }
+
+    private static Object copyValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> nested = new LinkedHashMap<>();
+            map.forEach((key, item) -> nested.put(String.valueOf(key), copyValue(item)));
+            return nested;
+        }
+        if (value instanceof List<?> list) return list.stream().map(MemoryFoldingPipeline::copyValue).toList();
+        return value;
     }
 }
