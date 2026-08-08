@@ -11,6 +11,7 @@ import cn.bugstack.ai.domain.agent.model.valobj.AiAgentVO;
 import cn.bugstack.ai.domain.agent.service.execute.IExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
+import cn.bugstack.ai.domain.agent.service.memory.HistoryMessageMapper;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
@@ -254,13 +255,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             List<HistoryMessage> history = messageRecorder.getHistory(sessionId);
 
             // 消息 Map 列表 → fold 管线
-            java.util.List<java.util.Map<String, Object>> msgMaps = new java.util.ArrayList<>();
-            for (HistoryMessage h : history) {
-                java.util.Map<String, Object> message = new java.util.LinkedHashMap<>();
-                message.put("role", h.getRole());
-                message.put("content", h.getContent());
-                msgMaps.add(message);
-            }
+            java.util.List<java.util.Map<String, Object>> msgMaps = HistoryMessageMapper.toMaps(history);
             java.util.Map<String, Object> currentMessage = new java.util.LinkedHashMap<>();
             currentMessage.put("role", "user");
             currentMessage.put("content", requestParameter.getMessage());
@@ -268,14 +263,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             msgMaps = MemoryFoldingPipeline.fold(msgMaps);
 
             // 转 Spring AI Message
-            List<org.springframework.ai.chat.messages.Message> msgs = new java.util.ArrayList<>();
-            for (java.util.Map<String, Object> m : msgMaps) {
-                String r = (String) m.get("role");
-                String c = (String) m.get("content");
-                if (c == null) c = "";
-                if ("user".equals(r)) msgs.add(new UserMessage(c));
-                else if ("assistant".equals(r)) msgs.add(new AssistantMessage(c));
-            }
+            List<org.springframework.ai.chat.messages.Message> msgs = HistoryMessageMapper.toSpringMessages(msgMaps);
 
             String finalContent = isLowValueRequest(requestParameter.getMessage())
                     ? "请补充具体问题或业务对象，我再为你查询。"

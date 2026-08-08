@@ -122,8 +122,17 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
                     r.add(HistoryMessage.builder().role("assistant").content("[跨会话长期记忆] " + memory.content()).build()));
         }
         for (ChatMessage m : all) {
-            if (m.getId() > covered && ("user".equals(m.getRole()) || "assistant".equals(m.getRole())))
-                r.add(HistoryMessage.builder().role(m.getRole()).content(m.getContent()).build());
+            if (m.getId() != null && m.getId() > covered
+                    && ("user".equals(m.getRole()) || "assistant".equals(m.getRole()) || "tool".equals(m.getRole()))) {
+                r.add(HistoryMessage.builder()
+                        .role(m.getRole())
+                        .content(m.getContent())
+                        .toolCallId(m.getToolCallId())
+                        .toolName(m.getToolName())
+                        .toolArguments(m.getToolArguments())
+                        .toolCallsJson(m.getToolCallsJson())
+                        .build());
+            }
         }
         return r;
     }

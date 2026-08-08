@@ -9,6 +9,7 @@ import cn.bugstack.ai.domain.agent.service.execute.IExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.execute.react.ReActExecuteStrategy;
 import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
+import cn.bugstack.ai.domain.agent.service.memory.HistoryMessageMapper;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import com.alibaba.fastjson2.JSON;
@@ -115,28 +116,11 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
     }
 
     private List<Message> buildMessages(List<HistoryMessage> history, String currentMessage) {
-        List<Map<String, Object>> maps = new ArrayList<>();
-        if (history != null) {
-            int start = Math.max(0, history.size() - 12);
-            for (int i = start; i < history.size(); i++) {
-                HistoryMessage h = history.get(i);
-                maps.add(Map.of("role", h.getRole(), "content", h.getContent() == null ? "" : h.getContent()));
-            }
-        }
+        List<Map<String, Object>> maps = HistoryMessageMapper.toMaps(history);
         maps.add(Map.of("role", "user", "content", currentMessage == null ? "" : currentMessage));
         maps = MemoryFoldingPipeline.fold(maps);
 
-        List<Message> messages = new ArrayList<>();
-        for (Map<String, Object> item : maps) {
-            String role = String.valueOf(item.get("role"));
-            String content = String.valueOf(item.getOrDefault("content", ""));
-            if ("assistant".equals(role)) {
-                messages.add(new AssistantMessage(content));
-            } else {
-                messages.add(new UserMessage(content));
-            }
-        }
-        return messages;
+        return HistoryMessageMapper.toSpringMessages(maps);
     }
 
     private void recordLlmLog(String sessionId, String agentId, String modelId, String systemPrompt, String userMessage,
