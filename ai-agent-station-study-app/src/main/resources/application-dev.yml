@@ -79,7 +79,10 @@ logging:
 agent:
   memory:
     token-budget: 16000
+    summary-token-threshold: 8000
+    summary-hard-limit: 16000
     retain-messages: 24
+    min-new-user-turns: 4
     long-term:
       # pgvector = local long-term memory with SiliconFlow BGE-M3 embeddings.
       # mem0 = external Mem0 REST service. noop = disable cross-session memory.

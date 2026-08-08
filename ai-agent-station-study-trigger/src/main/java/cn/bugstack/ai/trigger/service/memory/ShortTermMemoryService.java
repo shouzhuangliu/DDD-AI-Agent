@@ -14,6 +14,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -38,6 +39,7 @@ public class ShortTermMemoryService {
     @Value("${agent.memory.retain-messages:24}") private int retainMessages;
     @Value("${agent.memory.min-new-user-turns:4}") private int minNewMeaningfulUserTurns;
 
+    @Transactional
     public void refreshIfNeeded(String agentId, String sessionId, String modelId) {
         List<ChatMessage> messages = messageDao.queryBySessionId(sessionId);
         MemorySummary previous = summaryDao.queryLatest(sessionId);
