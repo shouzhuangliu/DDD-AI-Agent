@@ -16,6 +16,11 @@
     </insert>
     <select id="queryBySessionId" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE session_id=#{sessionId} ORDER BY id ASC</select>
     <select id="queryByToolCallId" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE tool_call_id=#{toolCallId} LIMIT 1</select>
+    <select id="queryBySessionAndToolCallId" resultMap="ChatMessageMap">
+        SELECT * FROM chat_message
+        WHERE session_id=#{sessionId} AND tool_call_id=#{toolCallId}
+        ORDER BY id ASC LIMIT 1
+    </select>
     <select id="countBySessionId" resultType="long">SELECT COUNT(*) FROM chat_message WHERE session_id=#{sessionId}</select>
     <select id="queryById" resultMap="ChatMessageMap">SELECT * FROM chat_message WHERE id=#{id}</select>
     <update id="updateCompressed">UPDATE chat_message SET compressed=#{compressed} WHERE id=#{id}</update>

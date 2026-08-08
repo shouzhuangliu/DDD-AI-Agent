@@ -11,6 +11,8 @@ public interface IChatMessageDao {
     ChatMessage queryById(@Param("id") Long id);
     List<ChatMessage> queryBySessionId(@Param("sessionId") String sessionId);
     ChatMessage queryByToolCallId(@Param("toolCallId") String toolCallId);
+    ChatMessage queryBySessionAndToolCallId(@Param("sessionId") String sessionId,
+                                            @Param("toolCallId") String toolCallId);
     long countBySessionId(@Param("sessionId") String sessionId);
     int updateCompressed(@Param("id") Long id, @Param("compressed") int compressed);
 }

@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.service.memory;
 
 import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
+import cn.bugstack.ai.domain.agent.service.memory.ToolCallExchange;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
@@ -130,6 +131,27 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     @Override public String findByToolCallId(String id) {
         ChatMessage m = chatMessageDao.queryByToolCallId(id);
         return m != null ? m.getContent() : null;
+    }
+
+    @Override public ToolCallExchange findToolExchange(String sessionId, String toolCallId) {
+        if (sessionId == null || sessionId.isBlank() || toolCallId == null || toolCallId.isBlank()) {
+            return null;
+        }
+        ChatMessage toolMessage = chatMessageDao.queryBySessionAndToolCallId(sessionId, toolCallId);
+        if (toolMessage == null) return null;
+
+        ChatMessage assistantMessage = chatMessageDao.queryBySessionId(sessionId).stream()
+                .filter(message -> message.getId() != null && toolMessage.getId() != null
+                        && message.getId() < toolMessage.getId())
+                .filter(message -> "assistant".equalsIgnoreCase(message.getRole()))
+                .filter(message -> message.getToolCallsJson() != null
+                        && message.getToolCallsJson().contains(toolCallId))
+                .reduce((ignored, latest) -> latest)
+                .orElse(null);
+        return new ToolCallExchange(sessionId, toolCallId,
+                toolMessage.getToolName(), toolMessage.getToolArguments(),
+                assistantMessage == null ? "" : assistantMessage.getContent(),
+                toolMessage.getContent());
     }
     @Override public void markCompressed(long id) { chatMessageDao.updateCompressed(id, 1); }
 

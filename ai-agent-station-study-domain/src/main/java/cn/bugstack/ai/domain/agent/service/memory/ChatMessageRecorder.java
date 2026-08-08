@@ -17,6 +17,7 @@ public interface ChatMessageRecorder {
     void recordAssistant(String sessionId, String agentId, int turn, int step, String content, String toolCallsJson);
     void recordTool(String sessionId, String agentId, int turn, int step, String toolCallId, String toolName, String toolArguments, String content);
     List<HistoryMessage> getHistory(String sessionId);
+    ToolCallExchange findToolExchange(String sessionId, String toolCallId);
     String findByToolCallId(String toolCallId);
     void markCompressed(long id);
 
