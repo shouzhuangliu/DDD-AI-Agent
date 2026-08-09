@@ -10,6 +10,7 @@ public class ChatMessageRecorderNoop implements ChatMessageRecorder {
 
     @Override public void recordUser(String s, String a, int t, String c) { log.trace("NOOP user: {}", s); }
     @Override public void recordAssistant(String s, String a, int t, int st, String c, String tc) { log.trace("NOOP asst: {}", s); }
+    @Override public void recordAssistantToolCalls(String s, String a, int t, int st, String c, String tc) { log.trace("NOOP tool calls: {}", s); }
     @Override public void recordTool(String s, String a, int t, int st, String id, String n, String args, String c) { log.trace("NOOP tool: {}", s); }
     @Override public List<HistoryMessage> getHistory(String s) { return List.of(); }
     @Override public ToolCallExchange findToolExchange(String sessionId, String toolCallId) { return null; }

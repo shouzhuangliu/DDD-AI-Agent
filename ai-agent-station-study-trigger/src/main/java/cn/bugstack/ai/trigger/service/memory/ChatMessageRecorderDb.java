@@ -84,6 +84,10 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
         }
     }
 
+    @Override public void recordAssistantToolCalls(String s, String a, int t, int st, String c, String tc) {
+        save(s, a, t, st, "assistant", c, null, null, null, tc);
+    }
+
     private ChatMessage save(String s, String a, int t, int st, String r, String c, String tid, String tn, String ta, String tcj) {
         ChatMessage message = ChatMessage.builder().sessionId(s).agentId(a).turn(t).step(st).role(r).content(c)
                 .toolCallId(tid != null ? tid : "").toolName(tn != null ? tn : "")

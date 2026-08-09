@@ -72,6 +72,30 @@ public final class HistoryMessageMapper {
         return result;
     }
 
+    /** 将模型返回的 assistant 消息转为下一轮折叠使用的规范 Map。 */
+    public static Map<String, Object> toMap(AssistantMessage message) {
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        mapped.put("role", "assistant");
+        mapped.put("content", message == null || message.getText() == null ? "" : message.getText());
+        if (message == null || message.getToolCalls() == null || message.getToolCalls().isEmpty()) return mapped;
+        List<Map<String, Object>> calls = new ArrayList<>();
+        for (AssistantMessage.ToolCall call : message.getToolCalls()) {
+            calls.add(Map.of("id", call.id(), "type", call.type(),
+                    "function", Map.of("name", call.name(), "arguments", call.arguments())));
+        }
+        mapped.put("tool_calls", calls);
+        return mapped;
+    }
+
+    public static Map<String, Object> toolMap(String toolCallId, String name, String content) {
+        Map<String, Object> mapped = new LinkedHashMap<>();
+        mapped.put("role", "tool");
+        mapped.put("tool_call_id", toolCallId == null ? "" : toolCallId);
+        mapped.put("name", name == null ? "" : name);
+        mapped.put("content", content == null ? "" : content);
+        return mapped;
+    }
+
     private static AssistantMessage toAssistantMessage(Map<String, Object> message) {
         List<AssistantMessage.ToolCall> calls = new ArrayList<>();
         Object rawCalls = message.get("tool_calls");

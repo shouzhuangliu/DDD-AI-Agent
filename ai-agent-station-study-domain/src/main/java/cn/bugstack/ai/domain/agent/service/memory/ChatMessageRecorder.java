@@ -15,6 +15,9 @@ public interface ChatMessageRecorder {
     // ========== 消息记录 ==========
     void recordUser(String sessionId, String agentId, int turn, String content);
     void recordAssistant(String sessionId, String agentId, int turn, int step, String content, String toolCallsJson);
+    /** 仅持久化模型返回的 tool_calls，不触发最终 assistant 的业务分析任务。 */
+    void recordAssistantToolCalls(String sessionId, String agentId, int turn, int step,
+                                   String content, String toolCallsJson);
     void recordTool(String sessionId, String agentId, int turn, int step, String toolCallId, String toolName, String toolArguments, String content);
     List<HistoryMessage> getHistory(String sessionId);
     ToolCallExchange findToolExchange(String sessionId, String toolCallId);

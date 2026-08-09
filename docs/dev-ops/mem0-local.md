@@ -34,8 +34,15 @@ $env:SENSENOVA_API_KEY = "<your-sensenova-key>"
 ```yaml
 agent:
   memory:
-    token-budget: 16000
     retain-messages: 24
+    min-new-user-turns: 4
+    context:
+      # 按模型上下文窗口比例计算软摘要/硬折叠阈值，不再使用固定 8000/16000。
+      default-context-window-tokens: 32768
+      default-max-output-tokens: 4096
+      soft-summary-ratio: 0.60
+      hard-fold-ratio: 0.85
+      safety-margin-tokens: 1024
 ```
 
 召回时按 `agentId` 隔离，不区分用户。每次根据当前用户输入最多召回 3 条同 Agent 的长期记忆，并注入为 `[跨会话长期记忆] ...`。

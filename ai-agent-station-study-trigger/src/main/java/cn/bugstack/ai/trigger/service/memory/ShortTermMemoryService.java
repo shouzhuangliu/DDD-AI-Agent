@@ -4,6 +4,8 @@ import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.memory.RollingSummaryPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.TokenBudgetEstimator;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
+import cn.bugstack.ai.domain.agent.service.memory.ContextBudgetPolicy;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
 import com.alibaba.fastjson2.JSON;
@@ -14,9 +16,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -30,56 +30,64 @@ public class ShortTermMemoryService {
 
     @Resource private IChatMessageDao messageDao;
     @Resource private IMemorySummaryDao summaryDao;
-    @Resource private IMemoryStateDao stateDao;
     @Resource private ApplicationContext applicationContext;
     @Resource private LongTermMemoryPort longTermMemoryPort;
     @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
-    @Value("${agent.memory.summary-token-threshold:8000}") private int tokenThreshold;
-    @Value("${agent.memory.summary-hard-limit:16000}") private int hardTokenLimit;
+    @Resource private ShortTermMemoryPersistenceService persistenceService;
+    @Resource private ContextBudgetPolicy contextBudgetPolicy;
     @Value("${agent.memory.retain-messages:24}") private int retainMessages;
     @Value("${agent.memory.min-new-user-turns:4}") private int minNewMeaningfulUserTurns;
 
-    @Transactional
     public void refreshIfNeeded(String agentId, String sessionId, String modelId) {
         List<ChatMessage> messages = messageDao.queryBySessionId(sessionId);
         MemorySummary previous = summaryDao.queryLatest(sessionId);
         long covered = previous == null ? 0 : previous.getEndMessageId();
-        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), tokenThreshold,
-                hardTokenLimit, retainMessages, minNewMeaningfulUserTurns);
-        RollingSummaryPolicy.SummaryPlan plan = policy.plan(messages.stream()
+        List<RollingSummaryPolicy.MemoryMessage> memoryMessages = messages.stream()
                 .map(message -> new RollingSummaryPolicy.MemoryMessage(message.getId(), message.getRole(), message.getContent()))
-                .toList(), covered);
+                .toList();
+        List<java.util.Map<String, Object>> contextMessages = messages.stream().map(message -> {
+            java.util.Map<String, Object> mapped = new java.util.LinkedHashMap<>();
+            mapped.put("role", message.getRole());
+            mapped.put("content", summaryContent(message));
+            mapped.put("tool_arguments", message.getToolArguments());
+            return mapped;
+        }).toList();
+        ContextBudgetPolicy.BudgetDecision budget = contextBudgetPolicy.decide(
+                modelId, PROMPT, "", contextMessages);
+        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(),
+                budget.softSummaryThreshold(), budget.hardFoldThreshold(), retainMessages,
+                minNewMeaningfulUserTurns);
+        RollingSummaryPolicy.SummaryPlan plan = policy.plan(memoryMessages, covered);
         if (!plan.required()) return;
 
+        long latestMessageId = messages.stream().map(ChatMessage::getId).filter(id -> id != null)
+                .mapToLong(Long::longValue).max().orElse(0L);
         StringBuilder input = new StringBuilder();
         if (previous != null) input.append("PREVIOUS SUMMARY:\n").append(previous.getSummary()).append("\nNEW MESSAGES:\n");
-        messages.stream().filter(message -> message.getId() >= plan.startMessageId() && message.getId() <= plan.endMessageId())
+        messages.stream().filter(message -> message.getId() != null
+                && message.getId() >= plan.startMessageId() && message.getId() <= plan.endMessageId())
                 .forEach(message -> input.append('[').append(message.getId()).append(' ').append(message.getRole()).append("] ")
-                        .append(message.getContent() == null ? "" : message.getContent()).append('\n'));
+                        .append(summaryContent(message)).append('\n'));
         OpenAiChatModel model = applicationContext.getBean(AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(modelId), OpenAiChatModel.class);
         String raw = ChatClient.builder(model).defaultSystem(PROMPT).build().prompt().user(input.toString()).call().content();
         if (raw == null || raw.contains("```")) throw new IllegalArgumentException("Memory summary must be plain JSON");
         JSONObject result = JSON.parseObject(raw);
         String summary = result.getString("summary");
         if (summary == null || summary.isBlank()) throw new IllegalArgumentException("Memory summary is empty");
-        int version = previous == null ? 1 : previous.getVersion() + 1;
-        LocalDateTime now = LocalDateTime.now();
-        summaryDao.supersede(sessionId);
-        summaryDao.insert(MemorySummary.builder().agentId(agentId).sessionId(sessionId).version(version)
-                .startMessageId(previous == null ? plan.startMessageId() : previous.getStartMessageId())
-                .endMessageId(plan.endMessageId()).summary(summary).modelId(modelId)
-                .tokenCount(new TokenBudgetEstimator().estimate(summary)).status("ACTIVE").createdAt(now).build());
-        stateDao.insert(MemoryState.builder().agentId(agentId).sessionId(sessionId).version(version)
-                .goalsJson(arrayJson(result, "goals")).constraintsJson(arrayJson(result, "constraints"))
-                .entitiesJson(arrayJson(result, "entities")).pendingJson(arrayJson(result, "pending"))
-                .completedJson(arrayJson(result, "completed")).createdAt(now).build());
-        if (memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
+        boolean saved = persistenceService.saveIfUnchanged(agentId, sessionId, modelId, previous,
+                new ShortTermMemoryPersistenceService.RollingSummarySnapshot(plan, latestMessageId,
+                        new TokenBudgetEstimator().estimate(summary)), result, summary);
+        if (saved && memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
             longTermMemoryPort.store(new LongTermMemoryPort.MemoryFact(agentId, agentId, "SESSION_SUMMARY", summary,
                     sessionId, "system-derived-after-short-term-threshold"));
         }
     }
 
-    private String arrayJson(JSONObject result, String key) {
-        return result.getJSONArray(key) == null ? "[]" : result.getJSONArray(key).toJSONString();
+    private String summaryContent(ChatMessage message) {
+        String content = message.getContent() == null ? "" : message.getContent();
+        if ("tool".equalsIgnoreCase(message.getRole())) content = MemoryFoldingPipeline.foldPlainText(content);
+        if (content.length() > 4_000) content = content.substring(0, 4_000) + "...[summary-input-truncated]";
+        return content;
     }
+
 }

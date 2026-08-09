@@ -11,6 +11,7 @@ import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessageMapper;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
+import cn.bugstack.ai.domain.agent.service.memory.ContextBudgetPolicy;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
@@ -43,6 +44,9 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
     @Resource
     private ChatMessageRecorder messageRecorder;
 
+    @Resource
+    private ContextBudgetPolicy contextBudgetPolicy;
+
     @Override
     public void execute(ExecuteCommandEntity requestParameter, ResponseBodyEmitter emitter) throws Exception {
         String sessionId = requestParameter.getSessionId();
@@ -60,7 +64,7 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
         OpenAiChatModel chatModel = applicationContext.getBean(AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(selectedModelId), OpenAiChatModel.class);
         String systemPrompt = buildChatSystemPrompt(agent, requestParameter.getRouteType());
 
-        List<Message> messages = buildMessages(history, requestParameter.getMessage());
+        List<Message> messages = buildMessages(history, requestParameter.getMessage(), selectedModelId, systemPrompt);
         ChatClient chatClient = ChatClient.builder(chatModel).defaultSystem(systemPrompt).build();
 
         long start = System.currentTimeMillis();
@@ -115,10 +119,13 @@ public class ChatExecuteStrategy implements IExecuteStrategy {
                 """ + feedbackInstruction + (soul.isBlank() ? "" : "\n当前 Agent 灵魂设定：\n" + soul);
     }
 
-    private List<Message> buildMessages(List<HistoryMessage> history, String currentMessage) {
+    private List<Message> buildMessages(List<HistoryMessage> history, String currentMessage,
+                                        String modelId, String systemPrompt) {
         List<Map<String, Object>> maps = HistoryMessageMapper.toMaps(history);
         maps.add(Map.of("role", "user", "content", currentMessage == null ? "" : currentMessage));
-        maps = MemoryFoldingPipeline.fold(maps);
+        ContextBudgetPolicy.BudgetDecision budget = contextBudgetPolicy.decide(
+                modelId, systemPrompt, "", maps);
+        maps = MemoryFoldingPipeline.fold(maps, budget);
 
         return HistoryMessageMapper.toSpringMessages(maps);
     }

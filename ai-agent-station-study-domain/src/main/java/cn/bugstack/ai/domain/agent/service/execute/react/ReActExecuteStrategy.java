@@ -13,6 +13,7 @@ import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessageMapper;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
+import cn.bugstack.ai.domain.agent.service.memory.ContextBudgetPolicy;
 import cn.bugstack.ai.domain.agent.service.model.ModelSelectionService;
 import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
@@ -165,6 +166,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     private ChatMessageRecorder messageRecorder;
 
     @Resource
+    private ContextBudgetPolicy contextBudgetPolicy;
+
+    @Resource
     private AgentWorkspaceService agentWorkspaceService;
 
     @Resource
@@ -228,7 +232,10 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     .position(0).createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
             sendTodoEvent(emitter, executionId, sessionId, todos);
             List<String> explicitToolIds = bindings.getExplicitToolIds();
-            List<String> allowedTools = bindings.getEffectiveToolIds();
+            List<String> allowedTools = new ArrayList<>(bindings.getEffectiveToolIds());
+            if (!allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) {
+                allowedTools.add(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL);
+            }
             String currentExecutionId = executionId;
             ReActToolContextHolder.set(ReActToolContext.builder()
                     .sessionId(sessionId).userMessage(requestParameter.getMessage()).agentId(agentId).emitter(emitter).workDir(workDir)
@@ -249,10 +256,11 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     .build();
 
             // 记录用户消息
+            List<HistoryMessage> historyBeforeUser = messageRecorder.getHistory(sessionId);
             messageRecorder.recordUser(sessionId, agentId, 0, requestParameter.getMessage());
 
             // 从 DB 加载历史（仅 user/assistant 纯文本，无 tool 中间态）
-            List<HistoryMessage> history = messageRecorder.getHistory(sessionId);
+            List<HistoryMessage> history = historyBeforeUser;
 
             // 消息 Map 列表 → fold 管线
             java.util.List<java.util.Map<String, Object>> msgMaps = HistoryMessageMapper.toMaps(history);
@@ -260,14 +268,14 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             currentMessage.put("role", "user");
             currentMessage.put("content", requestParameter.getMessage());
             msgMaps.add(currentMessage);
-            msgMaps = MemoryFoldingPipeline.fold(msgMaps);
+            ContextBudgetPolicy.BudgetDecision budget = contextBudgetPolicy.decide(
+                    selectedModelId, systemPrompt, toolDescription(internalTools.getToolCallbacks()), msgMaps);
+            msgMaps = MemoryFoldingPipeline.fold(msgMaps, budget);
 
             // 转 Spring AI Message
-            List<org.springframework.ai.chat.messages.Message> msgs = HistoryMessageMapper.toSpringMessages(msgMaps);
-
             String finalContent = isLowValueRequest(requestParameter.getMessage())
                     ? "请补充具体问题或业务对象，我再为你查询。"
-                    : callReActLoop(chatModel, systemPrompt, msgs,
+                    : callReActLoop(chatModel, systemPrompt, msgMaps,
                     internalTools.getToolCallbacks(), selectedModelId, maxSteps);
             ReActToolContext executionContext = ReActToolContextHolder.get();
             int usedSteps = executionContext == null ? 0 : executionContext.getCurrentStep().get();
@@ -379,15 +387,13 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
      * 带重试的模型调用。失败后等 1s 重试,最多 2 次,仍失败则返回 fallback。
      */
     private String callReActLoop(ChatModel chatModel, String systemPrompt,
-                                 List<Message> messages, ToolCallback[] callbacks,
+                                 List<Map<String, Object>> initialMessages, ToolCallback[] callbacks,
                                  String modelId, int maxSteps) {
         Map<String, ToolCallback> callbackByName = new java.util.HashMap<>();
         for (ToolCallback callback : callbacks) {
             callbackByName.put(callback.getToolDefinition().name(), callback);
         }
-        List<Message> conversation = new ArrayList<>();
-        conversation.add(new SystemMessage(systemPrompt));
-        conversation.addAll(messages);
+        List<Map<String, Object>> conversationMaps = new ArrayList<>(initialMessages);
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(java.util.Arrays.asList(callbacks))
                 .build();
@@ -402,6 +408,12 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             if (context != null && context.isCancellationRequested()) {
                 throw new java.util.concurrent.CancellationException("ReAct cancellation requested");
             }
+            ContextBudgetPolicy.BudgetDecision budget = contextBudgetPolicy.decide(
+                    modelId, systemPrompt, toolDescription(callbacks), conversationMaps);
+            List<Message> conversation = new ArrayList<>();
+            conversation.add(new SystemMessage(systemPrompt));
+            conversation.addAll(HistoryMessageMapper.toSpringMessages(
+                    MemoryFoldingPipeline.fold(conversationMaps, budget)));
             Object modelResult = callModelWithRetry(chatModel, conversation, options, modelId);
             if (modelResult instanceof String text) return text;
             ChatResponse response = (ChatResponse) modelResult;
@@ -409,7 +421,18 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 return "模型未返回有效响应";
             }
             AssistantMessage assistant = response.getResult().getOutput();
-            conversation.add(assistant);
+            conversationMaps.add(HistoryMessageMapper.toMap(assistant));
+            if (assistant.getToolCalls() != null && !assistant.getToolCalls().isEmpty()) {
+                try {
+                    messageRecorder.recordAssistantToolCalls(
+                            loopContext == null ? null : loopContext.getSessionId(),
+                            loopContext == null ? null : loopContext.getAgentId(),
+                            0, round + 1, assistant.getText(),
+                            JSON.toJSONString(HistoryMessageMapper.toMap(assistant).get("tool_calls")));
+                } catch (Exception exception) {
+                    log.warn("assistant tool_calls 持久化失败: {}", exception.getMessage());
+                }
+            }
             List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
             if (toolCalls == null || toolCalls.isEmpty()) {
                 String text = assistant.getText();
@@ -470,7 +493,10 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                     return "工具连续失败 2 次，已停止继续调用。请检查工具配置、服务状态或输入参数。";
                 }
             }
-            conversation.add(new ToolResponseMessage(toolResponses));
+            for (ToolResponseMessage.ToolResponse responseItem : toolResponses) {
+                conversationMaps.add(HistoryMessageMapper.toolMap(
+                        responseItem.id(), responseItem.name(), responseItem.responseData()));
+            }
             if (cancellationRequested) {
                 throw new java.util.concurrent.CancellationException("ReAct cancellation requested");
             }
@@ -497,6 +523,17 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         } catch (Exception e) {
             log.warn("记录工具调用结果失败: tool={}, reason={}", toolCall.name(), e.getMessage());
         }
+    }
+
+    private String toolDescription(ToolCallback[] callbacks) {
+        if (callbacks == null || callbacks.length == 0) return "";
+        StringBuilder description = new StringBuilder();
+        for (ToolCallback callback : callbacks) {
+            if (callback == null || callback.getToolDefinition() == null) continue;
+            description.append(callback.getToolDefinition().name()).append(':')
+                    .append(callback.getToolDefinition().description()).append('\n');
+        }
+        return description.toString();
     }
 
     public static boolean isToolFailureResult(String result) {

@@ -27,6 +27,11 @@ public final class MemoryFoldingPipeline {
         return fold(messages, FoldConfig.defaultProfile());
     }
 
+    public static List<Map<String, Object>> fold(List<Map<String, Object>> messages,
+                                                  ContextBudgetPolicy.BudgetDecision budget) {
+        return fold(messages, FoldConfig.fromBudget(budget));
+    }
+
     public static List<Map<String, Object>> fold(List<Map<String, Object>> messages, FoldConfig config) {
         if (messages == null || messages.isEmpty()) return List.of();
         List<Map<String, Object>> copy = new ArrayList<>();
@@ -131,9 +136,22 @@ public final class MemoryFoldingPipeline {
                 result.addAll(round);
                 continue;
             }
+            // 历史轮次也保留 assistant/tool 配对，只折叠结果正文，确保 tool_call_id 仍可取回。
+            for (int index = 0; index < round.size(); index++) {
+                if ("assistant".equals(round.get(index).get("role"))
+                        && round.get(index).get("tool_calls") instanceof List<?>) {
+                    foldToolExchange(round, index);
+                }
+            }
             Map<String, Object> lastAnswer = null;
             for (Map<String, Object> message : round) {
                 if ("user".equals(message.get("role"))) result.add(message);
+                if ("assistant".equals(message.get("role")) && message.get("tool_calls") instanceof List<?>) {
+                    result.add(message);
+                }
+                if ("tool".equals(message.get("role"))) {
+                    result.add(message);
+                }
                 if ("assistant".equals(message.get("role")) && message.get("tool_calls") == null) {
                     lastAnswer = message;
                 }
