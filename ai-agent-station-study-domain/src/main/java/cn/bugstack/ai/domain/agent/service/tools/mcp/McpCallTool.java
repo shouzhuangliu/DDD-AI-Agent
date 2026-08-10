@@ -189,6 +189,101 @@ public class McpCallTool extends AbstractReActTool {
         }
     }
 
+    /** 通过当前会话发现阶段签发的 Handle 调用 MCP，避免模型重复填写 mcpId/toolName。 */
+    public String callMcpToolByHandle(String toolHandle, String args) {
+        ReActToolContext context = ReActToolContextHolder.get();
+        String traceTag = "call_mcp_handle(" + (toolHandle == null ? "" : toolHandle.trim()) + ")";
+        if (context == null) return rejectHandle(traceTag, "MCP_TOOL_HANDLE_REJECTED: 当前会话没有 Agent 上下文");
+
+        ReActToolContext.McpToolHandleBinding binding = context.getMcpToolHandle(toolHandle);
+        if (binding == null) return rejectHandle(traceTag, "MCP_TOOL_HANDLE_REJECTED: 工具 Handle 不属于当前会话");
+        if (!java.util.Objects.equals(context.getAgentId(), binding.agentId())
+                || !java.util.Objects.equals(context.getSessionId(), binding.sessionId())) {
+            context.removeMcpToolHandle(toolHandle);
+            return rejectHandle(traceTag, "MCP_TOOL_HANDLE_REJECTED: 工具 Handle 不属于当前 Agent 或会话");
+        }
+        if (binding.isExpired(System.currentTimeMillis())) {
+            context.removeMcpToolHandle(toolHandle);
+            return rejectHandle(traceTag, "MCP_TOOL_HANDLE_EXPIRED: 工具 Handle 已过期");
+        }
+        List<String> boundMcpIds = context.getBoundMcpIds() == null ? List.of() : context.getBoundMcpIds();
+        if (!boundMcpIds.contains(binding.mcpId())) {
+            return rejectHandle(traceTag, "MCP_NOT_BOUND: Handle 对应的 MCP 未绑定到当前 Agent");
+        }
+        return executeResolvedTool(binding.mcpId(), binding.toolName(), args, binding.schemaHash(), context);
+    }
+
+    private String executeResolvedTool(String mcpId, String toolName, String args,
+                                       String expectedSchemaHash, ReActToolContext context) {
+        String toolTag = "call_mcp(" + mcpId + "/" + toolName + ")";
+        McpTarget target;
+        try {
+            target = loadTarget(mcpId);
+        } catch (Exception e) {
+            String message = "MCP_TOOL_DISCOVERY_FAILED: 无法读取 MCP 工具列表: " + safeMessage(e);
+            emitObservation(toolTag, message);
+            return message;
+        }
+        McpSchema.Tool liveTool = target.tools().stream()
+                .filter(item -> item != null && toolName.equals(item.name()))
+                .findFirst().orElse(null);
+        if (liveTool == null) {
+            String message = "MCP_TOOL_NOT_FOUND: MCP 未暴露工具 " + toolName;
+            emitObservation(toolTag, message);
+            return message;
+        }
+        if (expectedSchemaHash != null && !expectedSchemaHash.isBlank()
+                && !expectedSchemaHash.equals(McpToolDiscoveryTool.schemaHash(liveTool))) {
+            context.removeMcpToolHandle(findHandle(context, mcpId, toolName, expectedSchemaHash));
+            String message = "MCP_TOOL_HANDLE_EXPIRED: MCP 工具 Schema 已发生变化，请重新发现工具";
+            emitObservation(toolTag, message);
+            return message;
+        }
+        context.rememberMcpToolSchema(mcpId, toolName, liveTool);
+        emitAction(toolTag, "通过工具 Handle 调用 MCP：" + mcpId + "." + toolName);
+        try {
+            JSONObject jsonArgs = args != null && !args.isBlank()
+                    ? JSON.parseObject(args) : new JSONObject();
+            String requiredMessage = validateRequiredArguments(liveTool.inputSchema(), jsonArgs);
+            if (requiredMessage != null) {
+                emitObservation(toolTag, requiredMessage);
+                return requiredMessage;
+            }
+            McpSchema.CallToolResult result = target.client().callTool(
+                    new McpSchema.CallToolRequest(toolName, jsonArgs));
+            StringBuilder output = new StringBuilder();
+            if (result != null && result.content() != null) {
+                for (McpSchema.Content content : result.content()) {
+                    if (content instanceof McpSchema.TextContent text) output.append(text.text()).append('\n');
+                }
+            }
+            String value = output.toString().trim();
+            if (value.isEmpty()) value = "MCP 返回空内容（isError=" + (result != null && result.isError()) + ")";
+            emitObservation(toolTag, value);
+            return value;
+        } catch (Exception e) {
+            String message = "MCP 调用异常: " + safeMessage(e);
+            log.error(message, e);
+            emitObservation(toolTag, message);
+            return message;
+        }
+    }
+
+    private String findHandle(ReActToolContext context, String mcpId, String toolName, String schemaHash) {
+        if (context.getMcpToolHandles() == null) return "";
+        return context.getMcpToolHandles().values().stream()
+                .filter(binding -> mcpId.equals(binding.mcpId())
+                        && toolName.equals(binding.toolName())
+                        && schemaHash.equals(binding.schemaHash()))
+                .map(ReActToolContext.McpToolHandleBinding::handle)
+                .findFirst().orElse("");
+    }
+
+    private String rejectHandle(String traceTag, String message) {
+        emitObservation(traceTag, message);
+        return message;
+    }
+
     private McpTarget findTodayFeedbackTarget(List<String> boundMcpIds) {
         for (String boundMcpId : boundMcpIds) {
             try {

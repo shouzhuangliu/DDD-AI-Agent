@@ -153,7 +153,7 @@ public class McpToolDiscoveryTool extends AbstractReActTool {
         return score;
     }
 
-    private String schemaHash(McpSchema.Tool tool) {
+    public static String schemaHash(McpSchema.Tool tool) {
         Map<String, Object> material = new LinkedHashMap<>();
         material.put("name", tool.name());
         material.put("description", tool.description());
