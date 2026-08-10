@@ -140,7 +140,6 @@ public class McpCallTool extends AbstractReActTool {
         }
 
         String toolTag = "call_mcp(" + effectiveMcpId + "/" + effectiveToolName + ")";
-        emitAction(toolTag, "调用 MCP 工具: " + effectiveMcpId + "." + effectiveToolName);
         Set<String> exposedToolNames = target.tools().stream()
                 .map(McpSchema.Tool::name).collect(Collectors.toSet());
         String validationMessage = validateToolName(exposedToolNames, effectiveToolName);
@@ -149,15 +148,23 @@ public class McpCallTool extends AbstractReActTool {
             return validationMessage;
         }
 
+        ReActToolContext currentContext = ReActToolContextHolder.get();
+        McpSchema.Tool loadedSchema = currentContext == null
+                ? null : currentContext.getMcpToolSchema(effectiveMcpId, effectiveToolName);
+        if (loadedSchema == null) {
+            String message = "MCP_SCHEMA_REQUIRED: 调用 " + effectiveToolName
+                    + " 前必须先调用 get_mcp_tool_schema 获取完整参数 Schema";
+            emitObservation(toolTag, message);
+            return message;
+        }
+
+        emitAction(toolTag, "调用 MCP 工具: " + effectiveMcpId + "." + effectiveToolName);
+
         try {
             JSONObject jsonArgs = effectiveArgs != null && !effectiveArgs.isBlank()
                     ? JSON.parseObject(effectiveArgs) : new JSONObject();
-            String requestedToolName = effectiveToolName;
-            McpSchema.Tool exposedTool = target.tools().stream()
-                    .filter(tool -> requestedToolName.equals(tool.name()))
-                    .findFirst().orElse(null);
             String requiredMessage = validateRequiredArguments(
-                    exposedTool == null ? null : exposedTool.inputSchema(), jsonArgs);
+                    loadedSchema.inputSchema(), jsonArgs);
             if (requiredMessage != null) {
                 emitObservation(toolTag, requiredMessage);
                 return requiredMessage;
