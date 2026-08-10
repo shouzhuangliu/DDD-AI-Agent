@@ -72,7 +72,7 @@ class AgentRuntimeBindingServiceTest {
         assertEquals(List.of("enterprise-demo-skill-1.0.0"), bindings.getSkillIds());
         assertEquals(List.of("enterprise-demo-mcp"), bindings.getMcpIds());
         assertEquals(List.of("task"), bindings.getExplicitToolIds());
-        assertEquals(List.of("task", "read_file", "call_mcp_tool", "dispatch_subagents"), bindings.getEffectiveToolIds());
+        assertEquals(List.of("task", "read_file", "get_mcp_tool_schema", "call_mcp_tool", "dispatch_subagents"), bindings.getEffectiveToolIds());
         assertTrue(bindings.getSkillMetadataById().containsKey("enterprise-demo-skill-1.0.0"));
         assertEquals(1, bindings.getMcpTools().size());
         verify(agentWorkspaceService).syncSkills("cs", "D:/repo", "D:/fallback", List.of("enterprise-demo-skill-1.0.0"));

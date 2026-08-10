@@ -695,7 +695,9 @@ public class AgentOperationsController {
         String normalized = firstNonBlank(toolId, "").trim().toLowerCase();
         if ((explicitToolIds == null ? List.<String>of() : explicitToolIds).contains(normalized)) return "agent_binding";
         if (ReActToolAllowlistPolicy.READ_FILE.equals(normalized) && skillIds != null && !skillIds.isEmpty()) return "skill_binding";
-        if (ReActToolAllowlistPolicy.CALL_MCP_TOOL.equals(normalized) && mcpIds != null && !mcpIds.isEmpty()) return "mcp_binding";
+        if ((ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA.equals(normalized)
+                || ReActToolAllowlistPolicy.CALL_MCP_TOOL.equals(normalized))
+                && mcpIds != null && !mcpIds.isEmpty()) return "mcp_binding";
         if (ReActToolAllowlistPolicy.DISPATCH_SUBAGENTS.equals(normalized)
                 && (explicitToolIds == null ? List.<String>of() : explicitToolIds).contains(ReActToolAllowlistPolicy.TASK)) {
             return "task_cascade";

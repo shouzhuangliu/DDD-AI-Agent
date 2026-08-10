@@ -140,11 +140,13 @@ class AgentControllerTest {
         assertEquals(1, mcps.size());
         assertEquals("enterprise-demo-mcp", mcps.getFirst().get("mcpId"));
         assertEquals(true, mcps.getFirst().get("runtimeAvailable"));
-        assertEquals(2, effectiveTools.size());
+        assertEquals(3, effectiveTools.size());
         assertEquals("read_file", effectiveTools.get(0).get("toolId"));
         assertEquals("agent_binding", effectiveTools.get(0).get("source"));
-        assertEquals("call_mcp_tool", effectiveTools.get(1).get("toolId"));
+        assertEquals("get_mcp_tool_schema", effectiveTools.get(1).get("toolId"));
         assertEquals("mcp_binding", effectiveTools.get(1).get("source"));
+        assertEquals("call_mcp_tool", effectiveTools.get(2).get("toolId"));
+        assertEquals("mcp_binding", effectiveTools.get(2).get("source"));
         assertTrue(result.get("workspace").toString().contains("workspaces"));
     }
 
