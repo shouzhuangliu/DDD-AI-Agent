@@ -143,7 +143,7 @@ class AgentControllerTest {
         assertEquals(3, effectiveTools.size());
         assertEquals("read_file", effectiveTools.get(0).get("toolId"));
         assertEquals("agent_binding", effectiveTools.get(0).get("source"));
-        assertEquals("get_mcp_tool_schema", effectiveTools.get(1).get("toolId"));
+        assertEquals("discover_mcp_tools", effectiveTools.get(1).get("toolId"));
         assertEquals("mcp_binding", effectiveTools.get(1).get("source"));
         assertEquals("call_mcp_tool", effectiveTools.get(2).get("toolId"));
         assertEquals("mcp_binding", effectiveTools.get(2).get("source"));

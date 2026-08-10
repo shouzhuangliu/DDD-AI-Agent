@@ -13,6 +13,8 @@ import cn.bugstack.ai.domain.agent.service.tools.memory.QueryCaseTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryFeedbackTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolDiscoveryTool;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolHandleCallTool;
 import cn.bugstack.ai.domain.agent.model.entity.SubagentTaskState;
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.PostConstruct;
@@ -77,6 +79,8 @@ public class SubagentExecutionService {
     private final FileWriteTool fileWriteTool;
     private final BashTool bashTool;
     private final McpCallTool mcpCallTool;
+    private final McpToolDiscoveryTool mcpToolDiscoveryTool;
+    private final McpToolHandleCallTool mcpToolHandleCallTool;
     private final RetrieveToolCallTool retrieveToolCallTool;
     private final QueryCaseTool queryCaseTool;
     private final QueryFeedbackTool queryFeedbackTool;
@@ -99,6 +103,7 @@ public class SubagentExecutionService {
                                     QueryCaseTool queryCaseTool,
                                     QueryFeedbackTool queryFeedbackTool) {
         this(applicationContext, fileReadTool, fileWriteTool, bashTool, mcpCallTool,
+                null, null,
                 retrieveToolCallTool, queryCaseTool, queryFeedbackTool, null);
     }
 
@@ -108,6 +113,8 @@ public class SubagentExecutionService {
                                     FileWriteTool fileWriteTool,
                                     BashTool bashTool,
                                     McpCallTool mcpCallTool,
+                                    McpToolDiscoveryTool mcpToolDiscoveryTool,
+                                    McpToolHandleCallTool mcpToolHandleCallTool,
                                     RetrieveToolCallTool retrieveToolCallTool,
                                     QueryCaseTool queryCaseTool,
                                     QueryFeedbackTool queryFeedbackTool,
@@ -117,6 +124,8 @@ public class SubagentExecutionService {
         this.fileWriteTool = fileWriteTool;
         this.bashTool = bashTool;
         this.mcpCallTool = mcpCallTool;
+        this.mcpToolDiscoveryTool = mcpToolDiscoveryTool;
+        this.mcpToolHandleCallTool = mcpToolHandleCallTool;
         this.retrieveToolCallTool = retrieveToolCallTool;
         this.queryCaseTool = queryCaseTool;
         this.queryFeedbackTool = queryFeedbackTool;
@@ -361,7 +370,11 @@ public class SubagentExecutionService {
             fileReadTool.resetStep();
             fileWriteTool.resetStep();
             bashTool.resetStep();
-            mcpCallTool.resetStep();
+            if (mcpToolDiscoveryTool != null) mcpToolDiscoveryTool.resetStep();
+            if (mcpToolHandleCallTool != null) mcpToolHandleCallTool.resetStep();
+            if (mcpToolDiscoveryTool == null && mcpToolHandleCallTool == null && mcpCallTool != null) {
+                mcpCallTool.resetStep();
+            }
 
             OpenAiChatModel model = applicationContext.getBean(
                     AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(parent.getModelId()), OpenAiChatModel.class);
@@ -384,7 +397,11 @@ public class SubagentExecutionService {
             callbackByName.put(callback.getToolDefinition().name(), callback);
         }
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(SUBAGENT_SYSTEM_PROMPT));
+        String systemPrompt = SUBAGENT_SYSTEM_PROMPT;
+        if (parent.getBoundMcpIds() != null && !parent.getBoundMcpIds().isEmpty()) {
+            systemPrompt += " 已绑定 MCP 只能先调用 discover_mcp_tools 按意图发现工具，再使用返回的 toolHandle 调用 call_mcp_tool；不得猜测 mcpId、toolName 或参数。";
+        }
+        messages.add(new SystemMessage(systemPrompt));
         messages.add(new UserMessage(prompt));
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
                 .toolCallbacks(java.util.Arrays.asList(callbacks)).build();
@@ -427,7 +444,12 @@ public class SubagentExecutionService {
         if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) tools.add(fileReadTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) tools.add(fileWriteTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) tools.add(bashTool);
-        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS) && mcpToolDiscoveryTool != null) {
+            tools.add(mcpToolDiscoveryTool);
+        }
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) {
+            tools.add(mcpToolHandleCallTool != null ? mcpToolHandleCallTool : mcpCallTool);
+        }
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);

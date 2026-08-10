@@ -25,9 +25,9 @@ import cn.bugstack.ai.domain.agent.service.tools.core.AbstractReActTool.Subagent
 import cn.bugstack.ai.domain.agent.service.tools.internal.FileReadTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.FileWriteTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.BashTool;
-import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolDiscoveryTool;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolHandleCallTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolSchemaTool;
-import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.SubagentTaskTool;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.DispatchSubagentsTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
@@ -134,13 +134,13 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     private BashTool bashTool;
 
     @Resource
-    private McpCallTool mcpCallTool;
+    private McpToolDiscoveryTool mcpToolDiscoveryTool;
+
+    @Resource
+    private McpToolHandleCallTool mcpToolHandleCallTool;
 
     @Resource
     private McpToolSchemaTool mcpToolSchemaTool;
-
-    @Resource
-    private AiClientToolMcpNode aiClientToolMcpNode;
 
     @Resource
     private SubagentTaskTool subagentTaskTool;
@@ -216,7 +216,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         fileReadTool.resetStep();
         fileWriteTool.resetStep();
         bashTool.resetStep();
-        mcpCallTool.resetStep();
+        mcpToolHandleCallTool.resetStep();
 
         String executionId = null;
         try {
@@ -594,8 +594,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) tools.add(fileReadTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) tools.add(fileWriteTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) tools.add(bashTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS)) tools.add(mcpToolDiscoveryTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA)) tools.add(mcpToolSchemaTool);
-        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpToolHandleCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);
@@ -623,9 +624,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 【运行时工具规则】
                 1. 只可以调用下方列出的、当前 Agent 已绑定并通过运行时校验的工具；没有列出的能力一律不可假设存在。
                 2. 用户只是描述业务问题时，记录 Feedback，不要读取项目目录、代码或运行命令。
-                3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，先调用 get_mcp_tool_schema 获取选中工具的完整参数 Schema，再调用 call_mcp_tool；不要询问生产授权，不要回复“无法访问生产数据”。
-                4. 今日反馈查询优先选择工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID。选择工具后必须先调用 get_mcp_tool_schema(mcpId, toolName)，不能凭摘要猜参数。
-                5. 如果绑定工具清单没有 get_today_feedback，必须明确报告“当前 Agent 未绑定库存反馈 MCP”，禁止改用 search_feedback、query_feedback 或其他模糊搜索工具伪造今日结果。
+                3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，先调用 discover_mcp_tools 获取候选工具和完整参数 Schema，再调用 call_mcp_tool；不要询问生产授权，不要回复“无法访问生产数据”。
+                4. 工具发现必须使用当前 Agent 已绑定的 mcpId；discover_mcp_tools 返回的 toolHandle、inputSchema 和 schemaHash 是本次会话的唯一调用依据，不要猜测工具名或参数。
+                5. 如果工具发现没有返回匹配的反馈查询工具，必须明确报告“当前 Agent 未发现可用的库存反馈工具”，禁止改用未发现的 search_feedback、query_feedback 或其他模糊搜索工具伪造今日结果。
                 6. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
                 7. 用户明确要求“分诊/评测/结合业务 Skill/巡检”时，先读取已绑定 Skill，再调用对应 MCP 获取事实，自动输出分类、优先级、证据充分性、缺失信息和候选 Case 结论；不要为只读查询或评测过程请求人工授权。
                 8. 只有用户明确要求“升级/发布/确认 Case”时才调用 promote_feedback_to_case；自动评测不得声称 Case 已发布，人工审核边界必须保持 PENDING_REVIEW。
@@ -633,18 +634,15 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 10. 工具调用由服务端按滑动窗口校验：同工具同参数重复调用会被拦截，同一工具短窗口内过于频繁也会被拦截；收到工具防护反馈后必须停止重复尝试并调整方案。
 
                 """);
-        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)
+        if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS)
                 && boundMcpIds != null && !boundMcpIds.isEmpty()) {
-            sb.append("【已绑定反馈 MCP】\n");
-            for (String mcpId : boundMcpIds) {
-                sb.append("- mcpId=").append(mcpId).append("；可调用 MCP 工具（以运行时 tools/list 为准）：");
-                var exposedTools = aiClientToolMcpNode.listTools(mcpId);
-                if (exposedTools == null || exposedTools.isEmpty()) {
-                    sb.append("当前未发现工具，禁止猜测工具名。\n");
-                } else {
-                    sb.append(exposedTools.stream().map(tool -> tool.name()).collect(java.util.stream.Collectors.joining(", "))).append('\n');
-                }
+            sb.append("【已绑定 MCP 服务（工具按需发现）】\n");
+            for (var mcp : bindings.getMcpTools()) {
+                sb.append("- mcpId=").append(mcp.getMcpId())
+                        .append(": ").append(mcp.getMcpName())
+                        .append(" (").append(mcp.getTransportType()).append(")\n");
             }
+            sb.append("先调用 discover_mcp_tools(query, mcpId?, limit=3) 按用户意图检索工具；结果会返回候选工具的完整 inputSchema、schemaHash 和会话级 toolHandle。随后只能调用 call_mcp_tool(toolHandle, args)，不要把 mcpId/toolName 当作新句柄。\n");
         }
 
         sb.append("""
@@ -669,8 +667,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         }
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) sb.append("- write_file(relativePath, content): 在工作目录下写入或覆盖文本文件\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) sb.append("- run_bash(command): 在工作目录内执行一条白名单内的 shell 命令\n");
-        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA)) sb.append("- get_mcp_tool_schema(mcpId, toolName): 按需读取已绑定 MCP 工具的完整 inputSchema，不执行业务操作\n");
-        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(mcpId, toolName, args): 调用一个绑定的 MCP 工具\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS)) sb.append("- discover_mcp_tools(query, mcpId?, limit?): 按用户意图在当前 Agent 绑定的 MCP 中检索最多 3 个工具，并返回完整 inputSchema 与会话级 toolHandle\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(toolHandle, args): 使用 discover_mcp_tools 返回的会话级句柄调用 MCP 工具；句柄失效时重新发现，不得直接猜测参数\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) sb.append("- retrieve_tool_call(toolCallId): 按 ID 取回被折叠/压缩的完整消息原文\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) sb.append("- query_cases(keyword, limit): 查询 Case 案例库，用户问历史问题或案例时调用\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) sb.append("- query_feedback(limit, agentId): 查询用户反馈，用户问最近反馈时调用\n");
@@ -695,33 +693,17 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             sb.append("\n该 Agent 当前没有绑定可执行 Skills。不要声称存在 demo skill、项目扫描 skill 或其他技能。\n");
         }
 
-        if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL) && boundMcpIds != null && !boundMcpIds.isEmpty()) {
+        if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS) && boundMcpIds != null && !boundMcpIds.isEmpty()) {
             var mcps = bindings.getMcpTools();
             if (!mcps.isEmpty()) {
-                sb.append("\n该 Agent 绑定的 MCP 工具（可通过 call_mcp_tool 调用）：\n");
+                sb.append("\n该 Agent 绑定的 MCP 服务（工具需要按意图发现）：\n");
                 for (var m : mcps) {
                     sb.append("- ").append(m.getMcpId()).append(": ").append(m.getMcpName())
                             .append(" (").append(m.getTransportType()).append(")\n");
-                    var exposedTools = aiClientToolMcpNode.listTools(m.getMcpId());
-                    if (exposedTools.isEmpty()) {
-                        sb.append("  当前未读取到该 MCP 的工具列表，禁止猜测工具名。\n");
-                    } else {
-                        sb.append("  可用工具：\n");
-                        for (var exposedTool : exposedTools) {
-                            sb.append("  - ").append(exposedTool.name());
-                            if (exposedTool.description() != null && !exposedTool.description().isBlank()) {
-                                sb.append(": ").append(exposedTool.description());
-                            }
-                            sb.append(" [")
-                                    .append(McpCallTool.requiredArgumentsSummary(exposedTool.inputSchema()))
-                                    .append("]");
-                            sb.append("\n");
-                        }
-                    }
                 }
                 sb.append("""
-                    使用方式：call_mcp_tool(mcpId="工具ID", toolName="工具内具体方法名", args="{"参数名":"参数值"}")
-                    调用前请确认参数格式正确。
+                    使用方式：先 discover_mcp_tools(query="用户意图", mcpId="可选的服务ID", limit=3)，再使用返回的 toolHandle 调用 call_mcp_tool(toolHandle="句柄", args="{"参数名":"参数值"}")。
+                    参数必须严格符合发现结果中的 inputSchema；若返回 MCP_TOOL_HANDLE_EXPIRED，重新发现后再调用。
                     如果用户只是询问“当前有哪些 MCP”，直接依据上述绑定清单回答，不要自行假设还有数据库、Redis、搜索等外部能力。
                     """);
             }

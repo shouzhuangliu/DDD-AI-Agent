@@ -509,7 +509,8 @@ public class AgentController {
         if (ReActToolAllowlistPolicy.READ_FILE.equals(normalized) && skillIds != null && !skillIds.isEmpty()) {
             return "skill_binding";
         }
-        if ((ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA.equals(normalized)
+        if ((ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS.equals(normalized)
+                || ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA.equals(normalized)
                 || ReActToolAllowlistPolicy.CALL_MCP_TOOL.equals(normalized))
                 && mcpIds != null && !mcpIds.isEmpty()) {
             return "mcp_binding";
