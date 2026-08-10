@@ -1,6 +1,7 @@
 package cn.bugstack.ai.domain.agent.service.tools.core;
 
 import com.alibaba.fastjson2.JSON;
+import io.modelcontextprotocol.spec.McpSchema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -87,6 +89,10 @@ public class ReActToolContext {
     @Builder.Default
     private Map<String, Integer> repeatedToolCalls = new HashMap<>();
 
+    /** 本次会话已按需读取的 MCP 工具 Schema，不授予额外权限，只用于调用前契约校验。 */
+    @Builder.Default
+    private Map<String, McpSchema.Tool> loadedMcpToolSchemas = new LinkedHashMap<>();
+
     /** 重复调用判定窗口，按最近 N 次工具请求计算。 */
     @Builder.Default
     private int repeatWindowSize = 8;
@@ -112,6 +118,27 @@ public class ReActToolContext {
 
     public boolean isCancellationRequested() {
         return cancellationCheck != null && cancellationCheck.getAsBoolean();
+    }
+
+    public synchronized void rememberMcpToolSchema(String mcpId, String toolName, McpSchema.Tool tool) {
+        String key = mcpSchemaKey(mcpId, toolName);
+        if (!key.isBlank() && tool != null) loadedMcpToolSchemas.put(key, tool);
+    }
+
+    public synchronized McpSchema.Tool getMcpToolSchema(String mcpId, String toolName) {
+        String key = mcpSchemaKey(mcpId, toolName);
+        return key.isBlank() ? null : loadedMcpToolSchemas.get(key);
+    }
+
+    public synchronized boolean hasMcpToolSchema(String mcpId, String toolName) {
+        return getMcpToolSchema(mcpId, toolName) != null;
+    }
+
+    private String mcpSchemaKey(String mcpId, String toolName) {
+        String normalizedMcpId = mcpId == null ? "" : mcpId.trim();
+        String normalizedToolName = toolName == null ? "" : toolName.trim();
+        return normalizedMcpId.isBlank() || normalizedToolName.isBlank()
+                ? "" : normalizedMcpId + "\n" + normalizedToolName;
     }
 
     /**
