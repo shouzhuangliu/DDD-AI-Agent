@@ -93,6 +93,10 @@ public class ReActToolContext {
     @Builder.Default
     private Map<String, McpSchema.Tool> loadedMcpToolSchemas = new LinkedHashMap<>();
 
+    /** 会话级 MCP 工具句柄，只允许当前 Agent/会话在短时间内复用。 */
+    @Builder.Default
+    private Map<String, McpToolHandleBinding> mcpToolHandles = new LinkedHashMap<>();
+
     /** 重复调用判定窗口，按最近 N 次工具请求计算。 */
     @Builder.Default
     private int repeatWindowSize = 8;
@@ -134,11 +138,45 @@ public class ReActToolContext {
         return getMcpToolSchema(mcpId, toolName) != null;
     }
 
+    public synchronized void rememberMcpToolHandle(String handle, McpToolHandleBinding binding) {
+        String normalized = normalizeHandle(handle);
+        if (!normalized.isBlank() && binding != null) mcpToolHandles.put(normalized, binding);
+    }
+
+    public synchronized McpToolHandleBinding getMcpToolHandle(String handle) {
+        String normalized = normalizeHandle(handle);
+        return normalized.isBlank() ? null : mcpToolHandles.get(normalized);
+    }
+
+    public synchronized McpToolHandleBinding removeMcpToolHandle(String handle) {
+        String normalized = normalizeHandle(handle);
+        return normalized.isBlank() ? null : mcpToolHandles.remove(normalized);
+    }
+
+    private String normalizeHandle(String handle) {
+        return handle == null ? "" : handle.trim();
+    }
+
     private String mcpSchemaKey(String mcpId, String toolName) {
         String normalizedMcpId = mcpId == null ? "" : mcpId.trim();
         String normalizedToolName = toolName == null ? "" : toolName.trim();
         return normalizedMcpId.isBlank() || normalizedToolName.isBlank()
                 ? "" : normalizedMcpId + "\n" + normalizedToolName;
+    }
+
+    public record McpToolHandleBinding(
+            String handle,
+            String agentId,
+            String sessionId,
+            String mcpId,
+            String toolName,
+            String schemaHash,
+            long expiresAtEpochMillis,
+            McpSchema.Tool tool) {
+
+        public boolean isExpired(long nowEpochMillis) {
+            return expiresAtEpochMillis > 0 && nowEpochMillis >= expiresAtEpochMillis;
+        }
     }
 
     /**
