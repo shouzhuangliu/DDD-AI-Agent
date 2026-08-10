@@ -70,8 +70,10 @@ public class AgentRuntimeBindingService {
             tools.add(ReActToolAllowlistPolicy.READ_FILE);
         }
         if (mcpIds != null && !mcpIds.isEmpty()) {
+            tools.add(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA);
             tools.add(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
         } else {
+            tools.remove(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA);
             tools.remove(ReActToolAllowlistPolicy.CALL_MCP_TOOL);
         }
         if (tools.contains(ReActToolAllowlistPolicy.TASK)) {

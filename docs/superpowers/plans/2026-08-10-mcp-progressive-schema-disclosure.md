@@ -90,7 +90,7 @@ git commit -m "test: 增加会话级MCP Schema缓存契约"
 String getMcpToolSchema(String mcpId, String toolName)
 ```
 
-- The Tool reads the current `ReActToolContext`, resolves `McpSyncClient` from the configured MCP bean, calls `listTools()`, caches the matching `McpSchema.Tool`, and returns compact JSON containing `name`, `title`, `description`, `inputSchema`, and optional `outputSchema`.
+- The Tool reads the current `ReActToolContext`, resolves `McpSyncClient` from the configured MCP bean, calls `listTools()`, caches the matching `McpSchema.Tool`, and returns compact JSON containing `name`, `description`, and `inputSchema`. The project currently uses MCP SDK 0.7.0, whose `McpSchema.Tool` does not expose `title` or `outputSchema`; this plan does not fabricate those fields.
 
 - [ ] **Step 1: Write the failing test**
 

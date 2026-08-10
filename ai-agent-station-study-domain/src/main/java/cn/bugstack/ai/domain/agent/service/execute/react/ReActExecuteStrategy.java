@@ -26,6 +26,7 @@ import cn.bugstack.ai.domain.agent.service.tools.internal.FileReadTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.FileWriteTool;
 import cn.bugstack.ai.domain.agent.service.tools.internal.BashTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
+import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolSchemaTool;
 import cn.bugstack.ai.domain.agent.service.armory.AiClientToolMcpNode;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.SubagentTaskTool;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.DispatchSubagentsTool;
@@ -134,6 +135,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
     @Resource
     private McpCallTool mcpCallTool;
+
+    @Resource
+    private McpToolSchemaTool mcpToolSchemaTool;
 
     @Resource
     private AiClientToolMcpNode aiClientToolMcpNode;
@@ -590,6 +594,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.READ_FILE)) tools.add(fileReadTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) tools.add(fileWriteTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) tools.add(bashTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA)) tools.add(mcpToolSchemaTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
@@ -618,8 +623,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
                 【运行时工具规则】
                 1. 只可以调用下方列出的、当前 Agent 已绑定并通过运行时校验的工具；没有列出的能力一律不可假设存在。
                 2. 用户只是描述业务问题时，记录 Feedback，不要读取项目目录、代码或运行命令。
-                3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，必须直接调用 call_mcp_tool，不要询问生产授权，不要回复“无法访问生产数据”。
-                4. 今日反馈查询优先调用工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID，args 使用 JSON 对象字符串，例如 args="{\\"limit\\":50}"。
+                3. 用户明确要求“查询/查看/拉取/获取今日（今天）的反馈”时，这是只读查询任务：如果已绑定 MCP，先调用 get_mcp_tool_schema 获取选中工具的完整参数 Schema，再调用 call_mcp_tool；不要询问生产授权，不要回复“无法访问生产数据”。
+                4. 今日反馈查询优先选择工具名 get_today_feedback；mcpId 必须使用下方绑定清单中的实际 ID。选择工具后必须先调用 get_mcp_tool_schema(mcpId, toolName)，不能凭摘要猜参数。
                 5. 如果绑定工具清单没有 get_today_feedback，必须明确报告“当前 Agent 未绑定库存反馈 MCP”，禁止改用 search_feedback、query_feedback 或其他模糊搜索工具伪造今日结果。
                 6. 工具返回结果后，用中文按优先级、来源、业务服务和数量汇总；不要再次把同一查询交给 Subagent。
                 7. 用户明确要求“分诊/评测/结合业务 Skill/巡检”时，先读取已绑定 Skill，再调用对应 MCP 获取事实，自动输出分类、优先级、证据充分性、缺失信息和候选 Case 结论；不要为只读查询或评测过程请求人工授权。
@@ -664,6 +669,7 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         }
         if (allowedTools.contains(ReActToolAllowlistPolicy.WRITE_FILE)) sb.append("- write_file(relativePath, content): 在工作目录下写入或覆盖文本文件\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RUN_BASH)) sb.append("- run_bash(command): 在工作目录内执行一条白名单内的 shell 命令\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA)) sb.append("- get_mcp_tool_schema(mcpId, toolName): 按需读取已绑定 MCP 工具的完整 inputSchema，不执行业务操作\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(mcpId, toolName, args): 调用一个绑定的 MCP 工具\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) sb.append("- retrieve_tool_call(toolCallId): 按 ID 取回被折叠/压缩的完整消息原文\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) sb.append("- query_cases(keyword, limit): 查询 Case 案例库，用户问历史问题或案例时调用\n");
