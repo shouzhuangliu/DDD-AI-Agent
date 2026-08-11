@@ -35,4 +35,28 @@ class RollingSummaryPolicyTest {
 
         assertTrue(policy.plan(messages, 0).required());
     }
+
+    @Test
+    void hardLimitCanTriggerBeforeRecentMessageCount() {
+        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), 10, 20, 24, 4);
+        List<RollingSummaryPolicy.MemoryMessage> messages = List.of(
+                new RollingSummaryPolicy.MemoryMessage(1, "user", "这是一段非常长的库存反馈".repeat(20)),
+                new RollingSummaryPolicy.MemoryMessage(2, "assistant", "已记录并准备分析"),
+                new RollingSummaryPolicy.MemoryMessage(3, "user", "请继续"));
+
+        RollingSummaryPolicy.SummaryPlan plan = policy.plan(messages, 0);
+
+        assertTrue(plan.required());
+        org.junit.jupiter.api.Assertions.assertEquals(1, plan.startMessageId());
+        org.junit.jupiter.api.Assertions.assertEquals(1, plan.endMessageId());
+        org.junit.jupiter.api.Assertions.assertEquals(2, plan.recentStartMessageId());
+    }
+
+    @Test
+    void doesNotSummarizeWhenThereIsNoOlderMessageToFold() {
+        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), 1, 2, 24, 0);
+
+        assertFalse(policy.plan(List.of(
+                new RollingSummaryPolicy.MemoryMessage(1, "user", "很长".repeat(100))), 0).required());
+    }
 }

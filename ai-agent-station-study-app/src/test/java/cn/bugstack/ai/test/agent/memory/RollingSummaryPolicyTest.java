@@ -2,11 +2,13 @@ package cn.bugstack.ai.test.agent.memory;
 
 import cn.bugstack.ai.domain.agent.service.memory.RollingSummaryPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.TokenBudgetEstimator;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class RollingSummaryPolicyTest {
 
@@ -43,5 +45,13 @@ public class RollingSummaryPolicyTest {
                 new RollingSummaryPolicy.MemoryMessage(3, "user", "ok"));
 
         assertFalse(policy.plan(messages, 2).required());
+    }
+
+    @Test
+    public void doesNotSummarizeSingleMessageEvenWhenHardLimitIsReached() {
+        RollingSummaryPolicy policy = new RollingSummaryPolicy(new TokenBudgetEstimator(), 1, 2, 24, 0);
+
+        assertFalse(policy.plan(List.of(
+                new RollingSummaryPolicy.MemoryMessage(1, "user", "very-long-feedback".repeat(100))), 0).required());
     }
 }

@@ -37,8 +37,9 @@ public class RollingSummaryPolicy {
         List<MemoryMessage> uncovered = messages.stream()
                 .filter(message -> message.id() > lastCoveredMessageId).toList();
         int tokens = uncovered.stream().mapToInt(message -> estimator.estimate(message.content())).sum();
-        if (uncovered.size() <= retainRecentMessages) return SummaryPlan.notRequired(tokens);
         boolean hardLimitReached = tokens >= hardTokenLimit;
+        int recentCount = Math.min(retainRecentMessages, Math.max(0, uncovered.size() - 1));
+        if (recentCount == 0) return SummaryPlan.notRequired(tokens);
         int meaningfulUserTurns = (int) uncovered.stream()
                 .filter(message -> "user".equalsIgnoreCase(message.role()) || "operator".equalsIgnoreCase(message.role()))
                 .map(MemoryMessage::content)
@@ -48,7 +49,7 @@ public class RollingSummaryPolicy {
         if (!hardLimitReached && (tokens <= tokenThreshold || meaningfulUserTurns < minNewMeaningfulUserTurns)) {
             return SummaryPlan.notRequired(tokens);
         }
-        int summaryEndIndex = uncovered.size() - retainRecentMessages - 1;
+        int summaryEndIndex = uncovered.size() - recentCount - 1;
         MemoryMessage first = uncovered.get(0);
         MemoryMessage lastSummary = uncovered.get(summaryEndIndex);
         MemoryMessage firstRecent = uncovered.get(summaryEndIndex + 1);
