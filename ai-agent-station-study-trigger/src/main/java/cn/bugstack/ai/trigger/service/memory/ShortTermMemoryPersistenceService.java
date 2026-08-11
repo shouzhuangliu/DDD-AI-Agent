@@ -27,13 +27,20 @@ public class ShortTermMemoryPersistenceService {
     public boolean saveIfUnchanged(String agentId, String sessionId, String modelId,
                                    MemorySummary previous, RollingSummarySnapshot snapshot,
                                    JSONObject result, String summary) {
+        return saveIfUnchangedWithVersion(agentId, sessionId, modelId, previous, snapshot, result, summary).saved();
+    }
+
+    @Transactional
+    public SaveResult saveIfUnchangedWithVersion(String agentId, String sessionId, String modelId,
+                                                 MemorySummary previous, RollingSummarySnapshot snapshot,
+                                                 JSONObject result, String summary) {
         List<ChatMessage> latestMessages = messageDao.queryBySessionId(sessionId);
         long latestId = latestMessages.stream().map(ChatMessage::getId)
                 .filter(id -> id != null).mapToLong(Long::longValue).max().orElse(0L);
-        if (latestId != snapshot.latestMessageId()) return false;
+        if (latestId != snapshot.latestMessageId()) return new SaveResult(false, 0);
 
         MemorySummary current = summaryDao.queryLatest(sessionId);
-        if (!sameSummary(previous, current)) return false;
+        if (!sameSummary(previous, current)) return new SaveResult(false, 0);
 
         int version = previous == null ? 1 : previous.getVersion() + 1;
         LocalDateTime now = LocalDateTime.now();
@@ -46,7 +53,7 @@ public class ShortTermMemoryPersistenceService {
                 .goalsJson(arrayJson(result, "goals")).constraintsJson(arrayJson(result, "constraints"))
                 .entitiesJson(arrayJson(result, "entities")).pendingJson(arrayJson(result, "pending"))
                 .completedJson(arrayJson(result, "completed")).createdAt(now).build());
-        return true;
+        return new SaveResult(true, version);
     }
 
     private boolean sameSummary(MemorySummary expected, MemorySummary actual) {
@@ -64,5 +71,8 @@ public class ShortTermMemoryPersistenceService {
             cn.bugstack.ai.domain.agent.service.memory.RollingSummaryPolicy.SummaryPlan plan,
             long latestMessageId,
             int summaryTokenCount) {
+    }
+
+    public record SaveResult(boolean saved, int version) {
     }
 }

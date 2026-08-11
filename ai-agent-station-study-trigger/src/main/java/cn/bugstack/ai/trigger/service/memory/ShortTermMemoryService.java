@@ -10,6 +10,7 @@ import cn.bugstack.ai.domain.agent.service.memory.MemorySummaryLock;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import jakarta.annotation.Resource;
 import org.springframework.ai.chat.client.ChatClient;
@@ -78,18 +79,18 @@ public class ShortTermMemoryService {
                             .append(summaryContent(message)).append('\n'));
             OpenAiChatModel model = applicationContext.getBean(AiAgentEnumVO.AI_CLIENT_MODEL.getBeanName(modelId), OpenAiChatModel.class);
             String raw = ChatClient.builder(model).defaultSystem(PROMPT).build().prompt().user(input.toString()).call().content();
-            if (raw == null || raw.contains("```")) throw new IllegalArgumentException("Memory summary must be plain JSON");
-            JSONObject result = JSON.parseObject(raw);
+            JSONObject result = parseAndNormalize(raw);
             String summary = result.getString("summary");
-            if (summary == null || summary.isBlank()) throw new IllegalArgumentException("Memory summary is empty");
-            boolean saved = persistenceService.saveIfUnchanged(agentId, sessionId, modelId, previous,
+            ShortTermMemoryPersistenceService.SaveResult saveResult = persistenceService.saveIfUnchangedWithVersion(
+                    agentId, sessionId, modelId, previous,
                     new ShortTermMemoryPersistenceService.RollingSummarySnapshot(plan, latestMessageId,
                             new TokenBudgetEstimator().estimate(summary)), result, summary);
-            if (saved && memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
+            if (saveResult.saved() && memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
+                String reference = "session-summary:" + agentId + ":" + sessionId + ":v" + saveResult.version();
                 longTermMemoryPort.store(new LongTermMemoryPort.MemoryFact(agentId, agentId, "SESSION_SUMMARY", summary,
-                        sessionId, "system-derived-after-short-term-threshold"));
+                        sessionId, reference, "", saveResult.version()));
             }
-            return new SummaryRefreshResult(saved
+            return new SummaryRefreshResult(saveResult.saved()
                     ? SummaryRefreshResult.Status.SAVED : SummaryRefreshResult.Status.NOT_REQUIRED);
         } finally {
             summaryLock.release(lease);
@@ -101,6 +102,46 @@ public class ShortTermMemoryService {
         if ("tool".equalsIgnoreCase(message.getRole())) content = MemoryFoldingPipeline.foldPlainText(content);
         if (content.length() > 4_000) content = content.substring(0, 4_000) + "...[summary-input-truncated]";
         return content;
+    }
+
+    /** 只保留摘要契约字段，避免模型将 Markdown、超长内容或未知字段写入记忆。 */
+    public static JSONObject parseAndNormalize(String raw) {
+        if (raw == null || raw.isBlank() || raw.contains("```")) {
+            throw new IllegalArgumentException("Memory summary must be plain JSON");
+        }
+        final JSONObject parsed;
+        try {
+            parsed = JSON.parseObject(raw);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Memory summary must be a JSON object", exception);
+        }
+        if (parsed == null) throw new IllegalArgumentException("Memory summary must be a JSON object");
+        String summary = boundedText(parsed.getString("summary"), 2_000);
+        if (summary.isBlank()) throw new IllegalArgumentException("Memory summary is empty");
+
+        JSONObject normalized = new JSONObject();
+        normalized.put("summary", summary);
+        for (String key : List.of("goals", "constraints", "entities", "pending", "completed")) {
+            normalized.put(key, boundedList(parsed.getJSONArray(key)));
+        }
+        return normalized;
+    }
+
+    private static JSONArray boundedList(JSONArray source) {
+        JSONArray normalized = new JSONArray();
+        if (source == null) return normalized;
+        int size = Math.min(source.size(), 20);
+        for (int index = 0; index < size; index++) {
+            String value = boundedText(source.getString(index), 500);
+            if (!value.isBlank()) normalized.add(value);
+        }
+        return normalized;
+    }
+
+    private static String boundedText(String value, int maxLength) {
+        if (value == null) return "";
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
     }
 
 }
