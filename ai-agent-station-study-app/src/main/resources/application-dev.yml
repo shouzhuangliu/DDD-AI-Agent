@@ -53,6 +53,11 @@ spring:
         idle-timeout: 30000
         connection-timeout: 30000
 
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:16379}
+
   ai:
     openai:
       base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
