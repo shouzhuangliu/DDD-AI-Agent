@@ -57,7 +57,7 @@ void acquiresWithNxAndReleasesOnlyMatchingToken() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=RedisMemorySummaryLockTest' test`
+Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=RedisMemorySummaryLockTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: FAIL because `MemorySummaryLock` and `RedisMemorySummaryLock` do not exist.
 
@@ -77,7 +77,7 @@ The adapter must reject blank keys and non-positive TTLs, generate a UUID token,
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=RedisMemorySummaryLockTest' test`
+Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=RedisMemorySummaryLockTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: PASS, including NX acquisition and token-checked release.
 
@@ -125,7 +125,7 @@ void doesNotSummarizeWhenThereIsNoOlderMessageToFold() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest' test`
+Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: FAIL because the current policy returns early when `uncovered.size() <= retainRecentMessages` and never evaluates the hard threshold.
 
@@ -135,7 +135,7 @@ Evaluate the hard limit before the recent-message early return. Reserve `recentC
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest' test`
+Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: PASS for both modules' rolling-summary tests.
 
@@ -174,7 +174,7 @@ void lockBusySkipsModelAndReportsRetryableResult() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=ShortTermMemoryServiceLockTest' test`
+Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=ShortTermMemoryServiceLockTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: FAIL because the service currently has no lock dependency and returns `void`.
 
@@ -186,7 +186,7 @@ In `ConversationAnalysisWorker`, handle `LOCK_BUSY` by calling `analysisJobDao.d
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=ShortTermMemoryServiceLockTest,ConversationAnalysisWorkerTest' test`
+Run: `mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=ShortTermMemoryServiceLockTest,ConversationAnalysisWorkerTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: PASS; lock contention causes retry scheduling, and exceptions still release the lease.
 
@@ -224,7 +224,7 @@ void summaryResponseMustBePlainJsonAndNonEmpty() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=ShortTermMemorySnapshotTest' test`
+Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=ShortTermMemorySnapshotTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: FAIL because the current service validates the response inline but does not expose reusable normalization or a versioned long-term write contract.
 
@@ -234,7 +234,7 @@ Extract a package-private normalization method used by the worker. Normalize whi
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=ShortTermMemorySnapshotTest,MemoryQueryAdmissionPolicyTest' test`
+Run: `mvn -pl ai-agent-station-study-app -am '-DskipTests=false' '-Dtest=ShortTermMemorySnapshotTest,MemoryQueryAdmissionPolicyTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
 
 Expected: PASS with invalid model output rejected and valid summaries admitted at most once per version.
 
@@ -254,7 +254,7 @@ git commit -m "fix: 收紧滚动摘要结果与长期记忆准入"
 - [ ] **Step 1: Run targeted regression tests**
 
 ```bash
-mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest,ShortTermMemoryServiceLockTest,ConversationAnalysisWorkerTest' test
+mvn -pl ai-agent-station-study-trigger -am '-DskipTests=false' '-Dtest=RollingSummaryPolicyTest,ShortTermMemoryServiceLockTest,ConversationAnalysisWorkerTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
 ```
 
 Expected: all targeted summary, lock and worker tests pass.
