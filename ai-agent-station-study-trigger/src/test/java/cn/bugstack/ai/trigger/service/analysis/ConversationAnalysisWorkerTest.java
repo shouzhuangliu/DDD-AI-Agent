@@ -4,6 +4,8 @@ import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.AnalysisJob;
 import cn.bugstack.ai.infrastructure.dao.po.AiSignal;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
+import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
+import cn.bugstack.ai.trigger.service.memory.SummaryRefreshResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -139,6 +141,29 @@ class ConversationAnalysisWorkerTest {
         verify(signalDao).insert(signal.capture());
         org.junit.jupiter.api.Assertions.assertEquals("OTHER", signal.getValue().getSignalType());
         org.junit.jupiter.api.Assertions.assertEquals("AI_INFERRED", signal.getValue().getSourceType());
+    }
+
+    @Test
+    void lockBusyDefersAnalysisJobWithoutRunningCaseEvaluation() {
+        IAnalysisJobDao jobDao = mock(IAnalysisJobDao.class);
+        IChatMessageDao messageDao = mock(IChatMessageDao.class);
+        ShortTermMemoryService memoryService = mock(ShortTermMemoryService.class);
+        AnalysisJob job = AnalysisJob.builder().id(7L).agentId("inventory").sessionId("session-1")
+                .assistantMessageId(2L).modelId("deepseek-v4-flash").policyVersion(AnalysisJobQueue.POLICY_VERSION)
+                .attempts(0).maxAttempts(3).build();
+        when(jobDao.queryClaimable()).thenReturn(job);
+        when(jobDao.claim(eq(7L), any())).thenReturn(1);
+        when(memoryService.refreshIfNeeded("inventory", "session-1", "deepseek-v4-flash"))
+                .thenReturn(new SummaryRefreshResult(SummaryRefreshResult.Status.LOCK_BUSY));
+        ReflectionTestUtils.setField(worker, "jobDao", jobDao);
+        ReflectionTestUtils.setField(worker, "messageDao", messageDao);
+        ReflectionTestUtils.setField(worker, "shortTermMemoryService", memoryService);
+        ReflectionTestUtils.setField(worker, "enabled", true);
+
+        worker.processNext();
+
+        verify(jobDao).deferFailure(eq(7L), eq("RETRY"), eq("summary lock busy"), any());
+        verifyNoInteractions(messageDao, snapshotDao, caseDao, signalDao);
     }
 
     private AnalysisJob job() {

@@ -6,6 +6,7 @@ import cn.bugstack.ai.domain.agent.service.operations.CaseScoringService;
 import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
 import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
+import cn.bugstack.ai.trigger.service.memory.SummaryRefreshResult;
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -86,6 +87,7 @@ public class ConversationAnalysisWorker {
     private final CaseAnalysisCadencePolicy cadencePolicy = new CaseAnalysisCadencePolicy();
 
     @Value("${agent.analysis.enabled:true}") private boolean enabled;
+    @Value("${agent.memory.summary-lock-retry-delay-seconds:15}") private long summaryLockRetryDelaySeconds = 15L;
 
     @Scheduled(fixedDelayString = "${agent.analysis.poll-delay-ms:5000}")
     public void processNext() {
@@ -99,7 +101,13 @@ public class ConversationAnalysisWorker {
                 return;
             }
             try {
-                shortTermMemoryService.refreshIfNeeded(job.getAgentId(), job.getSessionId(), job.getModelId());
+                SummaryRefreshResult memoryResult = shortTermMemoryService.refreshIfNeeded(
+                        job.getAgentId(), job.getSessionId(), job.getModelId());
+                if (memoryResult != null && memoryResult.status() == SummaryRefreshResult.Status.LOCK_BUSY) {
+                    jobDao.deferFailure(job.getId(), "RETRY", "summary lock busy",
+                            LocalDateTime.now().plusSeconds(summaryLockRetryDelaySeconds));
+                    return;
+                }
             } catch (Exception memoryError) {
                 log.warn("短期记忆刷新失败，继续执行 Case 评测，session={}", job.getSessionId(), memoryError);
             }
