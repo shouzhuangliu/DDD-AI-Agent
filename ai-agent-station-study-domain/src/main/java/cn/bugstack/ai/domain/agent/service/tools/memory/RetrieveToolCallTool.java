@@ -68,6 +68,8 @@ public class RetrieveToolCallTool extends AbstractReActTool {
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("toolCallId", exchange.toolCallId());
             response.put("source", "archive");
+            response.put("freshness", "HISTORICAL");
+            response.put("reexecuteForLatest", true);
             response.put("tool", Map.of(
                     "name", exchange.toolName() == null ? "" : exchange.toolName(),
                     "arguments", exchange.toolArguments() == null ? "{}" : exchange.toolArguments()));
@@ -102,6 +104,8 @@ public class RetrieveToolCallTool extends AbstractReActTool {
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("toolCallId", exchange.toolCallId());
             response.put("source", "archive");
+            response.put("freshness", "HISTORICAL");
+            response.put("reexecuteForLatest", true);
             response.put("tool", Map.of("name", exchange.toolName() == null ? "" : exchange.toolName(),
                     "arguments", exchange.toolArguments() == null ? "{}" : exchange.toolArguments()));
             response.put("result", Map.of("content", result.substring(safeOffset, end),

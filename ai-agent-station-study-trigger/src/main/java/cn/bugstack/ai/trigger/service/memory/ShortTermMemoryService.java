@@ -4,7 +4,7 @@ import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.memory.RollingSummaryPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.TokenBudgetEstimator;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
-import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
+import cn.bugstack.ai.domain.agent.service.memory.FoldedToolReference;
 import cn.bugstack.ai.domain.agent.service.memory.ContextBudgetPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.MemorySummaryLock;
 import cn.bugstack.ai.infrastructure.dao.*;
@@ -99,7 +99,10 @@ public class ShortTermMemoryService {
 
     private String summaryContent(ChatMessage message) {
         String content = message.getContent() == null ? "" : message.getContent();
-        if ("tool".equalsIgnoreCase(message.getRole())) content = MemoryFoldingPipeline.foldPlainText(content);
+        if ("tool".equalsIgnoreCase(message.getRole())) {
+            // 摘要输入也要保留工具引用；否则旧工具结果退出上下文后，模型无法按 tool_call_id 取回原文。
+            content = FoldedToolReference.render(message.getToolName(), message.getToolCallId(), content, 160, 80);
+        }
         if (content.length() > 4_000) content = content.substring(0, 4_000) + "...[summary-input-truncated]";
         return content;
     }

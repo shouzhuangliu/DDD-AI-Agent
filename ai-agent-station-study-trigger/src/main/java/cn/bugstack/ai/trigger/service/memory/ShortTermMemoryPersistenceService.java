@@ -53,6 +53,11 @@ public class ShortTermMemoryPersistenceService {
                 .goalsJson(arrayJson(result, "goals")).constraintsJson(arrayJson(result, "constraints"))
                 .entitiesJson(arrayJson(result, "entities")).pendingJson(arrayJson(result, "pending"))
                 .completedJson(arrayJson(result, "completed")).createdAt(now).build());
+        latestMessages.stream()
+                .filter(message -> message.getId() != null
+                        && message.getId() >= snapshot.plan().startMessageId()
+                        && message.getId() <= snapshot.plan().endMessageId())
+                .forEach(message -> messageDao.updateCompressed(message.getId(), 1));
         return new SaveResult(true, version);
     }
 

@@ -42,7 +42,7 @@ public final class MemoryFoldingPipeline {
         current = HistoryMessageSanitizer.sanitize(current);
         current = stripHistoricalRounds(current, config);
         current = HistoryMessageSanitizer.sanitize(current);
-        current = capIndividualMessages(current, config.maxMessageChars());
+        current = capIndividualMessages(current, config);
         current = trimToFinalBudget(current, config.finalTriggerChars());
         return HistoryMessageSanitizer.sanitize(current);
     }
@@ -63,43 +63,12 @@ public final class MemoryFoldingPipeline {
             int distanceFromEnd = steps.size() - stepIndex;
             if (distanceFromEnd <= config.keepRecentToolSteps()) continue;
             int assistantIndex = steps.get(stepIndex);
-            foldToolExchange(messages, assistantIndex);
+            ToolResultFoldingPolicy.foldExchange(messages, assistantIndex, ToolFoldConfig.from(config));
             if (distanceFromEnd > config.summarizeAfterStep()) {
                 summarizeAssistantStep(messages.get(assistantIndex), distanceFromEnd);
             }
         }
         return messages;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static void foldToolExchange(List<Map<String, Object>> messages, int assistantIndex) {
-        Map<String, Object> assistant = messages.get(assistantIndex);
-        Object rawCalls = assistant.get("tool_calls");
-        if (!(rawCalls instanceof List<?> calls)) return;
-
-        Map<String, String> namesById = new LinkedHashMap<>();
-        for (Object call : calls) {
-            if (!(call instanceof Map<?, ?> callMap)) continue;
-            String id = String.valueOf(valueOrDefault(callMap, "id", ""));
-            Object functionObject = callMap.get("function");
-            String name = "unknown";
-            if (functionObject instanceof Map<?, ?> function) {
-                name = String.valueOf(valueOrDefault(function, "name", "unknown"));
-                ((Map<String, Object>) function).put("arguments", "{}");
-            }
-            if (!id.isBlank()) namesById.put(id, name);
-        }
-
-        for (int i = assistantIndex + 1; i < messages.size(); i++) {
-            Map<String, Object> message = messages.get(i);
-            if (!"tool".equals(message.get("role"))) break;
-            String id = String.valueOf(message.getOrDefault("tool_call_id", ""));
-            String name = namesById.get(id);
-            if (name != null) {
-                message.put("content", FoldedToolReference.render(name, id,
-                        String.valueOf(message.getOrDefault("content", ""))));
-            }
-        }
     }
 
     private static void summarizeAssistantStep(Map<String, Object> assistant, int distanceFromEnd) {
@@ -140,7 +109,7 @@ public final class MemoryFoldingPipeline {
             for (int index = 0; index < round.size(); index++) {
                 if ("assistant".equals(round.get(index).get("role"))
                         && round.get(index).get("tool_calls") instanceof List<?>) {
-                    foldToolExchange(round, index);
+                    ToolResultFoldingPolicy.foldExchange(round, index, ToolFoldConfig.from(config));
                 }
             }
             Map<String, Object> lastAnswer = null;
@@ -176,14 +145,13 @@ public final class MemoryFoldingPipeline {
     }
 
     private static List<Map<String, Object>> capIndividualMessages(List<Map<String, Object>> messages,
-                                                                    int maxChars) {
+                                                                    FoldConfig config) {
+        int maxChars = config.maxMessageChars();
         for (Map<String, Object> message : messages) {
             String content = String.valueOf(message.getOrDefault("content", ""));
             if (content.length() <= maxChars) continue;
             if ("tool".equals(message.get("role"))) {
-                String id = String.valueOf(message.getOrDefault("tool_call_id", "unknown"));
-                String name = String.valueOf(message.getOrDefault("name", "unknown"));
-                message.put("content", FoldedToolReference.render(name, id, content));
+                ToolResultFoldingPolicy.foldSingleToolResult(message, ToolFoldConfig.from(config));
             } else {
                 message.put("content", foldPlainText(content));
             }

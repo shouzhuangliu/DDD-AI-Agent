@@ -45,6 +45,8 @@ public class RetrieveToolCallToolTest {
         String result = tool.retrieveToolCall("session_a", "call_1");
 
         assertTrue(result.contains("full result"));
+        assertTrue(result.contains("\"freshness\":\"HISTORICAL\""));
+        assertTrue(result.contains("\"reexecuteForLatest\":true"));
         verify(recorder).findToolExchange("session_a", "call_1");
     }
 }

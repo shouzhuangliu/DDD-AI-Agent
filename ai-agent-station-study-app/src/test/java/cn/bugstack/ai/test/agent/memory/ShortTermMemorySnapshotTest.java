@@ -75,6 +75,7 @@ public class ShortTermMemorySnapshotTest {
         verify(summaryDao).supersede("s-1");
         verify(summaryDao).insert(any(MemorySummary.class));
         verify(stateDao).insert(any());
+        verify(messageDao).updateCompressed(10L, 1);
     }
 
     @Test

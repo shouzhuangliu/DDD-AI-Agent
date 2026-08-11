@@ -4,6 +4,7 @@ import cn.bugstack.ai.domain.agent.service.memory.ChatMessageRecorder;
 import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.ToolCallExchange;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
+import cn.bugstack.ai.domain.agent.service.memory.SummaryCoveragePolicy;
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
@@ -111,8 +112,8 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
         List<ChatMessage> all = chatMessageDao.queryBySessionId(sessionId);
         List<HistoryMessage> r = new ArrayList<>();
         MemorySummary summary = memorySummaryDao.queryLatest(sessionId);
-        long covered = summary == null ? 0 : summary.getEndMessageId();
-        if (summary != null) {
+        SummaryCoveragePolicy coverage = SummaryCoveragePolicy.of(summary == null ? null : summary.getEndMessageId());
+        if (summary != null && coverage.hasCoverage()) {
             MemoryState state = memoryStateDao.queryLatest(sessionId);
             String stateText = state == null ? "" : "\n会话状态: goals=" + state.getGoalsJson()
                     + ", constraints=" + state.getConstraintsJson() + ", pending=" + state.getPendingJson();
@@ -126,7 +127,7 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
                     r.add(HistoryMessage.builder().role("assistant").content("[跨会话长期记忆] " + memory.content()).build()));
         }
         for (ChatMessage m : all) {
-            if (m.getId() != null && m.getId() > covered
+            if (!coverage.covers(m.getId())
                     && ("user".equals(m.getRole()) || "assistant".equals(m.getRole()) || "tool".equals(m.getRole()))) {
                 r.add(HistoryMessage.builder()
                         .role(m.getRole())
