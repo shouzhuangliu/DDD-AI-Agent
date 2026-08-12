@@ -50,6 +50,20 @@ class AgentMemoryCatalogServiceTest {
         assertEquals("mem-1", result.getFirst().memoryId());
     }
 
+    @Test
+    void getDoesNotReturnSoftDeletedMemoryEvenWhenIndexStillReferencesIt() {
+        IAgentMemoryCardDao cardDao = mock(IAgentMemoryCardDao.class);
+        LongTermMemoryPort indexPort = mock(LongTermMemoryPort.class);
+        AgentMemoryCard deleted = card("inventory", "mem-deleted");
+        deleted.setIsDeleted(1);
+        when(cardDao.queryPublishedByMemoryIds(eq("inventory"), anyList())).thenReturn(List.of(deleted));
+
+        List<AgentMemoryCatalogPort.MemoryContent> result = new AgentMemoryCatalogService(cardDao, indexPort)
+                .getPublished("inventory", List.of("mem-deleted"));
+
+        assertTrue(result.isEmpty());
+    }
+
     private AgentMemoryCard card(String agentId, String memoryId) {
         return AgentMemoryCard.builder().agentId(agentId).memoryId(memoryId).version(1)
                 .memoryType("RESOLVED_CASE").title("库存不一致").description("下单后库存未扣减")

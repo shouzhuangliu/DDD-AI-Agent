@@ -33,6 +33,7 @@ import cn.bugstack.ai.domain.agent.service.tools.subagent.DispatchSubagentsTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.SearchAgentMemoryTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.GetAgentMemoryTool;
+import cn.bugstack.ai.domain.agent.service.tools.memory.AgentMemoryLifecycleTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryCaseTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryFeedbackTool;
 import com.alibaba.fastjson2.JSON;
@@ -158,6 +159,9 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
 
     @Resource
     private GetAgentMemoryTool getAgentMemoryTool;
+
+    @Resource
+    private AgentMemoryLifecycleTool agentMemoryLifecycleTool;
 
     @Resource
     private QueryCaseTool queryCaseTool;
@@ -614,6 +618,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY)) tools.add(searchAgentMemoryTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.GET_AGENT_MEMORY)) tools.add(getAgentMemoryTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.UPSERT_AGENT_MEMORY)
+                || allowedTools.contains(ReActToolAllowlistPolicy.RETIRE_AGENT_MEMORY)) tools.add(agentMemoryLifecycleTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.TASK)) tools.add(subagentTaskTool);

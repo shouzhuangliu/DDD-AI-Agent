@@ -1,5 +1,6 @@
 package cn.bugstack.ai.trigger.service.memory;
 
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryLifecyclePort;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryCardDao;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryChangeLogDao;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryIndexOutboxDao;
@@ -17,7 +18,7 @@ import java.util.UUID;
 
 /** 业务长期记忆的唯一写入口：自动新增、更新和软删除。 */
 @Service
-public class AgentMemoryLifecycleService {
+public class AgentMemoryLifecycleService implements AgentMemoryLifecyclePort {
     private final IAgentMemoryCardDao cardDao;
     private final IAgentMemoryChangeLogDao changeLogDao;
     private final IAgentMemoryIndexOutboxDao outboxDao;
@@ -28,7 +29,7 @@ public class AgentMemoryLifecycleService {
     }
 
     @Transactional
-    public Result upsert(UpsertCommand command) {
+    private Result upsertInternal(UpsertCommand command) {
         validate(command.agentId(), command.memoryType(), command.memoryKey(), command.title(), command.description(),
                 command.content(), command.sourceType(), command.sourceId(), command.evidenceQuote(), command.reason());
         AgentMemoryCard previous = cardDao.queryActiveByIdentity(command.agentId(), upper(command.memoryType()), command.memoryKey().trim());
@@ -50,8 +51,17 @@ public class AgentMemoryLifecycleService {
         return new Result(memoryId, version, operation);
     }
 
+    @Override
     @Transactional
-    public void retire(RetireCommand command) {
+    public AgentMemoryLifecyclePort.Result upsert(AgentMemoryLifecyclePort.UpsertCommand command) {
+        Result result = upsertInternal(new UpsertCommand(command.agentId(), command.memoryType(), command.memoryKey(), command.title(),
+                command.description(), command.content(), command.importance(), command.pinned(), command.sourceType(),
+                command.sourceId(), command.evidenceQuote(), command.reason()));
+        return new AgentMemoryLifecyclePort.Result(result.memoryId(), result.version(), result.operation());
+    }
+
+    @Transactional
+    private void retireInternal(RetireCommand command) {
         validate(command.agentId(), command.memoryId(), command.sourceType(), command.sourceId(), command.evidenceQuote(), command.reason());
         AgentMemoryCard card = cardDao.queryActiveByMemoryId(command.agentId(), command.memoryId());
         if (card == null) throw new IllegalArgumentException("当前 Agent 不存在有效长期记忆");
@@ -59,6 +69,15 @@ public class AgentMemoryLifecycleService {
         LocalDateTime now = LocalDateTime.now();
         audit(card, "RETIRE", command.reason(), command.sourceType(), command.sourceId(), now);
         outboxDao.insert(event(card, "DELETE", command.reason(), now));
+    }
+
+    @Override
+    @Transactional
+    public AgentMemoryLifecyclePort.Result retire(AgentMemoryLifecyclePort.RetireCommand command) {
+        AgentMemoryCard active = cardDao.queryActiveByMemoryId(command.agentId(), command.memoryId());
+        retireInternal(new RetireCommand(command.agentId(), command.memoryId(), command.sourceType(), command.sourceId(),
+                command.evidenceQuote(), command.reason()));
+        return new AgentMemoryLifecyclePort.Result(command.memoryId(), active == null || active.getVersion() == null ? 0 : active.getVersion(), "RETIRE");
     }
 
     private void audit(AgentMemoryCard card, String operation, String reason, String sourceType, String sourceId, LocalDateTime now) {

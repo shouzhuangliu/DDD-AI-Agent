@@ -1,5 +1,6 @@
 package cn.bugstack.ai.trigger.service.memory;
 
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryLifecyclePort;
 import cn.bugstack.ai.infrastructure.dao.IChatMessageDao;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryExtractionCursorDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryExtractionCursor;
@@ -14,20 +15,20 @@ public class ConversationMemoryCandidateExtractor {
 
     private final IChatMessageDao messageDao;
     private final IAgentMemoryExtractionCursorDao cursorDao;
-    private final AgentMemoryCandidateService candidateService;
+    private final AgentMemoryLifecyclePort lifecycleService;
     private final MemoryCandidateModelClient modelClient;
     private final MemoryQueryAdmissionPolicy admissionPolicy;
     private final AgentEvaluationContextBuilder contextBuilder;
 
     public ConversationMemoryCandidateExtractor(IChatMessageDao messageDao,
                                                 IAgentMemoryExtractionCursorDao cursorDao,
-                                                AgentMemoryCandidateService candidateService,
+                                                AgentMemoryLifecyclePort lifecycleService,
                                                 MemoryCandidateModelClient modelClient,
                                                 MemoryQueryAdmissionPolicy admissionPolicy,
                                                 AgentEvaluationContextBuilder contextBuilder) {
         this.messageDao = messageDao;
         this.cursorDao = cursorDao;
-        this.candidateService = candidateService;
+        this.lifecycleService = lifecycleService;
         this.modelClient = modelClient;
         this.admissionPolicy = admissionPolicy;
         this.contextBuilder = contextBuilder;
@@ -57,26 +58,44 @@ public class ConversationMemoryCandidateExtractor {
         try {
             MemoryCandidateModelClient.Extraction extraction = modelClient.extract(
                     new MemoryCandidateModelClient.ExtractionRequest(agentId, sessionId, modelId, context.toString()));
-            if (extraction == null || !extraction.eligible()) {
+            if (extraction == null || !extraction.eligible() || "NOOP".equalsIgnoreCase(extraction.operation())) {
                 advance(agentId, sessionId, covered, latestId);
                 return new ExtractionResult(Status.NO_CANDIDATE, "");
             }
             if ("RESOLVED_CASE".equalsIgnoreCase(extraction.memoryType())) {
                 throw new IllegalArgumentException("会话抽取不能生成 RESOLVED_CASE");
             }
-            List<AgentMemoryCandidateService.EvidenceInput> evidence = extraction.evidence().stream()
-                    .map(item -> new AgentMemoryCandidateService.EvidenceInput("MESSAGE", String.valueOf(item.messageId()),
-                            sessionId, item.messageId(), "", item.quote())).toList();
-            String candidateId = candidateService.submitCandidate(new AgentMemoryCandidateService.SubmitCandidate(
-                    agentId, extraction.memoryType(), extraction.memoryKey(), extraction.title(), extraction.summary(),
-                    extraction.contentJson(), "SESSION", sessionId + ":" + latestId, sessionId, "",
-                    extraction.confidence(), modelId, "memory-candidate-v1", evidence));
+            String evidenceQuote = extraction.evidence() == null || extraction.evidence().isEmpty() ? ""
+                    : safe(extraction.evidence().getFirst().quote());
+            if (evidenceQuote.isBlank()) throw new IllegalArgumentException("long-term memory extraction requires message evidence");
+            AgentMemoryLifecyclePort.Result result;
+            if ("RETIRE".equalsIgnoreCase(extraction.operation())) {
+                result = retire(agentId, sessionId, latestId, extraction, evidenceQuote);
+            } else if ("CREATE".equalsIgnoreCase(extraction.operation()) || "UPDATE".equalsIgnoreCase(extraction.operation())) {
+                result = lifecycleService.upsert(new AgentMemoryLifecyclePort.UpsertCommand(
+                        agentId, extraction.memoryType(), extraction.memoryKey(), extraction.title(), extraction.summary(),
+                        extraction.contentJson(), extraction.confidence(), false, "SESSION", sessionId + ":" + latestId,
+                        evidenceQuote, "conversation memory extraction"));
+            } else {
+                throw new IllegalArgumentException("unsupported long-term memory operation: " + extraction.operation());
+            }
             advance(agentId, sessionId, covered, latestId);
-            return new ExtractionResult(Status.CANDIDATE_CREATED, candidateId);
+            return new ExtractionResult("UPDATE".equals(result.operation()) ? Status.MEMORY_UPDATED
+                    : "RETIRE".equals(result.operation()) ? Status.MEMORY_RETIRED : Status.MEMORY_CREATED, result.memoryId());
         } catch (RuntimeException exception) {
             cursorDao.markFailure(agentId, sessionId, boundedError(exception));
             throw exception;
         }
+    }
+
+    private AgentMemoryLifecyclePort.Result retire(String agentId, String sessionId, long latestId,
+                                                       MemoryCandidateModelClient.Extraction extraction, String quote) {
+        if (extraction.targetMemoryId() == null || extraction.targetMemoryId().isBlank()) {
+            throw new IllegalArgumentException("retire operation requires targetMemoryId");
+        }
+        lifecycleService.retire(new AgentMemoryLifecyclePort.RetireCommand(agentId, extraction.targetMemoryId(),
+                "SESSION", sessionId + ":" + latestId, quote, "conversation memory extraction"));
+        return new AgentMemoryLifecyclePort.Result(extraction.targetMemoryId(), 0, "RETIRE");
     }
 
     private void advance(String agentId, String sessionId, long covered, long latestId) {
@@ -89,6 +108,6 @@ public class ConversationMemoryCandidateExtractor {
         String value = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
         return value.substring(0, Math.min(2000, value.length()));
     }
-    public enum Status { NO_NEW_MESSAGES, SKIPPED_LOW_INFORMATION, NO_CANDIDATE, CANDIDATE_CREATED }
-    public record ExtractionResult(Status status, String candidateId) { }
+    public enum Status { NO_NEW_MESSAGES, SKIPPED_LOW_INFORMATION, NO_CANDIDATE, MEMORY_CREATED, MEMORY_UPDATED, MEMORY_RETIRED }
+    public record ExtractionResult(Status status, String memoryId) { }
 }

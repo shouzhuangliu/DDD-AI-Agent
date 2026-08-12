@@ -64,7 +64,8 @@ public class AgentMemoryCatalogService implements AgentMemoryCatalogPort {
     }
 
     private boolean isPublishedFor(String agentId, AgentMemoryCard card) {
-        return card != null && agentId.equals(card.getAgentId()) && "PUBLISHED".equalsIgnoreCase(card.getStatus());
+        return card != null && agentId.equals(card.getAgentId()) && "PUBLISHED".equalsIgnoreCase(card.getStatus())
+                && !Integer.valueOf(1).equals(card.getIsDeleted());
     }
 
     private MemoryContent toContent(AgentMemoryCard card) {
