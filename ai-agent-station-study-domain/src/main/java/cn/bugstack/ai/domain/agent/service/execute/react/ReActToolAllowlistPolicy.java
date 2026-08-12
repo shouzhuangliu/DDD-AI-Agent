@@ -16,6 +16,8 @@ public class ReActToolAllowlistPolicy {
     public static final String GET_MCP_TOOL_SCHEMA = "get_mcp_tool_schema";
     public static final String CALL_MCP_TOOL = "call_mcp_tool";
     public static final String RETRIEVE_TOOL_CALL = "retrieve_tool_call";
+    public static final String SEARCH_AGENT_MEMORY = "search_agent_memory";
+    public static final String GET_AGENT_MEMORY = "get_agent_memory";
     public static final String QUERY_CASES = "query_cases";
     public static final String QUERY_FEEDBACK = "query_feedback";
     public static final String TASK = "task";
@@ -23,7 +25,8 @@ public class ReActToolAllowlistPolicy {
 
     private static final Set<String> KNOWN_TOOLS = Set.of(
             READ_FILE, WRITE_FILE, RUN_BASH, DISCOVER_MCP_TOOLS, GET_MCP_TOOL_SCHEMA, CALL_MCP_TOOL,
-            RETRIEVE_TOOL_CALL, QUERY_CASES, QUERY_FEEDBACK, TASK, DISPATCH_SUBAGENTS);
+            RETRIEVE_TOOL_CALL, SEARCH_AGENT_MEMORY, GET_AGENT_MEMORY,
+            QUERY_CASES, QUERY_FEEDBACK, TASK, DISPATCH_SUBAGENTS);
 
     public List<String> resolve(List<String> boundTools) {
         if (boundTools == null) {
@@ -49,6 +52,8 @@ public class ReActToolAllowlistPolicy {
                 new ToolOption(GET_MCP_TOOL_SCHEMA, "MCP Schema", "按需读取已绑定 MCP 工具的完整参数 Schema，读取本身不执行业务操作。", "LOW"),
                 new ToolOption(CALL_MCP_TOOL, "MCP 调用", "调用 Agent 绑定的 MCP 能力。", "MEDIUM"),
                 new ToolOption(RETRIEVE_TOOL_CALL, "取回工具结果", "按工具调用 ID 取回折叠过的完整结果。", "LOW"),
+                new ToolOption(SEARCH_AGENT_MEMORY, "搜索长期记忆", "搜索当前 Agent 已审核发布的长期记忆索引。", "LOW"),
+                new ToolOption(GET_AGENT_MEMORY, "读取长期记忆", "按 memoryId 读取当前 Agent 已发布的长期记忆正文。", "LOW"),
                 new ToolOption(QUERY_CASES, "查询 Case", "查询该 Agent 的历史 Case。", "LOW"),
                 new ToolOption(QUERY_FEEDBACK, "查询反馈", "查询该 Agent 的用户/运维反馈。", "LOW"),
                 new ToolOption(TASK, "Subagent", "将复杂独立任务交给一级 Subagent（串行委派）。", "MEDIUM"),

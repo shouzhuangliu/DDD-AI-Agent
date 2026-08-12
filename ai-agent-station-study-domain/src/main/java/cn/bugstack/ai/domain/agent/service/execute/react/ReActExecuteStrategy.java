@@ -31,6 +31,8 @@ import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolSchemaTool;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.SubagentTaskTool;
 import cn.bugstack.ai.domain.agent.service.tools.subagent.DispatchSubagentsTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
+import cn.bugstack.ai.domain.agent.service.tools.memory.SearchAgentMemoryTool;
+import cn.bugstack.ai.domain.agent.service.tools.memory.GetAgentMemoryTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryCaseTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryFeedbackTool;
 import com.alibaba.fastjson2.JSON;
@@ -152,6 +154,12 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
     private RetrieveToolCallTool retrieveToolCallTool;
 
     @Resource
+    private SearchAgentMemoryTool searchAgentMemoryTool;
+
+    @Resource
+    private GetAgentMemoryTool getAgentMemoryTool;
+
+    @Resource
     private QueryCaseTool queryCaseTool;
 
     @Resource
@@ -239,6 +247,12 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
             List<String> allowedTools = new ArrayList<>(bindings.getEffectiveToolIds());
             if (!allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) {
                 allowedTools.add(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL);
+            }
+            if (!allowedTools.contains(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY)) {
+                allowedTools.add(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY);
+            }
+            if (!allowedTools.contains(ReActToolAllowlistPolicy.GET_AGENT_MEMORY)) {
+                allowedTools.add(ReActToolAllowlistPolicy.GET_AGENT_MEMORY);
             }
             String currentExecutionId = executionId;
             ReActToolContextHolder.set(ReActToolContext.builder()
@@ -598,6 +612,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.GET_MCP_TOOL_SCHEMA)) tools.add(mcpToolSchemaTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) tools.add(mcpToolHandleCallTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY)) tools.add(searchAgentMemoryTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_AGENT_MEMORY)) tools.add(getAgentMemoryTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.TASK)) tools.add(subagentTaskTool);
@@ -670,6 +686,8 @@ public class ReActExecuteStrategy implements IExecuteStrategy {
         if (allowedTools.contains(ReActToolAllowlistPolicy.DISCOVER_MCP_TOOLS)) sb.append("- discover_mcp_tools(query, mcpId?, limit?): 按用户意图在当前 Agent 绑定的 MCP 中检索最多 3 个工具，并返回完整 inputSchema 与会话级 toolHandle\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.CALL_MCP_TOOL)) sb.append("- call_mcp_tool(toolHandle, args): 使用 discover_mcp_tools 返回的会话级句柄调用 MCP 工具；句柄失效时重新发现，不得直接猜测参数\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) sb.append("- retrieve_tool_call(toolCallId): 按 ID 取回被折叠/压缩的完整消息原文\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY)) sb.append("- search_agent_memory(query, limit): 搜索当前 Agent 已审核发布的长期记忆索引；先看标题与摘要，不返回完整正文\n");
+        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_AGENT_MEMORY)) sb.append("- get_agent_memory(memoryIdsJson): 确认需要历史规则或解决经验时，按 memoryId 读取最多 3 条正式正文\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) sb.append("- query_cases(keyword, limit): 查询 Case 案例库，用户问历史问题或案例时调用\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) sb.append("- query_feedback(limit, agentId): 查询用户反馈，用户问最近反馈时调用\n");
         if (allowedTools.contains(ReActToolAllowlistPolicy.TASK)) sb.append("- task(description, prompt): 将单个复杂独立任务交给一级 Subagent（串行），等待其结果后再汇总\n");

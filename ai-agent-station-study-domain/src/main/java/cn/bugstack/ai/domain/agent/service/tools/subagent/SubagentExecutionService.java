@@ -12,6 +12,8 @@ import cn.bugstack.ai.domain.agent.service.tools.internal.FileWriteTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryCaseTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.QueryFeedbackTool;
 import cn.bugstack.ai.domain.agent.service.tools.memory.RetrieveToolCallTool;
+import cn.bugstack.ai.domain.agent.service.tools.memory.SearchAgentMemoryTool;
+import cn.bugstack.ai.domain.agent.service.tools.memory.GetAgentMemoryTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpCallTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolDiscoveryTool;
 import cn.bugstack.ai.domain.agent.service.tools.mcp.McpToolHandleCallTool;
@@ -82,6 +84,10 @@ public class SubagentExecutionService {
     private final McpToolDiscoveryTool mcpToolDiscoveryTool;
     private final McpToolHandleCallTool mcpToolHandleCallTool;
     private final RetrieveToolCallTool retrieveToolCallTool;
+    @Autowired(required = false)
+    private SearchAgentMemoryTool searchAgentMemoryTool;
+    @Autowired(required = false)
+    private GetAgentMemoryTool getAgentMemoryTool;
     private final QueryCaseTool queryCaseTool;
     private final QueryFeedbackTool queryFeedbackTool;
     private final ISubagentTaskRepository taskRepository;
@@ -451,6 +457,8 @@ public class SubagentExecutionService {
             tools.add(mcpToolHandleCallTool != null ? mcpToolHandleCallTool : mcpCallTool);
         }
         if (allowedTools.contains(ReActToolAllowlistPolicy.RETRIEVE_TOOL_CALL)) tools.add(retrieveToolCallTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.SEARCH_AGENT_MEMORY) && searchAgentMemoryTool != null) tools.add(searchAgentMemoryTool);
+        if (allowedTools.contains(ReActToolAllowlistPolicy.GET_AGENT_MEMORY) && getAgentMemoryTool != null) tools.add(getAgentMemoryTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_CASES)) tools.add(queryCaseTool);
         if (allowedTools.contains(ReActToolAllowlistPolicy.QUERY_FEEDBACK)) tools.add(queryFeedbackTool);
         // task / dispatch_subagents 不加入，禁止子 Agent 再委派

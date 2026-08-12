@@ -15,9 +15,13 @@ public interface LongTermMemoryPort {
 
     default void delete(String agentId, String memoryId, int version) { }
 
+    default List<MemoryIndexReference> searchIndex(String agentId, String query, int limit) { return List.of(); }
+
     record PublishedMemoryDocument(String agentId, String memoryId, int version, String memoryType,
                                    String title, String description, String searchText,
                                    String sourceCaseId, String status) { }
+
+    record MemoryIndexReference(String agentId, String memoryId, int version, double score) { }
 
     record MemoryFact(String agentId, String subjectId, String kind, String content,
                       String sourceSessionId, String consentReference,

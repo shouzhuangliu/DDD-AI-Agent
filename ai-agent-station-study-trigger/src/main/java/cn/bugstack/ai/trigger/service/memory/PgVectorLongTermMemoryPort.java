@@ -72,6 +72,22 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
     }
 
     @Override
+    public List<MemoryIndexReference> searchIndex(String agentId, String query, int limit) {
+        if (query == null || query.isBlank()) return List.of();
+        SearchRequest request = SearchRequest.builder().query(query).topK(Math.min(Math.max(limit, 1), 10))
+                .filterExpression("agent_id == '" + escape(agentId) + "' && status == 'PUBLISHED'")
+                .build();
+        List<Document> documents = vectorStore.similaritySearch(request);
+        if (documents == null) return List.of();
+        return documents.stream()
+                .filter(document -> !metadata(document, "memory_id", "").isBlank())
+                .map(document -> new MemoryIndexReference(agentId,
+                        metadata(document, "memory_id", ""),
+                        integerMetadata(document, "version"), document.getScore() == null ? 0D : document.getScore()))
+                .toList();
+    }
+
+    @Override
     public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) {
         if (query == null || query.isBlank()) return List.of();
         try {
@@ -126,6 +142,11 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
 
     private static String escape(String value) {
         return safe(value).replace("'", "\\'");
+    }
+
+    private static int integerMetadata(Document document, String key) {
+        try { return Integer.parseInt(metadata(document, key, "1")); }
+        catch (NumberFormatException ignored) { return 1; }
     }
 
     private static String indexDocumentId(String agentId, String memoryId, int version) {
