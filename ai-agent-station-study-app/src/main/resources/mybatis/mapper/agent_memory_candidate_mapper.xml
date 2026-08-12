@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAgentMemoryCandidateDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryCandidate">
+  <id column="id" property="id"/><result column="candidate_id" property="candidateId"/><result column="agent_id" property="agentId"/>
+  <result column="memory_type" property="memoryType"/><result column="memory_key" property="memoryKey"/><result column="title" property="title"/>
+  <result column="summary" property="summary"/><result column="content_json" property="contentJson"/><result column="source_type" property="sourceType"/>
+  <result column="source_id" property="sourceId"/><result column="source_session_id" property="sourceSessionId"/><result column="source_case_id" property="sourceCaseId"/>
+  <result column="confidence" property="confidence"/><result column="status" property="status"/><result column="extraction_model_id" property="extractionModelId"/>
+  <result column="prompt_version" property="promptVersion"/><result column="reviewed_by" property="reviewedBy"/><result column="reviewed_at" property="reviewedAt"/>
+  <result column="review_comment" property="reviewComment"/><result column="created_at" property="createdAt"/><result column="updated_at" property="updatedAt"/>
+ </resultMap>
+ <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryCandidate" useGeneratedKeys="true" keyProperty="id">INSERT IGNORE INTO agent_memory_candidate (candidate_id,agent_id,memory_type,memory_key,title,summary,content_json,source_type,source_id,source_session_id,source_case_id,confidence,status,extraction_model_id,prompt_version,created_at,updated_at) VALUES (#{candidateId},#{agentId},#{memoryType},#{memoryKey},#{title},#{summary},#{contentJson},#{sourceType},#{sourceId},#{sourceSessionId},#{sourceCaseId},#{confidence},#{status},#{extractionModelId},#{promptVersion},#{createdAt},#{updatedAt})</insert>
+ <select id="queryByCandidateId" resultMap="M">SELECT * FROM agent_memory_candidate WHERE agent_id=#{agentId} AND candidate_id=#{candidateId} LIMIT 1</select>
+ <select id="queryByStatus" resultMap="M">SELECT * FROM agent_memory_candidate WHERE agent_id=#{agentId} AND status=#{status} ORDER BY created_at DESC LIMIT #{limit}</select>
+ <update id="transition">UPDATE agent_memory_candidate SET status=#{toStatus},reviewed_by=#{reviewedBy},review_comment=#{reviewComment},reviewed_at=#{reviewedAt} WHERE agent_id=#{agentId} AND candidate_id=#{candidateId} AND status=#{fromStatus}</update>
+</mapper>

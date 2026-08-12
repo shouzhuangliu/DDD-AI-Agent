@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAgentMemoryExtractionCursorDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryExtractionCursor"><id column="id" property="id"/><result column="agent_id" property="agentId"/><result column="session_id" property="sessionId"/><result column="last_message_id" property="lastMessageId"/><result column="version" property="version"/><result column="last_status" property="lastStatus"/><result column="retry_count" property="retryCount"/><result column="last_error" property="lastError"/><result column="updated_at" property="updatedAt"/></resultMap>
+ <select id="query" resultMap="M">SELECT * FROM agent_memory_extraction_cursor WHERE agent_id=#{agentId} AND session_id=#{sessionId} LIMIT 1</select>
+ <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryExtractionCursor">INSERT IGNORE INTO agent_memory_extraction_cursor (agent_id,session_id,last_message_id,version,last_status,retry_count,last_error) VALUES (#{agentId},#{sessionId},#{lastMessageId},#{version},#{lastStatus},#{retryCount},#{lastError})</insert>
+ <update id="advance">UPDATE agent_memory_extraction_cursor SET last_message_id=#{nextMessageId},version=version+1,last_status='SUCCEEDED',retry_count=0,last_error='' WHERE agent_id=#{agentId} AND session_id=#{sessionId} AND last_message_id=#{expectedMessageId}</update>
+ <update id="markFailure">UPDATE agent_memory_extraction_cursor SET last_status='FAILED',retry_count=retry_count+1,last_error=#{error} WHERE agent_id=#{agentId} AND session_id=#{sessionId}</update>
+</mapper>
