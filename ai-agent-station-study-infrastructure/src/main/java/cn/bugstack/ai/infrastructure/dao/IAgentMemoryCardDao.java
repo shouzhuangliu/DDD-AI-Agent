@@ -7,6 +7,10 @@ import java.util.List;
 @Mapper
 public interface IAgentMemoryCardDao {
     int insert(AgentMemoryCard card);
+    AgentMemoryCard queryActiveByIdentity(@Param("agentId") String agentId, @Param("memoryType") String memoryType,
+                                          @Param("memoryKey") String memoryKey);
+    AgentMemoryCard queryActiveByMemoryId(@Param("agentId") String agentId, @Param("memoryId") String memoryId);
+    int softDelete(@Param("agentId") String agentId, @Param("memoryId") String memoryId, @Param("reason") String reason);
     int supersedeByKey(@Param("agentId") String agentId, @Param("memoryKey") String memoryKey);
     int retireByCaseId(@Param("agentId") String agentId, @Param("caseId") String caseId);
     List<AgentMemoryCard> queryPublishedByCaseId(@Param("agentId") String agentId, @Param("caseId") String caseId);

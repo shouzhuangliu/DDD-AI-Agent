@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.bugstack.ai.infrastructure.dao.IAgentMemoryChangeLogDao">
+ <resultMap id="M" type="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryChangeLog"><id column="id" property="id"/><result column="change_id" property="changeId"/><result column="agent_id" property="agentId"/><result column="memory_id" property="memoryId"/><result column="memory_version" property="memoryVersion"/><result column="operation" property="operation"/><result column="reason" property="reason"/><result column="source_type" property="sourceType"/><result column="source_id" property="sourceId"/><result column="created_at" property="createdAt"/></resultMap>
+ <insert id="insert" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryChangeLog" useGeneratedKeys="true" keyProperty="id">INSERT INTO agent_memory_change_log (change_id,agent_id,memory_id,memory_version,operation,reason,source_type,source_id,created_at) VALUES (#{changeId},#{agentId},#{memoryId},#{memoryVersion},#{operation},#{reason},#{sourceType},#{sourceId},#{createdAt})</insert>
+ <select id="queryByMemoryId" resultMap="M">SELECT * FROM agent_memory_change_log WHERE agent_id=#{agentId} AND memory_id=#{memoryId} ORDER BY id DESC LIMIT #{limit}</select>
+</mapper>
