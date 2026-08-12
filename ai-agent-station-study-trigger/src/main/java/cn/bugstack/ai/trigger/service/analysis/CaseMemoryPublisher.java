@@ -1,6 +1,7 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
 import cn.bugstack.ai.infrastructure.dao.po.AiCase;
+import cn.bugstack.ai.trigger.service.memory.AgentMemoryCandidateService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -9,15 +10,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class CaseMemoryPublisher {
 
-    private final AgentMemoryProfileService profileService;
+    private final AgentMemoryCandidateService candidateService;
 
-    public CaseMemoryPublisher(AgentMemoryProfileService profileService) {
-        this.profileService = profileService;
+    public CaseMemoryPublisher(AgentMemoryCandidateService candidateService) {
+        this.candidateService = candidateService;
     }
 
     public void publish(AiCase item, String toStatus, String reason) {
         if (item == null || toStatus == null) return;
         String normalizedStatus = toStatus.trim().toUpperCase();
-        if ("RESOLVED".equals(normalizedStatus)) profileService.updateFromResolvedCase(item, reason);
+        if ("RESOLVED".equals(normalizedStatus)) candidateService.submitResolvedCaseCandidate(item, reason);
     }
 }

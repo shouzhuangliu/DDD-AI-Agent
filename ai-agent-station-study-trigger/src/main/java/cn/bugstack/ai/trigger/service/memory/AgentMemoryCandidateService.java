@@ -78,6 +78,24 @@ public class AgentMemoryCandidateService {
         return candidateId;
     }
 
+    public String submitResolvedCaseCandidate(AiCase item, String reason) {
+        if (item == null || !"RESOLVED".equals(normalize(item.getStatus()))) {
+            throw new IllegalStateException("只有已解决 Case 才能生成长期记忆候选");
+        }
+        String content = JSON.toJSONString(java.util.Map.of(
+                "problem", nonBlank(item.getSummary(), item.getTitle()),
+                "resolution", nonBlank(item.getResolution(), ""),
+                "reason", nonBlank(reason, ""),
+                "severity", nonBlank(item.getSeverity(), "")));
+        String quote = nonBlank(item.getSummary(), item.getTitle());
+        return submitCandidate(new SubmitCandidate(item.getAgentId(), "RESOLVED_CASE",
+                item.getAgentId() + ":resolved-case:" + item.getCaseId(), item.getTitle(),
+                quote, content, "CASE", item.getCaseId(), "", item.getCaseId(),
+                item.getConfidence() == null ? 100 : item.getConfidence().intValue(),
+                nonBlank(item.getSourceModel(), "server"), "resolved-case-v1",
+                List.of(new EvidenceInput("CASE", item.getCaseId(), "", null, "", quote))));
+    }
+
     public void approve(String agentId, String candidateId, String reviewer, String comment) {
         transitionReview(agentId, candidateId, reviewer, comment, "APPROVED");
     }
