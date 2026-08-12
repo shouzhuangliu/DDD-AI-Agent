@@ -48,6 +48,30 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
     }
 
     @Override
+    public void index(PublishedMemoryDocument memory) {
+        if (memory == null || memory.searchText() == null || memory.searchText().isBlank()) {
+            throw new IllegalArgumentException("published memory search text is required");
+        }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("memory_type", safe(memory.memoryType()));
+        metadata.put("agent_id", safe(memory.agentId()));
+        metadata.put("memory_id", safe(memory.memoryId()));
+        metadata.put("version", memory.version());
+        metadata.put("status", safe(memory.status()));
+        metadata.put("source_case_id", safe(memory.sourceCaseId()));
+        vectorStore.accept(List.of(Document.builder()
+                .id(indexDocumentId(memory.agentId(), memory.memoryId(), memory.version()))
+                .text(memory.searchText())
+                .metadata(metadata)
+                .build()));
+    }
+
+    @Override
+    public void delete(String agentId, String memoryId, int version) {
+        vectorStore.delete(List.of(indexDocumentId(agentId, memoryId, version)));
+    }
+
+    @Override
     public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) {
         if (query == null || query.isBlank()) return List.of();
         try {
@@ -102,5 +126,9 @@ public class PgVectorLongTermMemoryPort implements LongTermMemoryPort {
 
     private static String escape(String value) {
         return safe(value).replace("'", "\\'");
+    }
+
+    private static String indexDocumentId(String agentId, String memoryId, int version) {
+        return safe(agentId) + ":" + safe(memoryId) + ":v" + version;
     }
 }

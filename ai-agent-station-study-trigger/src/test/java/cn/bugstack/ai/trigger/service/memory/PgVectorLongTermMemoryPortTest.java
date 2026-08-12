@@ -16,6 +16,26 @@ import static org.mockito.Mockito.*;
 class PgVectorLongTermMemoryPortTest {
 
     @Test
+    void indexesPublishedCardWithLocatorMetadataOnly() {
+        VectorStore vectorStore = mock(VectorStore.class);
+        PgVectorLongTermMemoryPort port = new PgVectorLongTermMemoryPort(vectorStore);
+
+        port.index(new LongTermMemoryPort.PublishedMemoryDocument(
+                "inventory", "mem-1", 2, "RESOLVED_CASE", "库存不一致",
+                "下单后库存未扣减", "库存不一致 下单后库存未扣减", "case-1", "PUBLISHED"));
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(vectorStore).accept(captor.capture());
+        Document document = (Document) captor.getValue().get(0);
+        assertEquals("inventory:mem-1:v2", document.getId());
+        assertEquals("mem-1", document.getMetadata().get("memory_id"));
+        assertEquals(2, document.getMetadata().get("version"));
+        assertEquals("PUBLISHED", document.getMetadata().get("status"));
+        assertEquals(6, document.getMetadata().size());
+    }
+
+    @Test
     void storesMemoryFactAsAgentScopedVectorDocument() {
         VectorStore vectorStore = mock(VectorStore.class);
         PgVectorLongTermMemoryPort port = new PgVectorLongTermMemoryPort(vectorStore);
