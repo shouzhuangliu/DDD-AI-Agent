@@ -3,7 +3,6 @@ package cn.bugstack.ai.trigger.service.memory;
 import cn.bugstack.ai.domain.agent.model.valobj.AiAgentEnumVO;
 import cn.bugstack.ai.domain.agent.service.memory.RollingSummaryPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.TokenBudgetEstimator;
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.domain.agent.service.memory.FoldedToolReference;
 import cn.bugstack.ai.domain.agent.service.memory.ContextBudgetPolicy;
 import cn.bugstack.ai.domain.agent.service.memory.MemorySummaryLock;
@@ -33,8 +32,6 @@ public class ShortTermMemoryService {
     @Resource private IChatMessageDao messageDao;
     @Resource private IMemorySummaryDao summaryDao;
     @Resource private ApplicationContext applicationContext;
-    @Resource private LongTermMemoryPort longTermMemoryPort;
-    @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     @Resource private ShortTermMemoryPersistenceService persistenceService;
     @Resource private ContextBudgetPolicy contextBudgetPolicy;
     @Resource private MemorySummaryLock summaryLock;
@@ -85,11 +82,6 @@ public class ShortTermMemoryService {
                     agentId, sessionId, modelId, previous,
                     new ShortTermMemoryPersistenceService.RollingSummarySnapshot(plan, latestMessageId,
                             new TokenBudgetEstimator().estimate(summary)), result, summary);
-            if (saveResult.saved() && memoryQueryAdmissionPolicy.shouldStoreSummary(summary)) {
-                String reference = "session-summary:" + agentId + ":" + sessionId + ":v" + saveResult.version();
-                longTermMemoryPort.store(new LongTermMemoryPort.MemoryFact(agentId, agentId, "SESSION_SUMMARY", summary,
-                        sessionId, reference, "", saveResult.version()));
-            }
             return new SummaryRefreshResult(saveResult.saved()
                     ? SummaryRefreshResult.Status.SAVED : SummaryRefreshResult.Status.NOT_REQUIRED);
         } finally {

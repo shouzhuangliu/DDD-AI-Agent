@@ -23,10 +23,10 @@ class LongTermMemoryRecallServiceTest {
     private final IAgentMemoryProfileDao profileDao = mock(IAgentMemoryProfileDao.class);
     private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy = new MemoryQueryAdmissionPolicy();
     private final LongTermMemoryRecallService service = new LongTermMemoryRecallService(
-            longTermMemoryPort, memorySummaryDao, profileDao, memoryQueryAdmissionPolicy);
+            longTermMemoryPort, profileDao, memoryQueryAdmissionPolicy);
 
     @Test
-    void recallOnlyReturnsMemoriesForRequestedAgent() {
+    void recallOnlyReturnsPublishedLongTermMemoriesForRequestedAgent() {
         when(longTermMemoryPort.retrieve("cs", "cs", "DDR5 补货", 5)).thenReturn(List.of(
                 new LongTermMemoryPort.MemoryFact("cs", "cs", "AGENT_PROFILE",
                         "DDR5 内存缺货时需要沉淀补货反馈", "", "vector", "case-1", 2),
@@ -44,16 +44,16 @@ class LongTermMemoryRecallServiceTest {
 
         List<LongTermMemoryRecallService.MemoryRecallItem> recalls = service.recall("cs", "DDR5 补货", 5);
 
-        assertEquals(2, recalls.size());
+        assertEquals(1, recalls.size());
         assertTrue(recalls.stream().allMatch(item -> "cs".equals(item.agentId())));
         assertTrue(recalls.stream().anyMatch(item -> "case-1".equals(item.sourceId())));
-        assertTrue(recalls.stream().anyMatch(item -> "sess-1".equals(item.sourceId())));
+        assertTrue(recalls.stream().noneMatch(item -> "SESSION_SUMMARY".equals(item.sourceType())));
+        verifyNoInteractions(memorySummaryDao);
     }
 
     @Test
     void recallDoesNotReturnUnresolvedCandidateCaseFromProfile() {
         when(longTermMemoryPort.retrieve("cs", "cs", "缓存不一致", 5)).thenReturn(List.of());
-        when(memorySummaryDao.queryByAgent("cs", 5)).thenReturn(List.of());
         when(profileDao.queryLatest("cs")).thenReturn(AgentMemoryProfile.builder()
                 .agentId("cs")
                 .version(3)

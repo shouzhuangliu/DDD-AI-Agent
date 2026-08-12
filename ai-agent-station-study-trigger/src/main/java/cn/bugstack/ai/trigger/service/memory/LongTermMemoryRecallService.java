@@ -2,9 +2,7 @@ package cn.bugstack.ai.trigger.service.memory;
 
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryProfileDao;
-import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
-import cn.bugstack.ai.infrastructure.dao.po.MemorySummary;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
@@ -24,16 +22,13 @@ public class LongTermMemoryRecallService {
             "failure_patterns", "business_rules", "resolution_patterns", "capabilities", "preferences");
 
     private final LongTermMemoryPort longTermMemoryPort;
-    private final IMemorySummaryDao memorySummaryDao;
     private final IAgentMemoryProfileDao profileDao;
     private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
     public LongTermMemoryRecallService(LongTermMemoryPort longTermMemoryPort,
-                                       IMemorySummaryDao memorySummaryDao,
                                        IAgentMemoryProfileDao profileDao,
                                        MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy) {
         this.longTermMemoryPort = longTermMemoryPort;
-        this.memorySummaryDao = memorySummaryDao;
         this.profileDao = profileDao;
         this.memoryQueryAdmissionPolicy = memoryQueryAdmissionPolicy;
     }
@@ -62,26 +57,6 @@ public class LongTermMemoryRecallService {
                         null,
                         Map.of("subjectId", safe(memory.subjectId()), "consentReference", safe(memory.consentReference()))
                 ))
-                .forEach(item -> merged.putIfAbsent(key(item), item));
-
-        memorySummaryDao.queryByAgent(safeAgentId, safeLimit).stream()
-                .filter(summary -> safeAgentId.equals(safe(summary.getAgentId())))
-                .filter(summary -> !"SUPERSEDED".equalsIgnoreCase(safe(summary.getStatus())))
-                .filter(summary -> !safe(summary.getSummary()).isBlank())
-                .map(summary -> new MemoryRecallItem(
-                        safeAgentId,
-                        "SESSION_SUMMARY",
-                        safe(summary.getSessionId()),
-                        "短期折叠摘要",
-                        compact(summary.getSummary()),
-                        score(summary.getSummary(), safeQuery, 62d),
-                        safe(summary.getSessionId()),
-                        "",
-                        valueOr(summary.getVersion(), 0),
-                        summary.getCreatedAt(),
-                        Map.of("modelId", safe(summary.getModelId()), "tokenCount", valueOr(summary.getTokenCount(), 0))
-                ))
-                .filter(item -> item.score() > 0)
                 .forEach(item -> merged.putIfAbsent(key(item), item));
 
         profileEntries(profileDao.queryLatest(safeAgentId), safeQuery).forEach(item -> merged.putIfAbsent(key(item), item));
