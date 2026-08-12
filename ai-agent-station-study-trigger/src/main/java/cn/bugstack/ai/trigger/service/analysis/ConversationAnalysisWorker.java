@@ -7,6 +7,7 @@ import cn.bugstack.ai.infrastructure.dao.*;
 import cn.bugstack.ai.infrastructure.dao.po.*;
 import cn.bugstack.ai.trigger.service.memory.ShortTermMemoryService;
 import cn.bugstack.ai.trigger.service.memory.SummaryRefreshResult;
+import cn.bugstack.ai.trigger.service.memory.ConversationMemoryCandidateExtractor;
 import com.alibaba.fastjson2.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -81,6 +82,7 @@ public class ConversationAnalysisWorker {
     @Resource private ShortTermMemoryService shortTermMemoryService;
     @Resource private CaseEvidenceGate evidenceGate;
     @Resource private CaseSummaryComposer summaryComposer;
+    @Resource private ConversationMemoryCandidateExtractor memoryCandidateExtractor;
     @Resource(name = "mysqlJdbcTemplate") private JdbcTemplate jdbcTemplate;
 
     private final CaseScoringService scoringService = new CaseScoringService();
@@ -113,6 +115,7 @@ public class ConversationAnalysisWorker {
             }
 
             List<ChatMessage> messages = messageDao.queryBySessionId(job.getSessionId());
+            memoryCandidateExtractor.extractIfEligible(job.getAgentId(), job.getSessionId(), job.getModelId());
             int explicitNegativeFeedback = explicitNegativeFeedback(job);
             CaseEvaluationSnapshot latest = evaluationSnapshotDao.queryLatest(job.getAgentId(), job.getSessionId());
             CaseAnalysisCadencePolicy.Decision cadence = cadencePolicy.shouldEvaluate(
