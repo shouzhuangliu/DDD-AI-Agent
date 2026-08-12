@@ -2,6 +2,7 @@ package cn.bugstack.ai.trigger.service.memory;
 
 import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryIndexOutboxDao;
+import cn.bugstack.ai.infrastructure.dao.IAgentMemoryCardDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryIndexOutbox;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -19,13 +20,16 @@ import java.time.LocalDateTime;
 public class AgentMemoryIndexWorker {
 
     private final IAgentMemoryIndexOutboxDao outboxDao;
+    private final IAgentMemoryCardDao cardDao;
     private final LongTermMemoryPort indexPort;
     private final int maxAttempts;
 
     public AgentMemoryIndexWorker(IAgentMemoryIndexOutboxDao outboxDao,
+                                  IAgentMemoryCardDao cardDao,
                                   LongTermMemoryPort indexPort,
                                   @Value("${agent.memory.long-term.index.max-attempts:5}") int maxAttempts) {
         this.outboxDao = outboxDao;
+        this.cardDao = cardDao;
         this.indexPort = indexPort;
         this.maxAttempts = Math.max(1, maxAttempts);
     }
@@ -38,7 +42,12 @@ public class AgentMemoryIndexWorker {
             if ("DELETE".equalsIgnoreCase(event.getEventType())) {
                 indexPort.delete(event.getAgentId(), event.getMemoryId(), safeVersion(event));
             } else {
-                indexPort.index(toDocument(event));
+                // Outbox payload 不是权威状态；消费时再次回查 MySQL，防止旧 UPSERT 在退役后复活向量。
+                if (cardDao.queryPublishedVersion(event.getAgentId(), event.getMemoryId(), safeVersion(event)) == null) {
+                    indexPort.delete(event.getAgentId(), event.getMemoryId(), safeVersion(event));
+                } else {
+                    indexPort.index(toDocument(event));
+                }
             }
             outboxDao.markDone(event.getEventId());
         } catch (Exception exception) {

@@ -1,6 +1,6 @@
 package cn.bugstack.ai.trigger.service.memory;
 
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryCatalogPort;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryProfileDao;
 import cn.bugstack.ai.infrastructure.dao.IMemorySummaryDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
@@ -18,20 +18,20 @@ import static org.mockito.Mockito.when;
 
 class LongTermMemoryRecallServiceTest {
 
-    private final LongTermMemoryPort longTermMemoryPort = mock(LongTermMemoryPort.class);
+    private final AgentMemoryCatalogPort memoryCatalog = mock(AgentMemoryCatalogPort.class);
     private final IMemorySummaryDao memorySummaryDao = mock(IMemorySummaryDao.class);
     private final IAgentMemoryProfileDao profileDao = mock(IAgentMemoryProfileDao.class);
     private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy = new MemoryQueryAdmissionPolicy();
     private final LongTermMemoryRecallService service = new LongTermMemoryRecallService(
-            longTermMemoryPort, profileDao, memoryQueryAdmissionPolicy);
+            memoryCatalog, profileDao, memoryQueryAdmissionPolicy);
 
     @Test
     void recallOnlyReturnsPublishedLongTermMemoriesForRequestedAgent() {
-        when(longTermMemoryPort.retrieve("cs", "cs", "DDR5 补货", 5)).thenReturn(List.of(
-                new LongTermMemoryPort.MemoryFact("cs", "cs", "AGENT_PROFILE",
-                        "DDR5 内存缺货时需要沉淀补货反馈", "", "vector", "case-1", 2),
-                new LongTermMemoryPort.MemoryFact("ops", "ops", "AGENT_PROFILE",
-                        "运维 Agent 的缓存告警", "", "vector", "case-ops", 1)
+        when(memoryCatalog.search("cs", "DDR5 补货", 5)).thenReturn(List.of(
+                new AgentMemoryCatalogPort.MemoryIndexItem("cs", "mem-1", 2, "RESOLVED_CASE",
+                        "DDR5 内存缺货", "需要沉淀补货反馈", "case-1", 0.88),
+                new AgentMemoryCatalogPort.MemoryIndexItem("ops", "mem-ops", 1, "RESOLVED_CASE",
+                        "缓存告警", "运维 Agent 数据", "case-ops", 0.9)
         ));
         when(memorySummaryDao.queryByAgent("cs", 5)).thenReturn(List.of(
                 MemorySummary.builder().agentId("cs").sessionId("sess-1")
@@ -46,14 +46,14 @@ class LongTermMemoryRecallServiceTest {
 
         assertEquals(1, recalls.size());
         assertTrue(recalls.stream().allMatch(item -> "cs".equals(item.agentId())));
-        assertTrue(recalls.stream().anyMatch(item -> "case-1".equals(item.sourceId())));
+        assertTrue(recalls.stream().anyMatch(item -> "mem-1".equals(item.sourceId())));
         assertTrue(recalls.stream().noneMatch(item -> "SESSION_SUMMARY".equals(item.sourceType())));
         verifyNoInteractions(memorySummaryDao);
     }
 
     @Test
     void recallDoesNotReturnUnresolvedCandidateCaseFromProfile() {
-        when(longTermMemoryPort.retrieve("cs", "cs", "缓存不一致", 5)).thenReturn(List.of());
+        when(memoryCatalog.search("cs", "缓存不一致", 5)).thenReturn(List.of());
         when(profileDao.queryLatest("cs")).thenReturn(AgentMemoryProfile.builder()
                 .agentId("cs")
                 .version(3)
@@ -84,6 +84,6 @@ class LongTermMemoryRecallServiceTest {
         List<LongTermMemoryRecallService.MemoryRecallItem> recalls = service.recall("cs", "1", 5);
 
         assertTrue(recalls.isEmpty());
-        verifyNoInteractions(longTermMemoryPort, memorySummaryDao, profileDao);
+        verifyNoInteractions(memoryCatalog, memorySummaryDao, profileDao);
     }
 }

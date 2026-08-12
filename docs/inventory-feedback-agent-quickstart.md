@@ -82,3 +82,13 @@ skills/inventory-feedback-agent
 - HTTP API
 - 爬虫抓取结果
 - 消息队列消费结果
+# 库存 Agent 长期记忆验证
+
+1. 库存 Agent 通过已绑定的 Feedback MCP 获取当天反馈，并结合库存业务 Skill 形成 Feedback/候选 Case。
+2. 开发人员审核 Case；只有 Case 进入 `RESOLVED` 后，系统才生成 `RESOLVED_CASE` 长期记忆候选。
+3. 在长期记忆候选列表中填写审核人和理由，依次批准、发布。发布事务同时写入 MySQL 正式卡片与 Outbox。
+4. 索引 Worker 异步将卡片的标题、摘要和定位字段写入 pgvector；失败会重试，不阻塞聊天。
+5. 新会话询问历史库存问题时，Agent 先搜索轻量索引，确实需要时再按 `memoryId` 取正式正文。
+
+治理接口前缀：`/api/v1/agents/{agentId}/memory`。主要接口包括候选列表、批准、驳回、发布、退役、
+记忆搜索及正文读取。所有写接口都要求非空审核人和理由。

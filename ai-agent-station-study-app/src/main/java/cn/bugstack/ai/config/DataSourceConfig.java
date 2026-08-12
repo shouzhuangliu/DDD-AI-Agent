@@ -94,9 +94,8 @@ public class DataSourceConfig {
         dataSource.setIdleTimeout(idleTimeout);
         dataSource.setConnectionTimeout(connectionTimeout);
 
-        // 确保在启动时连接数据库
-        dataSource.setInitializationFailTimeout(1);  // 设置为1ms，如果连接失败则快速失败
-        dataSource.setConnectionTestQuery("SELECT 1"); // 简单的连接测试查询
+        // pgvector 是可降级的索引，不应因其暂时不可用阻断 MySQL 主链路和对话服务启动。
+        dataSource.setInitializationFailTimeout(-1);
         dataSource.setAutoCommit(true);
         dataSource.setPoolName("PgVectorHikariPool");
         return dataSource;

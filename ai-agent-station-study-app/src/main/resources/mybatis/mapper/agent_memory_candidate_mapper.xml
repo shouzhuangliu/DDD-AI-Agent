@@ -12,6 +12,7 @@
  </resultMap>
  <insert id="insertIgnore" parameterType="cn.bugstack.ai.infrastructure.dao.po.AgentMemoryCandidate" useGeneratedKeys="true" keyProperty="id">INSERT IGNORE INTO agent_memory_candidate (candidate_id,agent_id,memory_type,memory_key,title,summary,content_json,source_type,source_id,source_session_id,source_case_id,confidence,status,extraction_model_id,prompt_version,created_at,updated_at) VALUES (#{candidateId},#{agentId},#{memoryType},#{memoryKey},#{title},#{summary},#{contentJson},#{sourceType},#{sourceId},#{sourceSessionId},#{sourceCaseId},#{confidence},#{status},#{extractionModelId},#{promptVersion},#{createdAt},#{updatedAt})</insert>
  <select id="queryByCandidateId" resultMap="M">SELECT * FROM agent_memory_candidate WHERE agent_id=#{agentId} AND candidate_id=#{candidateId} LIMIT 1</select>
+ <select id="queryByUniqueSource" resultMap="M">SELECT * FROM agent_memory_candidate WHERE agent_id=#{agentId} AND memory_type=#{memoryType} AND memory_key=#{memoryKey} AND source_type=#{sourceType} AND source_id=#{sourceId} LIMIT 1</select>
  <select id="queryByStatus" resultMap="M">SELECT * FROM agent_memory_candidate WHERE agent_id=#{agentId} AND status=#{status} ORDER BY created_at DESC LIMIT #{limit}</select>
  <update id="transition">UPDATE agent_memory_candidate SET status=#{toStatus},reviewed_by=#{reviewedBy},review_comment=#{reviewComment},reviewed_at=#{reviewedAt} WHERE agent_id=#{agentId} AND candidate_id=#{candidateId} AND status=#{fromStatus}</update>
 </mapper>

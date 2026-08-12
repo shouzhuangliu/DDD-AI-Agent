@@ -51,7 +51,7 @@ java -jar ai-agent-station-study-app/target/ai-agent-station-study-app.jar --spr
 
 - Feedback 只接受用户对具体 assistant message 的显式点赞、点踩或评论；模型推断单独进入 AI Signal。
 - Case 按 Agent 隔离，模型输出经过严格 JSON 校验、证据留存、加权评分和人工状态审核。
-- 短期记忆由滚动摘要、最近原文、结构化状态、压缩工具结果组成；长期记忆目前只保留扩展接口。
+- 短期记忆由滚动摘要、最近原文、结构化状态和分级工具结果折叠组成；长期记忆只接收带原文证据的候选，经人工审核发布后按 Agent 隔离检索，已解决 Case 会物化为版本化业务画像。
 - MCP 流程：注册 → 连通性 → 工具发现 → 安全扫描 → 沙箱测试 → 双人审核 → 发布 → Agent 绑定。
 - Skill 流程：ZIP 隔离上传 → 安全解压/校验 → 扫描 → 沙箱测试 → 双人审核 → 签名 → 发布 → Agent 绑定。
 
@@ -66,7 +66,7 @@ java -jar ai-agent-station-study-app/target/ai-agent-station-study-app.jar --spr
 领域规则、安全边界与迁移契约测试：
 
 ```powershell
-mvn -pl ai-agent-station-study-app -am -DskipTests=false "-Dtest=CaseScoringServiceTest,WorkflowTransitionPolicyTest,ExplicitFeedbackRequestTest,AnalysisResultParserTest,EnterpriseSchemaContractTest,RollingSummaryPolicyTest,CapabilityApprovalPolicyTest,SafeSkillArchiveValidatorTest" -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -pl ai-agent-station-study-app -am -DskipTests=false "-Dtest=CaseScoringServiceTest,WorkflowTransitionPolicyTest,ExplicitFeedbackRequestTest,AnalysisResultParserTest,EnterpriseSchemaContractTest,RollingSummaryPolicyTest,CapabilityApprovalPolicyTest,SafeSkillArchiveValidatorTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
 ```
 
 仓库中的部分历史测试会直接调用外部模型或依赖预先装配的动态 Bean，不属于离线单元测试，运行全量测试前需准备对应外部环境。

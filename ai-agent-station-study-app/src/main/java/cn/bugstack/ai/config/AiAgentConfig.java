@@ -16,7 +16,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
 
 @Configuration
 public class AiAgentConfig {
@@ -45,7 +44,6 @@ public class AiAgentConfig {
                                        @Value("${spring.ai.openai.embedding.options.model}") String modelName, // 👈 1. 读取 yml 中的模型名称
                                        @Qualifier("pgVectorDataSource") DataSource pgVectorDataSource) {
 
-        verifyPostgreSql(pgVectorDataSource);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(pgVectorDataSource);
 
         OpenAiApi openAiApi = OpenAiApi.builder()
@@ -62,19 +60,6 @@ public class AiAgentConfig {
                 .vectorTableName("vector_store")
                 .dimensions(1024) // 🚨 极度重要警告！请看下文解释
                 .build();
-    }
-
-    private void verifyPostgreSql(DataSource dataSource) {
-        try (Connection connection = dataSource.getConnection()) {
-            String product = connection.getMetaData().getDatabaseProductName();
-            if (!"PostgreSQL".equalsIgnoreCase(product)) {
-                throw new IllegalStateException("vectorStore requires PostgreSQL, but connected database is " + product);
-            }
-        } catch (IllegalStateException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to verify pgvector database connection", exception);
-        }
     }
 
     @Bean

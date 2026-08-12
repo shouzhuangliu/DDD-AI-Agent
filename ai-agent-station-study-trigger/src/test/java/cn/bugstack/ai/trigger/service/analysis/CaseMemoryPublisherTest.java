@@ -25,6 +25,13 @@ class CaseMemoryPublisherTest {
         verifyNoInteractions(candidateService);
     }
 
+    @Test
+    void reopenedCaseRetiresPublishedMemory() {
+        AiCase item = caseItem();
+        publisher.publish(item, "IN_PROGRESS", "修复结果需要复查");
+        verify(candidateService).retireResolvedCaseMemories("refund_agent", "case-refund", "修复结果需要复查");
+    }
+
     private AiCase caseItem() {
         return AiCase.builder().agentId("refund_agent").caseId("case-refund")
                 .title("退款审批规则缺失").summary("客服 Agent 缺少退款审批规则")

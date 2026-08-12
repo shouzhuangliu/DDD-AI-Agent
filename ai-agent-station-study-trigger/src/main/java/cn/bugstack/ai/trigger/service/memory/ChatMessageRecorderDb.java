@@ -5,7 +5,6 @@ import cn.bugstack.ai.domain.agent.service.memory.HistoryMessage;
 import cn.bugstack.ai.domain.agent.service.memory.ToolCallExchange;
 import cn.bugstack.ai.domain.agent.service.memory.MemoryFoldingPipeline;
 import cn.bugstack.ai.domain.agent.service.memory.SummaryCoveragePolicy;
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
 import cn.bugstack.ai.infrastructure.dao.IAiCaseDao;
 import cn.bugstack.ai.infrastructure.dao.IAiFeedbackDao;
 import cn.bugstack.ai.infrastructure.dao.IAiLlmLogDao;
@@ -46,8 +45,6 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
     @Resource private IMemoryStateDao memoryStateDao;
     @Resource private IMemoryToolResultDao memoryToolResultDao;
     @Resource private IAiSessionDao sessionDao;
-    @Resource private LongTermMemoryPort longTermMemoryPort;
-    @Resource private MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
     @Resource private FeedbackAdmissionPolicy feedbackAdmissionPolicy;
     @Resource private McpFeedbackIngestionService mcpFeedbackIngestionService;
     @Resource private AgentBusinessContextService agentBusinessContextService;
@@ -119,13 +116,7 @@ public class ChatMessageRecorderDb implements ChatMessageRecorder {
                     + ", constraints=" + state.getConstraintsJson() + ", pending=" + state.getPendingJson();
             r.add(HistoryMessage.builder().role("assistant").content("[滚动会话摘要]\n" + summary.getSummary() + stateText).build());
         }
-        String agentId = all.isEmpty() ? "" : all.get(0).getAgentId();
-        String latestUserInput = all.stream().filter(message -> "user".equals(message.getRole()))
-                .reduce((ignored, latest) -> latest).map(ChatMessage::getContent).orElse("");
-        if (memoryQueryAdmissionPolicy.shouldRecall(latestUserInput)) {
-            longTermMemoryPort.retrieve(agentId, agentId, latestUserInput, 3).forEach(memory ->
-                    r.add(HistoryMessage.builder().role("assistant").content("[跨会话长期记忆] " + memory.content()).build()));
-        }
+        // 长期记忆禁止在历史加载阶段自动注入；由 search_agent_memory -> get_agent_memory 渐进式召回。
         for (ChatMessage m : all) {
             if (!coverage.covers(m.getId())
                     && ("user".equals(m.getRole()) || "assistant".equals(m.getRole()) || "tool".equals(m.getRole()))) {

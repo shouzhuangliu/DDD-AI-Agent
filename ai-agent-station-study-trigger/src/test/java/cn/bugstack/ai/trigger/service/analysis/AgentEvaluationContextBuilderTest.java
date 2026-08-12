@@ -1,6 +1,6 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryCatalogPort;
 import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
@@ -22,20 +22,21 @@ class AgentEvaluationContextBuilderTest {
 
     @Test
     void buildsEvaluationContextWithAgentScopedLongTermMemoryRecall() {
-        LongTermMemoryPort memoryPort = new LongTermMemoryPort() {
+        AgentMemoryCatalogPort memoryPort = new AgentMemoryCatalogPort() {
             @Override
-            public void store(MemoryFact fact) {
+            public List<MemoryIndexItem> search(String agentId, String query, int limit) {
+                assertEquals("refund_agent", agentId);
+                assertTrue(query.contains("退款审核"));
+                assertEquals(5, limit);
+                return List.of(new MemoryIndexItem(agentId, "mem-1", 1, "PUBLISHED_CASE",
+                        "退款审核规则", "历史解决经验", "case-old", 0.9));
             }
 
             @Override
-            public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) {
-                assertEquals("refund_agent", agentId);
-                assertEquals("refund_agent", subjectId);
-                assertTrue(query.contains("退款审核"));
-                assertEquals(5, limit);
-                return List.of(new MemoryFact(agentId, subjectId, "PUBLISHED_CASE",
-                        "历史 Case：退款审核规则缺失会导致售后 Agent 给出不完整答案。",
-                        "sess-old", "pgvector-bge-m3"));
+            public List<MemoryContent> getPublished(String agentId, List<String> memoryIds) {
+                return List.of(new MemoryContent(agentId, "mem-1", 1, "PUBLISHED_CASE",
+                        "退款审核规则", "历史解决经验",
+                        "历史 Case：退款审核规则缺失会导致售后 Agent 给出不完整答案。", "case-old"));
             }
         };
         AgentEvaluationContextBuilder builder = new AgentEvaluationContextBuilder(
@@ -57,16 +58,13 @@ class AgentEvaluationContextBuilderTest {
     @Test
     void skipsLongTermRecallForTrivialLatestUserInput() {
         AtomicBoolean recalled = new AtomicBoolean(false);
-        LongTermMemoryPort memoryPort = new LongTermMemoryPort() {
+        AgentMemoryCatalogPort memoryPort = new AgentMemoryCatalogPort() {
             @Override
-            public void store(MemoryFact fact) {
-            }
-
-            @Override
-            public List<MemoryFact> retrieve(String agentId, String subjectId, String query, int limit) {
+            public List<MemoryIndexItem> search(String agentId, String query, int limit) {
                 recalled.set(true);
                 return List.of();
             }
+            @Override public List<MemoryContent> getPublished(String agentId, List<String> memoryIds) { return List.of(); }
         };
         AgentEvaluationContextBuilder builder = new AgentEvaluationContextBuilder(
                 memoryPort, new MemoryQueryAdmissionPolicy());
@@ -82,7 +80,7 @@ class AgentEvaluationContextBuilderTest {
 
     @Test
     void includesOnlySkillsBoundToTheCurrentAgentInEvaluationContext() {
-        LongTermMemoryPort memoryPort = mock(LongTermMemoryPort.class);
+        AgentMemoryCatalogPort memoryPort = mock(AgentMemoryCatalogPort.class);
         AgentRuntimeBindingService bindingService = mock(AgentRuntimeBindingService.class);
         SkillScannerService scanner = mock(SkillScannerService.class);
         var bindings = AgentRuntimeBindingService.AgentRuntimeBindings.builder()

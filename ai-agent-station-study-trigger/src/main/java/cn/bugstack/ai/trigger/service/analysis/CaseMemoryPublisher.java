@@ -20,5 +20,8 @@ public class CaseMemoryPublisher {
         if (item == null || toStatus == null) return;
         String normalizedStatus = toStatus.trim().toUpperCase();
         if ("RESOLVED".equals(normalizedStatus)) candidateService.submitResolvedCaseCandidate(item, reason);
+        if ("IN_PROGRESS".equals(normalizedStatus)) {
+            candidateService.retireResolvedCaseMemories(item.getAgentId(), item.getCaseId(), reason);
+        }
     }
 }

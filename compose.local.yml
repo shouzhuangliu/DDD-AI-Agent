@@ -33,6 +33,7 @@ services:
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260805__business_signal_visibility.sql:/docker-entrypoint-initdb.d/14-business-signal-visibility.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260806__business_boundary.sql:/docker-entrypoint-initdb.d/15-business-boundary.sql:ro
       - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260807__restore_cases_archived_for_optional_mcp.sql:/docker-entrypoint-initdb.d/16-restore-optional-mcp-cases.sql:ro
+      - ./ai-agent-station-study-app/src/main/resources/sql/mysql/migrations/V20260812__agent_long_term_memory_governance.sql:/docker-entrypoint-initdb.d/17-agent-long-term-memory-governance.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s

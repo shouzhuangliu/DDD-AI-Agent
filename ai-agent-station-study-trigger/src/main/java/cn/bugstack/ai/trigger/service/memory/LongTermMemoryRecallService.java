@@ -1,6 +1,6 @@
 package cn.bugstack.ai.trigger.service.memory;
 
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryCatalogPort;
 import cn.bugstack.ai.infrastructure.dao.IAgentMemoryProfileDao;
 import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryProfile;
 import com.alibaba.fastjson2.JSON;
@@ -21,14 +21,14 @@ public class LongTermMemoryRecallService {
     private static final List<String> PROFILE_SECTIONS = List.of(
             "failure_patterns", "business_rules", "resolution_patterns", "capabilities", "preferences");
 
-    private final LongTermMemoryPort longTermMemoryPort;
+    private final AgentMemoryCatalogPort memoryCatalog;
     private final IAgentMemoryProfileDao profileDao;
     private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
-    public LongTermMemoryRecallService(LongTermMemoryPort longTermMemoryPort,
+    public LongTermMemoryRecallService(AgentMemoryCatalogPort memoryCatalog,
                                        IAgentMemoryProfileDao profileDao,
                                        MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy) {
-        this.longTermMemoryPort = longTermMemoryPort;
+        this.memoryCatalog = memoryCatalog;
         this.profileDao = profileDao;
         this.memoryQueryAdmissionPolicy = memoryQueryAdmissionPolicy;
     }
@@ -41,21 +41,20 @@ public class LongTermMemoryRecallService {
         if (!memoryQueryAdmissionPolicy.shouldRecall(safeQuery)) return List.of();
 
         Map<String, MemoryRecallItem> merged = new LinkedHashMap<>();
-        longTermMemoryPort.retrieve(safeAgentId, safeAgentId, safeQuery, safeLimit).stream()
+        memoryCatalog.search(safeAgentId, safeQuery, safeLimit).stream()
                 .filter(memory -> safeAgentId.equals(safe(memory.agentId())))
-                .filter(memory -> !safe(memory.content()).isBlank())
                 .map(memory -> new MemoryRecallItem(
                         safeAgentId,
-                        "LONG_TERM_VECTOR",
-                        firstNonBlank(memory.sourceCaseId(), memory.sourceSessionId(), memory.consentReference()),
-                        safe(memory.kind()),
-                        compact(memory.content()),
-                        score(memory.content(), safeQuery, 88d),
-                        memory.sourceSessionId(),
+                        "PUBLISHED_MEMORY_CARD",
+                        memory.memoryId(),
+                        safe(memory.memoryType()),
+                        compact(firstNonBlank(memory.title(), memory.description())),
+                        Math.max(0D, memory.score()),
+                        "",
                         memory.sourceCaseId(),
-                        memory.profileVersion(),
+                        memory.version(),
                         null,
-                        Map.of("subjectId", safe(memory.subjectId()), "consentReference", safe(memory.consentReference()))
+                        Map.of("memoryId", memory.memoryId())
                 ))
                 .forEach(item -> merged.putIfAbsent(key(item), item));
 

@@ -9,6 +9,11 @@ import java.util.List;
 public interface IAgentMemoryCandidateDao {
     int insertIgnore(AgentMemoryCandidate candidate);
     AgentMemoryCandidate queryByCandidateId(@Param("agentId") String agentId, @Param("candidateId") String candidateId);
+    AgentMemoryCandidate queryByUniqueSource(@Param("agentId") String agentId,
+                                             @Param("memoryType") String memoryType,
+                                             @Param("memoryKey") String memoryKey,
+                                             @Param("sourceType") String sourceType,
+                                             @Param("sourceId") String sourceId);
     List<AgentMemoryCandidate> queryByStatus(@Param("agentId") String agentId, @Param("status") String status, @Param("limit") int limit);
     int transition(@Param("agentId") String agentId, @Param("candidateId") String candidateId,
                    @Param("fromStatus") String fromStatus, @Param("toStatus") String toStatus,

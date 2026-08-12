@@ -1,6 +1,6 @@
 package cn.bugstack.ai.trigger.service.analysis;
 
-import cn.bugstack.ai.domain.agent.service.memory.LongTermMemoryPort;
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryCatalogPort;
 import cn.bugstack.ai.domain.agent.service.runtime.AgentRuntimeBindingService;
 import cn.bugstack.ai.domain.agent.service.skills.SkillScannerService;
 import cn.bugstack.ai.infrastructure.dao.po.ChatMessage;
@@ -22,7 +22,7 @@ public class AgentEvaluationContextBuilder {
     private static final int RECENT_MESSAGE_LIMIT = 30;
     private static final int LONG_TERM_MEMORY_LIMIT = 5;
 
-    private final LongTermMemoryPort longTermMemoryPort;
+    private final AgentMemoryCatalogPort memoryCatalog;
     private final MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy;
 
     @Resource
@@ -31,9 +31,9 @@ public class AgentEvaluationContextBuilder {
     @Resource
     private SkillScannerService skillScannerService;
 
-    public AgentEvaluationContextBuilder(LongTermMemoryPort longTermMemoryPort,
+    public AgentEvaluationContextBuilder(AgentMemoryCatalogPort memoryCatalog,
                                          MemoryQueryAdmissionPolicy memoryQueryAdmissionPolicy) {
-        this.longTermMemoryPort = longTermMemoryPort;
+        this.memoryCatalog = memoryCatalog;
         this.memoryQueryAdmissionPolicy = memoryQueryAdmissionPolicy;
     }
 
@@ -48,14 +48,18 @@ public class AgentEvaluationContextBuilder {
 
         StringBuilder evidence = new StringBuilder("agentId=").append(safeAgentId).append('\n');
         appendBoundBusinessSkills(evidence, safeAgentId);
-        List<LongTermMemoryPort.MemoryFact> memories = memoryQueryAdmissionPolicy.shouldRecall(latestUserInput)
-                ? longTermMemoryPort.retrieve(safeAgentId, safeAgentId, latestUserInput, LONG_TERM_MEMORY_LIMIT)
+        List<AgentMemoryCatalogPort.MemoryIndexItem> memoryIndexes = memoryQueryAdmissionPolicy.shouldRecall(latestUserInput)
+                ? memoryCatalog.search(safeAgentId, latestUserInput, LONG_TERM_MEMORY_LIMIT)
                 : List.of();
+        List<AgentMemoryCatalogPort.MemoryContent> memories = memoryIndexes.isEmpty() ? List.of()
+                : memoryCatalog.getPublished(safeAgentId, memoryIndexes.stream()
+                .map(AgentMemoryCatalogPort.MemoryIndexItem::memoryId).toList());
         if (!memories.isEmpty()) {
             evidence.append("\n[长期记忆召回]\n");
-            memories.forEach(memory -> evidence.append("- kind=").append(blank(memory.kind()))
-                    .append(", sourceSession=").append(blank(memory.sourceSessionId()))
-                    .append(", content=").append(blank(memory.content())).append('\n'));
+            memories.forEach(memory -> evidence.append("- kind=").append(blank(memory.memoryType()))
+                    .append(", memoryId=").append(blank(memory.memoryId()))
+                    .append(", sourceCase=").append(blank(memory.sourceCaseId()))
+                    .append(", content=").append(blank(memory.contentJson())).append('\n'));
         }
 
         evidence.append("\n[当前会话证据]\n");
