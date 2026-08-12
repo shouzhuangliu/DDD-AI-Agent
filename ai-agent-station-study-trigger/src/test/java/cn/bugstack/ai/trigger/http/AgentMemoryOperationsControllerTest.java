@@ -1,7 +1,9 @@
 package cn.bugstack.ai.trigger.http;
 
 import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryCatalogPort;
-import cn.bugstack.ai.trigger.service.memory.AgentMemoryCandidateService;
+import cn.bugstack.ai.domain.agent.service.memory.AgentMemoryLifecyclePort;
+import cn.bugstack.ai.infrastructure.dao.IAgentMemoryChangeLogDao;
+import cn.bugstack.ai.infrastructure.dao.po.AgentMemoryChangeLog;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -9,50 +11,57 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AgentMemoryOperationsControllerTest {
 
     @Test
-    void approvesCandidateWithReviewerAndReason() throws Exception {
-        AgentMemoryCandidateService candidates = mock(AgentMemoryCandidateService.class);
-        AgentMemoryCatalogPort catalog = mock(AgentMemoryCatalogPort.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AgentMemoryOperationsController(candidates, catalog)).build();
+    void retireEndpointUsesAutomaticLifecycleAndReturnsSoftDeletedStatus() throws Exception {
+        AgentMemoryLifecyclePort lifecycle = mock(AgentMemoryLifecyclePort.class);
+        when(lifecycle.retire(any())).thenReturn(new AgentMemoryLifecyclePort.Result("mem-1", 2, "RETIRE"));
+        MockMvc mvc = mvc(lifecycle, mock(AgentMemoryCatalogPort.class), mock(IAgentMemoryChangeLogDao.class));
 
-        mvc.perform(post("/api/v1/agents/inventory/memory/candidates/candidate-1/approve")
+        mvc.perform(post("/api/v1/agents/inventory/memory/memories/mem-1/retire")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"actor\":\"developer\",\"reason\":\"规则已确认\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"));
-        verify(candidates).approve("inventory", "candidate-1", "developer", "规则已确认");
+                        .content("{\"sourceType\":\"MESSAGE\",\"sourceId\":\"18\",\"evidenceQuote\":\"new threshold\",\"reason\":\"superseded\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RETIRED"));
+        verify(lifecycle).retire(any());
     }
 
     @Test
     void searchReturnsOnlyLightweightIndex() throws Exception {
-        AgentMemoryCandidateService candidates = mock(AgentMemoryCandidateService.class);
         AgentMemoryCatalogPort catalog = mock(AgentMemoryCatalogPort.class);
-        when(catalog.search("inventory", "库存不一致", 5)).thenReturn(List.of(
+        when(catalog.search(eq("inventory"), eq("库存"), eq(5))).thenReturn(List.of(
                 new AgentMemoryCatalogPort.MemoryIndexItem("inventory", "mem-1", 1,
-                        "RESOLVED_CASE", "库存不一致", "下单后库存未扣减", "case-1", 0.9)));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AgentMemoryOperationsController(candidates, catalog)).build();
+                        "BUSINESS_RULE", "库存规则", "库存差异处理", "case-1", 0.9)));
+        MockMvc mvc = mvc(mock(AgentMemoryLifecyclePort.class), catalog, mock(IAgentMemoryChangeLogDao.class));
 
-        mvc.perform(get("/api/v1/agents/inventory/memory/memories/search").param("query", "库存不一致"))
+        mvc.perform(get("/api/v1/agents/inventory/memory/memories/search").param("query", "库存"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].memoryId").value("mem-1"))
                 .andExpect(jsonPath("$[0].contentJson").doesNotExist());
     }
 
     @Test
-    void rejectsWriteWithoutAuditReason() {
-        AgentMemoryCandidateService candidates = mock(AgentMemoryCandidateService.class);
-        AgentMemoryCatalogPort catalog = mock(AgentMemoryCatalogPort.class);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AgentMemoryOperationsController(candidates, catalog)).build();
+    void auditEndpointReadsChangeLogForCurrentAgentMemory() throws Exception {
+        IAgentMemoryChangeLogDao audit = mock(IAgentMemoryChangeLogDao.class);
+        when(audit.queryByMemoryId("inventory", "mem-1", 20)).thenReturn(List.of(
+                AgentMemoryChangeLog.builder().memoryId("mem-1").operation("UPDATE").build()));
+        MockMvc mvc = mvc(mock(AgentMemoryLifecyclePort.class), mock(AgentMemoryCatalogPort.class), audit);
 
-        assertThrows(Exception.class, () -> mvc.perform(
-                post("/api/v1/agents/inventory/memory/candidates/candidate-1/reject")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"actor\":\"developer\"}")));
-        verifyNoInteractions(candidates);
+        mvc.perform(get("/api/v1/agents/inventory/memory/memories/mem-1/audit"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].operation").value("UPDATE"));
+    }
+
+    private MockMvc mvc(AgentMemoryLifecyclePort lifecycle, AgentMemoryCatalogPort catalog, IAgentMemoryChangeLogDao audit) {
+        return MockMvcBuilders.standaloneSetup(new AgentMemoryOperationsController(lifecycle, catalog, audit)).build();
     }
 }
