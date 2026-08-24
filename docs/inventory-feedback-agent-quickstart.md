@@ -82,7 +82,8 @@ skills/inventory-feedback-agent
 - HTTP API
 - 爬虫抓取结果
 - 消息队列消费结果
-# 库存 Agent 长期记忆验证
+
+## 8. 长期记忆验证与召回
 
 1. 库存 Agent 通过已绑定的 Feedback MCP 获取当天反馈，并结合库存业务 Skill 形成 Feedback/候选 Case。
 2. 开发人员审核 Case；只有 Case 进入 `RESOLVED` 后，系统才生成 `RESOLVED_CASE` 长期记忆候选。
