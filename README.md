@@ -258,6 +258,13 @@ mvn -DskipTests package
 
 部分历史测试会依赖外部模型或预先装配的动态 Bean；运行全量测试前，请先准备对应模型密钥和本地依赖。
 
+## 密钥安全
+
+- 所有模型和外部 MCP 凭据都通过环境变量或密钥服务注入，禁止把真实 Key 写入 Java、YAML、JSON 或测试代码；
+- 百度搜索 MCP 测试使用 **BAIDU_APPBUILDER_API_KEY** 环境变量，未配置时会明确提示缺少变量；
+- 如果凭据曾经进入公开仓库，应立即在对应平台禁用并重新生成，再清理代码和提交历史；
+- 仓库中的 MySQL、PostgreSQL 示例密码仅用于本地开发，不能作为生产凭据。
+
 ## 文档索引
 
 - [架构总览](docs/architecture-overview.md)

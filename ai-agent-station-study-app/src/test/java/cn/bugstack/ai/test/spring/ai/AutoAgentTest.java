@@ -994,7 +994,7 @@ public class AutoAgentTest {
      */
     public McpSyncClient sseMcpClient() {
         HttpClientSseClientTransport sseClientTransport = HttpClientSseClientTransport.builder("http://appbuilder.baidu.com/v2/ai_search/mcp/")
-                .sseEndpoint("sse?api_key=REDACTED_BCE_API_KEY")
+                .sseEndpoint("sse?api_key=" + requiredEnv("BAIDU_APPBUILDER_API_KEY"))
                 .build();
 
         McpSyncClient mcpSyncClient = McpClient.sync(sseClientTransport).requestTimeout(Duration.ofMinutes(360)).build();
@@ -1002,6 +1002,14 @@ public class AutoAgentTest {
         log.info("Tool SSE MCP Initialized {}", init_sse);
 
         return mcpSyncClient;
+    }
+
+    private static String requiredEnv(String name) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Missing required environment variable: " + name);
+        }
+        return value;
     }
 
 }
