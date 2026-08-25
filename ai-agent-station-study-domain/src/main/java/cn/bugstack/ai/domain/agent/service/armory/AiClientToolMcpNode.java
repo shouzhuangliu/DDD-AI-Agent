@@ -98,7 +98,8 @@ public class AiClientToolMcpNode extends AbstractArmorySupport {
             case "sse" ->{
                 AiClientToolMcpVO.TransportConfigSse transportConfigSse
                         = aiClientToolMcpVO.getTransportConfigSse();
-                // http://127.0.0.1:9999/sse?apikey=REDACTED_MCP_API_KEY
+                // 示例：不要把真实凭据写入 URL；请通过受保护的 MCP 凭据配置注入 API Key。
+                // http://127.0.0.1:9999/sse?apikey=<MCP_API_KEY>
                 String originalBaseUri = transportConfigSse.getBaseUri();
                 String baseUri;
                 String sseEndpoint;
